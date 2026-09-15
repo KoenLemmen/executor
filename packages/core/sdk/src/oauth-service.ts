@@ -556,6 +556,23 @@ interface LoadedOAuthClient {
   readonly tokenRequestFormat?: "form" | "json";
 }
 
+/** Provider lifecycle scopes that are required to keep an authorization-code
+ *  connection renewable but are omitted from the protected resource's API
+ *  scope list. Vercel's MCP resource advertises only `openid`, while its
+ *  authorization server issues a refresh token only when `offline_access` is
+ *  requested. Keep the exception bound to Vercel's exact official authorize
+ *  endpoint so an unrelated OAuth server never receives a broader request. */
+const additionalAuthorizationLifecycleScopes = (client: {
+  readonly authorizationUrl: string;
+}): readonly string[] => {
+  if (!URL.canParse(client.authorizationUrl)) return [];
+  const authorization = new URL(client.authorizationUrl);
+  return authorization.origin === "https://vercel.com" &&
+    authorization.pathname === "/oauth/authorize"
+    ? ["offline_access"]
+    : [];
+};
+
 /** Where an OAuth app's client secret is stored in the default writable
  *  provider — derived solely from the app's (owner, slug) identity. */
 const clientSecretItemId = (owner: Owner, slug: OAuthClientSlug): string =>
@@ -1416,6 +1433,10 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
         });
       }
       const authMethod = pickDcrAuthMethod(input.tokenEndpointAuthMethodsSupported);
+      const registrationScopes = dedupeScopes([
+        ...input.scopes,
+        ...additionalAuthorizationLifecycleScopes(input),
+      ]);
       const information = yield* registerDynamicClientDcr(
         {
           registrationEndpoint: input.registrationEndpoint,
@@ -1426,7 +1447,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
             response_types: ["code"],
             token_endpoint_auth_method: authMethod,
             application_type: isLoopbackHttpUrl(flowRedirectUri) ? "native" : "web",
-            scope: input.scopes.length > 0 ? input.scopes.join(" ") : undefined,
+            scope: registrationScopes.length > 0 ? registrationScopes.join(" ") : undefined,
           },
         },
         { httpClientLayer, endpointUrlPolicy: deps.endpointUrlPolicy },
@@ -1988,6 +2009,7 @@ export const makeOAuthService = (deps: OAuthServiceDeps): OAuthService => {
       const completeAuthorizationScopes = dedupeScopes([
         ...authorizationRequestedScopes,
         ...(firstParty?.additionalAuthorizationScopes ?? []),
+        ...additionalAuthorizationLifecycleScopes(client),
       ]);
 
       // authorization_code: persist a session + build the authorize URL.
