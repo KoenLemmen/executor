@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ToolAnnotationsView } from "@executor-js/sdk";
 
 /** Parse the public search result, including schemas and account identity. */
 export const decodeToolSearch = Schema.decodeUnknownSync(
@@ -12,9 +13,7 @@ export const decodeToolSearch = Schema.decodeUnknownSync(
           owner: Schema.String,
           connection: Schema.String,
           inputSchema: Schema.Record(Schema.String, Schema.Unknown),
-          annotations: Schema.optional(
-            Schema.Struct({ requiresApproval: Schema.optional(Schema.Boolean) }),
-          ),
+          annotations: Schema.optional(ToolAnnotationsView),
         }),
       ),
       total: Schema.Number,
