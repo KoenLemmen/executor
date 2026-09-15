@@ -10,8 +10,7 @@
 // HTTP surface (see api.request-scope.node.test.ts).
 // ---------------------------------------------------------------------------
 
-import { afterAll, describe, expect, it } from "@effect/vitest";
-import { vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "@effect/vitest";
 import { waitUntil } from "cloudflare:workers";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
