@@ -124,6 +124,7 @@ export const createServerHandlers = async (token: string): Promise<ServerHandler
         artifacts: executor.artifacts,
         connections: executor.connections,
         tools: executor.tools,
+        integrations: executor.integrations,
         ...appsConfig,
       },
       webBaseUrl: process.env.EXECUTOR_WEB_BASE_URL || undefined,
@@ -135,6 +136,7 @@ export const createServerHandlers = async (token: string): Promise<ServerHandler
               artifacts: executor.artifacts,
               connections: executor.connections,
               tools: executor.tools,
+              integrations: executor.integrations,
               ...appsConfig,
             },
           };
@@ -161,6 +163,7 @@ export const createServerHandlers = async (token: string): Promise<ServerHandler
             artifacts: handle.executor.artifacts,
             connections: handle.executor.connections,
             tools: handle.executor.tools,
+            integrations: handle.executor.integrations,
             ...appsConfig,
           },
           close: handle.dispose,

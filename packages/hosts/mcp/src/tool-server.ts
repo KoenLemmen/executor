@@ -24,6 +24,8 @@ import * as z from "zod/v4";
 import {
   CurrentOrgWriteAccess,
   ToolAddress,
+  IntegrationSlug,
+  ConnectionName,
   parseToolAddress,
   isToolFile,
   isToolResult,
@@ -33,6 +35,8 @@ import {
 } from "@executor-js/sdk";
 import type {
   Artifact,
+  Connection,
+  Integration,
   ArtifactBinding,
   ArtifactSummary,
   ElicitationResponse,
@@ -82,7 +86,11 @@ import {
   type BindableConnection,
 } from "./artifact-bindings";
 import { MCP_ORG_WRITE_ACCESS_HEADER } from "./seams";
-import { passthroughCallCode, passthroughInstructions } from "./passthrough-tools";
+import {
+  passthroughCallCode,
+  passthroughInstructions,
+  SEARCH_INVOKE_SKILL,
+} from "./passthrough-tools";
 import type { McpToolMode } from "./browser-approval";
 
 // ---------------------------------------------------------------------------
@@ -234,14 +242,16 @@ type SharedMcpServerConfig = {
    */
   readonly artifacts?: McpArtifactsPort;
   /**
-   * The caller's saved connections, for binding an artifact's integration roles
-   * at create time. Structurally satisfied by `executor.connections`; hosts pass
+   * The caller's saved connections, for the search/invoke account inventory
+   * and binding artifact integration roles at create time. Structurally satisfied by `executor.connections`; hosts pass
    * the same scoped executor they pass `artifacts`.
    *
    * Absent means `create-artifact` cannot bind, so it refuses code that calls an
    * integration rather than saving an artifact that could never run.
    */
   readonly connections?: McpConnectionsPort;
+  /** Scoped integration metadata for the search/invoke account inventory. */
+  readonly integrations?: McpIntegrationsPort;
   /**
    * Builds the web-app deep link for a saved artifact. Clients that can't
    * render MCP Apps get this URL instead of an inline widget. Absent (stdio has
@@ -291,12 +301,24 @@ export type McpArtifactsPort = {
 };
 
 /**
- * The connection surface binding needs: list what this caller can reach. The
+ * The connection surface binding and discovery need: list what this caller can reach. The
  * scoped executor has already narrowed it, so an inferred binding can never
  * name a connection the caller couldn't call themselves.
  */
 export type McpConnectionsPort = {
-  readonly list: () => Effect.Effect<readonly BindableConnection[], unknown>;
+  readonly list: () => Effect.Effect<
+    readonly (BindableConnection &
+      Pick<Connection, "identityLabel" | "description" | "lastHealth">)[],
+    unknown
+  >;
+};
+
+/** Catalog metadata visible to this caller; no tool schemas or credentials. */
+export type McpIntegrationsPort = {
+  readonly list: () => Effect.Effect<
+    readonly Pick<Integration, "slug" | "name" | "description">[],
+    unknown
+  >;
 };
 
 /** The same list and schema APIs used by codemode discovery. */
@@ -1249,6 +1271,8 @@ const passthroughInputSchema = (view: ToolSchemaView): unknown =>
 const registerPassthroughTools = <E extends Cause.YieldableError>(
   server: McpServer,
   tools: McpToolsPort,
+  connections: McpConnectionsPort,
+  integrations: McpIntegrationsPort,
   run: (
     address: ToolAddress,
     args: unknown,
@@ -1258,14 +1282,6 @@ const registerPassthroughTools = <E extends Cause.YieldableError>(
   Effect.gen(function* () {
     const context = yield* Effect.context<never>();
     const validator = new CfWorkerJsonSchemaValidator();
-    const discovery = {
-      tools: {
-        list: (filter?: Parameters<McpToolsPort["list"]>[0]) =>
-          tools
-            .list(filter)
-            .pipe(Effect.map((items) => items.filter((tool) => tool.static !== true))),
-      },
-    };
     const boundary = <A extends McpToolResult, F>(
       effect: Effect.Effect<A, F>,
       extra: McpRequestJoinKeys,
@@ -1281,10 +1297,81 @@ const registerPassthroughTools = <E extends Cause.YieldableError>(
       );
     yield* Effect.sync(() => {
       server.registerTool(
+        "integrations",
+        {
+          description:
+            "List connected integrations and accounts visible to you. Returns integration descriptions, account labels, exact search filters, and last recorded health (null means unchecked). One item per account; use nextOffset for more. Does not load tool schemas or check credentials.",
+          inputSchema: {
+            integration: z.string().trim().min(1).optional().describe("Exact integration slug."),
+            owner: z.enum(["org", "user"]).optional(),
+            limit: z.number().int().min(1).max(50).default(20),
+            offset: z.number().int().min(0).default(0),
+          },
+          annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        ({ integration, owner, limit, offset }, extra) =>
+          boundary(
+            Effect.gen(function* () {
+              const [accounts, catalog] = yield* Effect.all([
+                connections.list(),
+                integrations.list(),
+              ]);
+              const metadata = new Map(catalog.map((item) => [String(item.slug), item]));
+              const visible = accounts
+                .flatMap((account) => {
+                  const item = metadata.get(account.integration);
+                  if (
+                    !item ||
+                    (integration !== undefined && account.integration !== integration) ||
+                    (owner !== undefined && account.owner !== owner)
+                  )
+                    return [];
+                  return [
+                    {
+                      integration: account.integration,
+                      integrationName: item.name,
+                      integrationDescription: item.description,
+                      owner: account.owner,
+                      connection: account.name,
+                      identityLabel: account.identityLabel ?? null,
+                      description: account.description ?? null,
+                      lastHealth:
+                        account.lastHealth == null
+                          ? null
+                          : {
+                              status: account.lastHealth.status,
+                              checkedAt: account.lastHealth.checkedAt,
+                            },
+                    },
+                  ];
+                })
+                .sort(
+                  (a, b) =>
+                    a.integration.localeCompare(b.integration) ||
+                    a.owner.localeCompare(b.owner) ||
+                    a.connection.localeCompare(b.connection),
+                );
+              const items = visible.slice(offset, offset + limit);
+              const hasMore = offset + items.length < visible.length;
+              const result = {
+                items,
+                total: visible.length,
+                hasMore,
+                nextOffset: hasMore ? offset + items.length : null,
+              };
+              return {
+                content: [{ type: "text" as const, text: JSON.stringify(result) }],
+                structuredContent: result,
+              };
+            }),
+            extra,
+          ),
+      );
+      server.registerTool(
         "search",
         {
           description:
-            "Search connected integration tools by action, integration, or account. Returns matching tool IDs, account details, and full JSON input schemas. Pass the returned ID and arguments to invoke. Use nextOffset to page through matches.",
+            "Search connected integration tools by action, integration, or account. Returns matching tool IDs, account details, and full JSON input schemas. Pass the returned ID and arguments to invoke. Use integrations to discover accounts, then pass exact integration, owner, and connection filters. Use nextOffset to page through matches.",
           inputSchema: {
             query: z
               .string()
@@ -1292,14 +1379,46 @@ const registerPassthroughTools = <E extends Cause.YieldableError>(
               .min(1)
               .max(500)
               .describe("Keywords describing the tool or task, such as github create issue."),
+            integration: z
+              .string()
+              .trim()
+              .min(1)
+              .optional()
+              .describe("Exact integration slug from integrations."),
+            owner: z.enum(["org", "user"]).optional(),
+            connection: z
+              .string()
+              .trim()
+              .min(1)
+              .optional()
+              .describe(
+                "Exact account name from integrations; pair with integration and owner to select one account.",
+              ),
             limit: z.number().int().min(1).max(20).default(10),
             offset: z.number().int().min(0).default(0),
           },
           annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        ({ query, limit, offset }, extra) =>
+        ({ query, integration, owner, connection, limit, offset }, extra) =>
           boundary(
             Effect.gen(function* () {
+              const discovery = {
+                tools: {
+                  list: (filter?: Parameters<McpToolsPort["list"]>[0]) =>
+                    tools
+                      .list({
+                        ...filter,
+                        ...(integration === undefined
+                          ? {}
+                          : { integration: IntegrationSlug.make(integration) }),
+                        ...(owner === undefined ? {} : { owner }),
+                        ...(connection === undefined
+                          ? {}
+                          : { connection: ConnectionName.make(connection) }),
+                      })
+                      .pipe(Effect.map((items) => items.filter((tool) => tool.static !== true))),
+                },
+              };
               const page = yield* searchTools(discovery, query, limit, { offset });
               const candidates = yield* Effect.forEach(
                 page.items,
@@ -1362,14 +1481,15 @@ const registerPassthroughTools = <E extends Cause.YieldableError>(
               if (!identity) return unavailable;
               const address = ToolAddress.make(id);
               // Use the existing visibility filter and exclude static configuration tools.
-              const visible = yield* discovery.tools.list({
+              const visible = yield* tools.list({
                 integration: identity.integration,
                 owner: identity.owner,
                 connection: identity.connection,
                 query: String(identity.tool),
                 includeAnnotations: false,
               });
-              if (!visible.some((tool) => tool.address === address)) return unavailable;
+              if (!visible.some((tool) => tool.static !== true && tool.address === address))
+                return unavailable;
               const schema = yield* tools.schema(address);
               if (!schema) return unavailable;
               // The SDK validator checks this dynamic JSON schema at the MCP boundary.
@@ -1416,7 +1536,10 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     // Search/invoke serves no artifact tools: artifacts run sandboxed code.
     const artifactsEnabled =
       config.mode === "passthrough" ? false : (config.artifactsEnabled ?? true);
-    const skillCatalog: readonly Skill[] = skillCatalogFor({ artifacts: artifactsEnabled });
+    const skillCatalog: readonly Skill[] =
+      config.mode === "passthrough"
+        ? [SEARCH_INVOKE_SKILL]
+        : skillCatalogFor({ artifacts: artifactsEnabled });
     // Per-integration search tools are off unless this connection opted in
     // (`?search_tools=true`).
     const searchToolsEnabled = config.searchToolsEnabled ?? false;
@@ -1426,9 +1549,10 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     // each other.
     const mode: McpToolMode = config.mode ?? "codemode";
     const passthrough = mode === "passthrough";
-    if (passthrough && !config.tools) {
+    if (passthrough && (!config.tools || !config.connections || !config.integrations)) {
       return yield* new McpPassthroughUnavailableError({
-        reason: "passthrough mode requires tool list and schema APIs",
+        reason:
+          "passthrough mode requires tool list/schema, connection list, and integration list APIs",
       });
     }
 
@@ -1914,8 +2038,14 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     // --- tools ---
 
     // Passthrough serves search and invoke in place of the codemode tools.
-    if (passthrough && config.tools) {
-      yield* registerPassthroughTools(server, config.tools, executePassthroughCall);
+    if (passthrough && config.tools && config.connections && config.integrations) {
+      yield* registerPassthroughTools(
+        server,
+        config.tools,
+        config.connections,
+        config.integrations,
+        executePassthroughCall,
+      );
     }
 
     if (!passthrough)
@@ -1934,37 +2064,36 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         }),
       );
 
-    if (!passthrough)
-      yield* Effect.sync(() =>
-        server.registerTool(
-          "skills",
-          {
-            description: [
-              "Documentation for THIS server's own tools. Not a general skill reader: it serves a short, fixed set of how-to docs about using `execute` and artifacts here, and it cannot reach your harness's skills, a SKILL.md on disk, or any user- or project-authored skill. The argument is a name from its own catalog, never a path or an outside skill's id.",
-              "These docs hold the long-form guidance that would otherwise bloat another tool's always-loaded description.",
-              'Call `skills({ name: "execute" })` for the full guide to writing code for the `execute` tool (search the catalog, call tools, emit results, resume paused runs).',
-              "Call with no name to list the few docs available.",
-            ].join("\n"),
-            inputSchema: {
-              name: z
-                .string()
-                .optional()
-                .describe(
-                  'A doc from this server\'s own catalog, e.g. "execute" — not a path or an outside skill name. Omit to list the catalog.',
-                ),
-            },
+    yield* Effect.sync(() =>
+      server.registerTool(
+        "skills",
+        {
+          annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+          description: passthrough
+            ? 'Documentation for this server only, not harness or project skills. Call with no name to list guides, or skills({ name: "search-invoke" }) for account discovery, tool search, invocation, and pagination.'
+            : [
+                "Documentation for THIS server's own tools. Not a general skill reader: it serves a short, fixed set of how-to docs about using `execute` and artifacts here, and it cannot reach your harness's skills, a SKILL.md on disk, or any user- or project-authored skill. The argument is a name from its own catalog, never a path or an outside skill's id.",
+                "These docs hold the long-form guidance that would otherwise bloat another tool's always-loaded description.",
+                'Call `skills({ name: "execute" })` for the full guide to writing code for the `execute` tool (search the catalog, call tools, emit results, resume paused runs).',
+                "Call with no name to list the few docs available.",
+              ].join("\n"),
+          inputSchema: {
+            name: z
+              .string()
+              .optional()
+              .describe(
+                `A doc from this server's own catalog, e.g. "${passthrough ? "search-invoke" : "execute"}". Omit to list the catalog.`,
+              ),
           },
-          ({ name }, extra) =>
-            runToolEffect(
-              Effect.succeed(skillsResult(name, executeInventory, skillCatalog)),
-              extra,
-            ),
-        ),
-      ).pipe(
-        Effect.withSpan("mcp.host.register_tool", {
-          attributes: { "mcp.tool.name": "skills" },
-        }),
-      );
+        },
+        ({ name }, extra) =>
+          runToolEffect(Effect.succeed(skillsResult(name, executeInventory, skillCatalog)), extra),
+      ),
+    ).pipe(
+      Effect.withSpan("mcp.host.register_tool", {
+        attributes: { "mcp.tool.name": "skills" },
+      }),
+    );
 
     if (!passthrough)
       yield* Effect.sync(() => {
