@@ -164,3 +164,29 @@ describe("workos callback · CSRF state hardening", () => {
     expect(replay.status).toBe(400);
   });
 });
+
+describe("logout browser cleanup", () => {
+  it("clears browser storage when the browser presents an auth hint", async () => {
+    const response = await run(
+      new Request("https://executor.test/auth/logout", {
+        method: "POST",
+        headers: { cookie: "executor-auth-hint=1" },
+        redirect: "manual",
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("clear-site-data")).toBe('"cache", "storage"');
+    expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("does not clear storage for a request without same-site cookies", async () => {
+    const response = await run(
+      new Request("https://executor.test/auth/logout", {
+        method: "POST",
+        redirect: "manual",
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("clear-site-data")).toBeNull();
+  });
+});

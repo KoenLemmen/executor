@@ -405,6 +405,7 @@ const renderGeneratedCode = (code: string) => {
 };
 
 window.addEventListener("message", (event: MessageEvent<InboundMessage>) => {
+  if (event.source !== window.parent) return;
   const data = event.data;
   if (!data || typeof data !== "object" || data.token !== token) return;
 
