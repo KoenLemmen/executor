@@ -20,6 +20,8 @@ export type HostedHostnameResolver = (
 
 export interface HostedHttpClientOptions {
   readonly allowLocalNetwork?: boolean;
+  /** Require HTTPS, except private addresses explicitly allowed for local development. */
+  readonly requireTls?: boolean;
   readonly maxRedirects?: number;
   readonly fetch?: typeof globalThis.fetch;
   readonly resolveHostname?: HostedHostnameResolver;
@@ -152,6 +154,17 @@ export const validateHostedOutboundUrl = (
       return yield* new HostedOutboundRequestBlocked({
         url: value,
         reason: "Only HTTP and HTTPS outbound requests are allowed",
+      });
+    }
+
+    if (
+      options.requireTls &&
+      url.protocol !== "https:" &&
+      !(options.allowLocalNetwork && isLocalOrPrivateHostname(url.hostname))
+    ) {
+      return yield* new HostedOutboundRequestBlocked({
+        url: value,
+        reason: "This host requires HTTPS for outbound requests",
       });
     }
 

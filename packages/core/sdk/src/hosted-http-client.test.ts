@@ -349,3 +349,51 @@ describe("hosted outbound HTTP client", () => {
     }),
   );
 });
+
+describe("hosted TLS policy", () => {
+  it.effect(
+    "rejects public plaintext requests even when private development access is enabled",
+    () =>
+      Effect.gen(function* () {
+        const result = yield* validateHostedOutboundUrl("http://api.example/data", {
+          requireTls: true,
+          allowLocalNetwork: true,
+        }).pipe(Effect.result);
+        expect(Result.isFailure(result)).toBe(true);
+        yield* validateHostedOutboundUrl("https://api.example/data", { requireTls: true });
+        yield* validateHostedOutboundUrl("http://127.0.0.1:3000/data", {
+          requireTls: true,
+          allowLocalNetwork: true,
+        });
+      }),
+  );
+
+  it("blocks HTTPS downgrade redirects before sending the redirected request", async () => {
+    let calls = 0;
+    const guarded = makeHostedFetch({
+      requireTls: true,
+      resolveHostname: publicResolver,
+      fetch: (async () => {
+        calls++;
+        return new Response(null, {
+          status: 302,
+          headers: { location: "http://api.example/data" },
+        });
+      }) as typeof globalThis.fetch,
+    });
+    await expect(
+      guarded("https://api.example/data", {
+        headers: { authorization: "Bearer synthetic-secret" },
+      }),
+    ).rejects.toMatchObject({
+      _tag: "HostedOutboundRequestBlocked",
+      reason: "This host requires HTTPS for outbound requests",
+    });
+    expect(calls).toBe(1);
+    await expect(guarded("http://api.example/data")).rejects.toMatchObject({
+      _tag: "HostedOutboundRequestBlocked",
+      reason: "This host requires HTTPS for outbound requests",
+    });
+    expect(calls).toBe(1);
+  });
+});
