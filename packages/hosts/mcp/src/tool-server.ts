@@ -36,6 +36,7 @@ import type {
   ArtifactBinding,
   ArtifactSummary,
   ElicitationResponse,
+  ElicitationResponseMeta,
   ElicitationHandler,
   ElicitationContext,
   ElicitationRequest,
@@ -415,6 +416,9 @@ const elicitationRequestUrl = (request: ElicitationRequest): string | undefined 
 const pausedInteractionKind = (request: ElicitationRequest): ElicitationRequest["_tag"] =>
   elicitationRequestTag(request);
 
+// The request's terms travel as `_meta`, the way they arrived: a native
+// client that renders "Allow Computer Use to use Finder?" needs to see that
+// accepting can be remembered, and which scopes it may answer with.
 const elicitationRequestToParams: (request: ElicitationRequest) => ElicitInputParams =
   Match.type<ElicitationRequest>().pipe(
     Match.tag("UrlElicitation", (req) => ({
@@ -422,6 +426,7 @@ const elicitationRequestToParams: (request: ElicitationRequest) => ElicitInputPa
       message: req.message,
       url: req.url,
       elicitationId: req.elicitationId,
+      ...(req.meta === undefined ? {} : { _meta: req.meta }),
     })),
     Match.tag("FormElicitation", (req) => ({
       message: req.message,
@@ -432,9 +437,18 @@ const elicitationRequestToParams: (request: ElicitationRequest) => ElicitInputPa
         Object.keys(req.requestedSchema).length === 0
           ? { type: "object" as const, properties: {} }
           : req.requestedSchema,
+      ...(req.meta === undefined ? {} : { _meta: req.meta }),
     })),
     Match.exhaustive,
   );
+
+/** The client's answer to the terms: the `persist` scope it chose, read from
+ *  the result's `_meta` — and nothing else, so an answer states no more than
+ *  `ElicitationResponseMeta` names. */
+const answeredTerms = (meta: unknown): ElicitationResponseMeta | undefined => {
+  const persist = isRecord(meta) ? meta["persist"] : undefined;
+  return typeof persist === "string" ? { persist } : undefined;
+};
 
 const makeMcpElicitationHandler =
   (
@@ -478,6 +492,7 @@ const makeMcpElicitationHandler =
         { relatedRequestId },
       );
 
+      const meta = answeredTerms(response._meta);
       debugLog?.("elicitation.response", {
         requestTag,
         action: response.action,
@@ -485,11 +500,13 @@ const makeMcpElicitationHandler =
           typeof response.content === "object" &&
           response.content !== null &&
           Object.keys(response.content).length > 0,
+        persist: meta?.persist,
       });
 
       return {
         action: response.action as typeof ElicitationResponse.Type.action,
         content: response.content,
+        ...(meta === undefined ? {} : { meta }),
       };
     }).pipe(
       Effect.tapDefect((defect) =>
@@ -1701,8 +1718,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
 
     const resumeExecution = (
       executionId: string,
-      action: "accept" | "decline" | "cancel",
-      content: Record<string, unknown> | undefined,
+      response: ResumeResponse,
       extra: McpRequestJoinKeys,
     ): Effect.Effect<McpToolResult, E> =>
       Effect.gen(function* () {
@@ -1712,17 +1728,18 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         });
         debugLog("resume.call", {
           executionId,
-          action,
-          hasContent: content !== undefined,
+          action: response.action,
+          hasContent: response.content !== undefined,
+          persist: response.meta?.persist,
           clientCapabilities: server.server.getClientCapabilities() ?? null,
         });
-        const outcome = yield* resumeWithLifecycle(executionId, { action, content });
+        const outcome = yield* resumeWithLifecycle(executionId, response);
         if (!outcome) {
           debugLog("resume.missing_execution", { executionId });
           if (yield* localExecutionAlreadySettled(executionId)) {
             return alreadySettledResult(executionId);
           }
-          const fallback = yield* resumeFallback(executionId, { action, content });
+          const fallback = yield* resumeFallback(executionId, response);
           if (fallback) {
             debugLog("resume.fallback_result", { executionId, status: fallback.status });
             return fallbackOutcomeResult(executionId, fallback);
@@ -1746,7 +1763,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         Effect.withSpan("mcp.host.tool.resume", {
           attributes: {
             "mcp.tool.name": "resume",
-            "mcp.execute.resume.action": action,
+            "mcp.execute.resume.action": response.action,
             "mcp.execute.execution_id": executionId,
           },
         }),
@@ -1972,11 +1989,25 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
                   .string()
                   .describe("Optional JSON-encoded response content for form elicitations")
                   .default("{}"),
+                persist: z
+                  .string()
+                  .optional()
+                  .describe(
+                    "How long an accepted approval lasts, when the paused interaction's terms offer a choice: one of interaction.meta.persist. Omit to approve this call only.",
+                  ),
               },
             },
-            ({ executionId, action, content: rawContent }, extra) =>
+            ({ executionId, action, content: rawContent, persist }, extra) =>
               runToolEffect(
-                resumeExecution(executionId, action, parseJsonContent(rawContent), extra),
+                resumeExecution(
+                  executionId,
+                  {
+                    action,
+                    content: parseJsonContent(rawContent),
+                    ...(persist === undefined ? {} : { meta: { persist } }),
+                  },
+                  extra,
+                ),
                 extra,
               ),
           );
@@ -2672,7 +2703,11 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           },
           ({ executionId, action, content: rawContent }, extra) =>
             runToolEffect(
-              resumeExecution(executionId, action, parseJsonContent(rawContent), extra),
+              resumeExecution(
+                executionId,
+                { action, content: parseJsonContent(rawContent) },
+                extra,
+              ),
               extra,
             ),
         );

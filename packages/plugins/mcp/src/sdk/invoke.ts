@@ -218,12 +218,21 @@ const decodeElicitContent = Schema.decodeUnknownSync(
  *  server contributes nothing rather than noise. */
 export const APPROVAL_TERM_KEYS = ["persist", "origin", "connector_name", "connector_id"] as const;
 
+const isStringList = (value: unknown): value is readonly string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+/** A term is a string, or a list of strings: Computer Use OFFERS
+ *  `persist: ["session", "always"]` for the answer to pick from, where
+ *  Chrome STATES `persist: "always"`. Either way it is a term of the grant. */
+const isApprovalTerm = (value: unknown): value is string | readonly string[] =>
+  typeof value === "string" || isStringList(value);
+
 export const approvalTerms = (meta: Record<string, unknown> | undefined) => {
   if (meta === undefined) return {};
   const terms = Object.fromEntries(
     APPROVAL_TERM_KEYS.flatMap((key) => {
       const value = meta[key];
-      return typeof value === "string" ? [[key, value] as const] : [];
+      return isApprovalTerm(value) ? [[key, value] as const] : [];
     }),
   );
   return Object.keys(terms).length > 0 ? { meta: terms } : {};
@@ -267,11 +276,13 @@ const installElicitationHandler = (
         );
         if (Exit.isSuccess(exit)) {
           const response = exit.value;
+          const persist = response.action === "accept" ? response.meta?.persist : undefined;
           return {
             action: response.action,
             ...(response.action === "accept" && response.content
               ? { content: decodeElicitContent(response.content) }
               : {}),
+            ...(persist === undefined ? {} : { _meta: { persist } }),
           };
         }
         const failure = exit.cause.reasons.find(Cause.isFailReason);

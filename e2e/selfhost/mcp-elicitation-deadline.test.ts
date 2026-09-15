@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { composePluginApi } from "@executor-js/api/server";
 import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
@@ -11,9 +11,10 @@ import { scenario } from "../src/scenario";
 import { Api, Mcp, Target } from "../src/services";
 
 const api = composePluginApi([mcpHttpPlugin()] as const);
+const decodeExecutionId = Schema.decodeUnknownSync(Schema.String);
 
 scenario(
-  "MCP · a human can approve after the active-work deadline without losing the tool call",
+  "MCP · delayed approval preserves the chosen lifetime beyond the active-work deadline",
   { timeout: 180_000 },
   Effect.scoped(
     Effect.gen(function* () {
@@ -31,10 +32,15 @@ scenario(
               mode: "form",
               message: "Approve the delayed call?",
               requestedSchema: { type: "object", properties: {} },
+              _meta: { persist: ["session", "always"] },
             },
             { timeout: 150_000 },
           );
-          return { content: [{ type: "text", text: `decision:${reply.action}` }] };
+          return {
+            content: [
+              { type: "text", text: `decision:${reply.action}:${reply._meta?.persist ?? "once"}` },
+            ],
+          };
         });
         return upstream;
       });
@@ -66,9 +72,14 @@ scenario(
         // Cross the production 60-second active-work deadline. This is the
         // behavior under test: a human waiting must consume none of that budget.
         yield* Effect.sleep("65 seconds");
-        const completed = yield* session.approvePaused(paused.text);
+        const executionId = decodeExecutionId(/\bexecutionId:\s*(\S+)/.exec(paused.text)?.[1]);
+        const completed = yield* session.call("resume", {
+          executionId,
+          action: "accept",
+          persist: "session",
+        });
         expect(completed.ok).toBe(true);
-        expect(completed.text).toContain("decision:accept");
+        expect(completed.text).toContain("decision:accept:session");
       }).pipe(Effect.ensuring(client.mcp.removeServer({ params: { slug } }).pipe(Effect.orDie)));
     }),
   ),
