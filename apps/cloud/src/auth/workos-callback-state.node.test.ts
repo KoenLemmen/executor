@@ -113,6 +113,21 @@ const callbackUrl = (state?: string, code = "code_1") =>
   `https://executor.test/auth/callback${state ? `?state=${encodeURIComponent(state)}` : ""}${state ? "&" : "?"}code=${code}`;
 
 describe("workos callback · CSRF state hardening", () => {
+  for (const returnTo of ["/\\evil.example", "/safe/../api/auth/me"]) {
+    it(`keeps an unsafe return destination on the homepage: ${JSON.stringify(returnTo)}`, async () => {
+      const state = encodeLoginState({ nonce: "redirect-boundary", returnTo });
+      const res = await run(
+        new Request(callbackUrl(state), {
+          headers: { cookie: `${STATE_COOKIE}=${state}` },
+          redirect: "manual",
+        }),
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe("/");
+      expect(res.headers.get("set-cookie") ?? "").toContain(SESSION_COOKIE);
+    });
+  }
+
   it("rejects a callback with NO state (the former bypass) before any WorkOS call", async () => {
     const res = await run(new Request(callbackUrl(undefined), { redirect: "manual" }));
     expect(res.status).toBe(400);
