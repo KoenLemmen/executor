@@ -10,7 +10,8 @@
 // HTTP surface (see api.request-scope.node.test.ts).
 // ---------------------------------------------------------------------------
 
-import { afterAll, describe, expect, it } from "@effect/vitest";
+import { afterAll, describe, expect, it, vi } from "@effect/vitest";
+import { waitUntil } from "cloudflare:workers";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -21,6 +22,7 @@ import { CloudAuthPublicApi } from "./api";
 import { UserStoreService } from "./context";
 import { WorkOSClient, type WorkOSClientService } from "./workos";
 import { encodeLoginState } from "./login-state";
+import { AutumnService } from "../extensions/billing/service";
 
 // The route under test serves under the `/api` prefix in the composed app;
 // toWebHandler mounts the raw group, so paths here are relative to the group.
@@ -45,6 +47,9 @@ const stubWorkOS = Layer.succeed(
       }
       if (prop === "listUserMemberships") {
         return () => Effect.succeed({ data: [] });
+      }
+      if (prop === "listOrgMembers") {
+        return () => Effect.succeed({ data: [{ status: "active" }] });
       }
       return () => Effect.die(`unexpected WorkOSClient.${String(prop)} call`);
     },
@@ -88,11 +93,15 @@ const App = HttpApiBuilder.layer(PublicApi).pipe(
   Layer.provide(CloudAuthPublicHandlers),
   Layer.provide(stubWorkOS),
   Layer.provide(stubUsers),
+  Layer.provide(AutumnService.Default),
   Layer.provide(HttpServer.layerServices),
 );
 
 const app = HttpRouter.toWebHandler(App, { disableLogger: true });
-afterAll(() => app.dispose());
+afterAll(async () => {
+  await Promise.all(vi.mocked(waitUntil).mock.calls.map(([work]) => work));
+  await app.dispose();
+});
 
 const run = (request: Request) => {
   // beta.59: the handler type expects a context argument; this layer stack
