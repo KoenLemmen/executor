@@ -5,7 +5,7 @@
 // callback refusing forged/incomplete redirects, the sealed-session cookie
 // actually authorizing the session API, and logout dropping the cookie.
 import { expect } from "@effect/vitest";
-import { Effect, Encoding, Result, Schema } from "effect";
+import { Effect, Encoding, Option, Result, Schema } from "effect";
 
 import { scenario } from "../src/scenario";
 import { Api, Target } from "../src/services";
@@ -85,7 +85,7 @@ scenario(
         Result.getOrElse(Encoding.decodeBase64UrlString(state), () => ""),
       );
       expect(decoded._tag).toBe("Some");
-      if (decoded._tag === "Some") expect(decoded.value.returnTo).toBeUndefined();
+      expect(Option.getOrThrow(decoded).returnTo).toBeUndefined();
     }
   }),
 );
