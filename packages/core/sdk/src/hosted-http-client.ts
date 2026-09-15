@@ -272,6 +272,8 @@ export const makeHostedFetch = (options: HostedHttpClientOptions = {}): typeof g
 // request effect.
 // ---------------------------------------------------------------------------
 
+// Redirect/referrer URLs, MCP session IDs, and vendor trace state can carry
+// credentials. Keep them redacted even when other protocol headers are useful.
 const SPAN_SAFE_HEADER_NAMES = [
   "accept",
   "accept-encoding",
@@ -289,14 +291,10 @@ const SPAN_SAFE_HEADER_NAMES = [
   "if-modified-since",
   "if-none-match",
   "last-modified",
-  "location",
   "mcp-protocol-version",
-  "mcp-session-id",
   "origin",
-  "referer",
   "retry-after",
   "traceparent",
-  "tracestate",
   "transfer-encoding",
   "user-agent",
   "vary",

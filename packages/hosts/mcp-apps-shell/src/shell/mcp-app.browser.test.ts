@@ -1876,6 +1876,54 @@ describe("MCP app generated UI browser isolation", () => {
     }
   }, 30_000);
 
+  it("accepts renderer updates only from its parent window", async () => {
+    if (!browser || !hostServer) throw new Error("Browser harness did not start.");
+    const { page, shellFrame } = await openHarness(browser, hostServer.url);
+    try {
+      const innerFrame = await renderGeneratedUi(page, shellFrame, generatedStaticCode);
+      await innerFrame.locator("#ready").waitFor({ timeout: 10_000 });
+      const theme = await innerFrame.evaluate(() => {
+        const token = document
+          .querySelector('meta[name="executor-render-token"]')
+          ?.getAttribute("content");
+        if (!token) throw new Error("Renderer token is missing.");
+        const original = document.documentElement.classList.contains("dark");
+        const changed = original ? "light" : "dark";
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: { type: "executor.theme", token, theme: changed },
+          }),
+        );
+        const afterSpoof = document.documentElement.classList.contains("dark");
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window.parent,
+            data: { type: "executor.theme", token: "wrong", theme: changed },
+          }),
+        );
+        const afterWrongToken = document.documentElement.classList.contains("dark");
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window.parent,
+            data: { type: "executor.theme", token, theme: changed },
+          }),
+        );
+        return {
+          original,
+          afterSpoof,
+          afterWrongToken,
+          afterParent: document.documentElement.classList.contains("dark"),
+        };
+      });
+      expect(theme.afterSpoof).toBe(theme.original);
+      expect(theme.afterWrongToken).toBe(theme.original);
+      expect(theme.afterParent).toBe(!theme.original);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
   it("handles elicitations in the trusted shell instead of the generated iframe", async () => {
     if (!browser || !hostServer || !openApiServer) {
       throw new Error("Browser harness did not start.");

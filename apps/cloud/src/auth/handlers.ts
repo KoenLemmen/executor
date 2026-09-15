@@ -317,7 +317,10 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           // make the next page load optimistically paint the app shell for a
           // signed-out browser.
           return deleteResponseCookie(
-            deleteResponseCookie(response, "wos-session"),
+            deleteResponseCookie(
+              HttpServerResponse.setHeader(response, "Clear-Site-Data", '"cache", "storage"'),
+              "wos-session",
+            ),
             AUTH_HINT_COOKIE,
           );
         }),

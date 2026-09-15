@@ -306,6 +306,8 @@ describe("hosted outbound HTTP client", () => {
           headers: {
             "content-type": "application/json",
             "cf-ray": "a2ca5b47bb7f3550",
+            location: "https://example.com/callback?code=secret-code",
+            "mcp-session-id": "secret-session",
           },
         })) as typeof globalThis.fetch;
 
@@ -316,6 +318,9 @@ describe("hosted outbound HTTP client", () => {
             HttpClientRequest.setHeaders({
               accept: "application/json",
               "x-goog-api-key": "live-credential",
+              referer: "https://example.com/callback?code=secret-code",
+              "mcp-session-id": "secret-session",
+              tracestate: "vendor=secret-value",
             }),
           ),
         );
@@ -332,6 +337,15 @@ describe("hosted outbound HTTP client", () => {
         "application/json",
       );
       expect(String(spanAttributes.get("http.response.header.cf-ray"))).toBe("<redacted>");
+      for (const key of [
+        "http.request.header.referer",
+        "http.request.header.mcp-session-id",
+        "http.request.header.tracestate",
+        "http.response.header.location",
+        "http.response.header.mcp-session-id",
+      ]) {
+        expect(String(spanAttributes.get(key))).toBe("<redacted>");
+      }
     }),
   );
 });
