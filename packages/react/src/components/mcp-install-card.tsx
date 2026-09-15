@@ -313,7 +313,7 @@ export function McpInstallCard(props: { className?: string }) {
             <div className="text-xs font-medium text-foreground">Search and invoke</div>
             <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
               {toolMode === "passthrough"
-                ? "Find connected tools with search, then call them with invoke. Your client handles approval for each call."
+                ? "Discover connected accounts with integrations and read the guide with skills. Find tools with search, then call them with invoke. Your client handles approval."
                 : "Disabled: agents write code against your tools through one execute tool."}
             </div>
           </div>

@@ -61,10 +61,15 @@ const toolPort = (
   schemaReads: string[] = [],
   lists: string[] = [],
 ): McpToolsPort => ({
-  list: () =>
+  list: (filter) =>
     Effect.sync(() => {
       lists.push("list");
-      return catalog;
+      return catalog.filter(
+        (tool) =>
+          (filter?.integration === undefined || tool.integration === filter.integration) &&
+          (filter?.owner === undefined || tool.owner === filter.owner) &&
+          (filter?.connection === undefined || tool.connection === filter.connection),
+      );
     }),
   schema: (address) =>
     Effect.sync(() => {
@@ -113,7 +118,13 @@ const withClient = async <E extends Cause.YieldableError>(
   config: ExecutorMcpServerConfig<E>,
   fn: (client: Client) => Promise<void>,
 ) => {
-  const mcpServer = await Effect.runPromise(createExecutorMcpServer(config));
+  const mcpServer = await Effect.runPromise(
+    createExecutorMcpServer({
+      connections: { list: () => Effect.succeed([]) },
+      integrations: { list: () => Effect.succeed([]) },
+      ...config,
+    }),
+  );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities: {} });
   await mcpServer.connect(serverTransport);
@@ -203,7 +214,221 @@ describe("readToolMode", () => {
 // ---------------------------------------------------------------------------
 
 describe("passthrough mode server", () => {
-  it("serves exactly search and invoke even for 10000 tools", async () => {
+  it("lists live account metadata with paging, exact filters, and no schemas or secrets", async () => {
+    const { engine, executed } = makeRecordingEngine();
+    const schemaReads: string[] = [];
+    const lists: string[] = [];
+    const reads: string[] = [];
+    const account = (integration: string, owner: "org" | "user", name: string) => ({
+      integration,
+      owner,
+      name,
+      identityLabel: "Example account",
+      description: "Use for test issues",
+      lastHealth: {
+        status: "healthy" as const,
+        checkedAt: 123,
+        detail: "private probe details",
+        responseSample: [{ path: "token", value: "secret" }],
+      },
+      oauthScope: "private grants",
+      provider: "private credential provider",
+    });
+    let accounts = [
+      account("github", "user", "main"),
+      account("github", "org", "main"),
+      account("github_other", "org", "main"),
+      account("unavailable", "org", "hidden"),
+    ];
+    await withClient(
+      {
+        engine,
+        mode: "passthrough",
+        tools: toolPort(CATALOG, schemaReads, lists),
+        connections: {
+          list: () =>
+            Effect.sync(() => {
+              reads.push("connections");
+              return accounts;
+            }),
+        },
+        integrations: {
+          list: () =>
+            Effect.sync(() => {
+              reads.push("integrations");
+              return [
+                {
+                  slug: IntegrationSlug.make("github"),
+                  name: "GitHub",
+                  description: "Issues and repositories",
+                },
+                {
+                  slug: IntegrationSlug.make("github_other"),
+                  name: "Other GitHub",
+                  description: "Another integration",
+                },
+                {
+                  slug: IntegrationSlug.make("not_connected"),
+                  name: "Not connected",
+                  description: "No account",
+                },
+              ];
+            }),
+        },
+      },
+      async (client) => {
+        await client.listTools();
+        expect(reads).toEqual([]);
+        const first = await client.callTool({
+          name: "integrations",
+          arguments: { integration: "github", limit: 1 },
+        });
+        expect(first.structuredContent).toEqual({
+          items: [
+            {
+              integration: "github",
+              integrationName: "GitHub",
+              integrationDescription: "Issues and repositories",
+              owner: "org",
+              connection: "main",
+              identityLabel: "Example account",
+              description: "Use for test issues",
+              lastHealth: { status: "healthy", checkedAt: 123 },
+            },
+          ],
+          total: 2,
+          hasMore: true,
+          nextOffset: 1,
+        });
+        const next = await client.callTool({
+          name: "integrations",
+          arguments: { integration: "github", limit: 1, offset: 1 },
+        });
+        expect(next.structuredContent).toMatchObject({
+          items: [{ owner: "user" }],
+          total: 2,
+          hasMore: false,
+          nextOffset: null,
+        });
+        const filtered = await client.callTool({
+          name: "integrations",
+          arguments: { owner: "org", integration: "github" },
+        });
+        expect(filtered.structuredContent).toMatchObject({
+          items: [{ owner: "org", integration: "github" }],
+          total: 1,
+        });
+        const all = await client.callTool({ name: "integrations", arguments: {} });
+        expect(all.structuredContent).toMatchObject({ total: 3 });
+        expect(JSON.stringify(all)).not.toContain("secret");
+        expect(JSON.stringify(all)).not.toContain("private");
+        accounts = [];
+        const empty = await client.callTool({ name: "integrations", arguments: {} });
+        expect(empty.structuredContent).toEqual({
+          items: [],
+          total: 0,
+          hasMore: false,
+          nextOffset: null,
+        });
+        expect(lists).toEqual([]);
+        expect(schemaReads).toEqual([]);
+        expect(executed).toEqual([]);
+      },
+    );
+  });
+
+  it("serves only the search/invoke guide as text", async () => {
+    const { engine } = makeRecordingEngine();
+    await withClient({ engine, mode: "passthrough", tools: toolPort(CATALOG) }, async (client) => {
+      const index = await client.callTool({ name: "skills", arguments: {} });
+      expect(JSON.stringify(index.content)).toContain("search-invoke");
+      expect(JSON.stringify(index.content)).not.toContain("create-artifact");
+      const guide = await client.callTool({ name: "skills", arguments: { name: "search-invoke" } });
+      expect(guide.structuredContent).toBeUndefined();
+      expect(JSON.stringify(guide.content)).toContain("integrations({})");
+      expect(JSON.stringify(guide.content)).toContain("nextOffset");
+      expect(JSON.stringify(guide.content)).not.toContain("tools.describe");
+      for (const name of ["execute", "create-artifact", "artifact-style", "/tmp/SKILL.md"]) {
+        expect((await client.callTool({ name: "skills", arguments: { name } })).isError).toBe(true);
+      }
+    });
+  });
+
+  it("filters exact accounts before ranking, pagination, and schema reads", async () => {
+    const { engine } = makeRecordingEngine();
+    const schemaReads: string[] = [];
+    const catalog = [
+      projection({ integration: "github", owner: "org", connection: "main", name: "issues.first" }),
+      projection({
+        integration: "github",
+        owner: "org",
+        connection: "main",
+        name: "issues.second",
+      }),
+      projection({
+        integration: "github",
+        owner: "user",
+        connection: "main",
+        name: "issues.first",
+      }),
+      projection({
+        integration: "github",
+        owner: "org",
+        connection: "main2",
+        name: "issues.first",
+      }),
+      projection({
+        integration: "github_other",
+        owner: "org",
+        connection: "main",
+        name: "issues.first",
+      }),
+      projection({
+        integration: "github",
+        owner: "org",
+        connection: "main",
+        name: "issues.static",
+        static: true,
+      }),
+    ];
+    await withClient(
+      { engine, mode: "passthrough", tools: toolPort(catalog, schemaReads) },
+      async (client) => {
+        const args = {
+          query: "issues",
+          integration: "github",
+          owner: "org",
+          connection: "main",
+          limit: 1,
+        };
+        const first = await client.callTool({ name: "search", arguments: args });
+        expect(first.structuredContent).toMatchObject({ total: 2, hasMore: true, nextOffset: 1 });
+        const next = await client.callTool({ name: "search", arguments: { ...args, offset: 1 } });
+        expect(next.structuredContent).toMatchObject({
+          total: 2,
+          hasMore: false,
+          nextOffset: null,
+        });
+        expect(schemaReads.sort()).toEqual([
+          "tools.github.org.main.issues.first",
+          "tools.github.org.main.issues.second",
+        ]);
+        const missing = await client.callTool({
+          name: "search",
+          arguments: { ...args, connection: "absent" },
+        });
+        expect(missing.structuredContent).toEqual({
+          items: [],
+          total: 0,
+          hasMore: false,
+          nextOffset: null,
+        });
+        expect(schemaReads).toHaveLength(2);
+      },
+    );
+  });
+
+  it("serves four discovery and call tools even for 10000 tools", async () => {
     const { engine, executed } = makeRecordingEngine();
     const schemaReads: string[] = [];
     const lists: string[] = [];
@@ -223,7 +448,12 @@ describe("passthrough mode server", () => {
       },
       async (client) => {
         const listed = await client.listTools();
-        expect(listed.tools.map((tool) => tool.name).sort()).toEqual(["invoke", "search"]);
+        expect(listed.tools.map((tool) => tool.name).sort()).toEqual([
+          "integrations",
+          "invoke",
+          "search",
+          "skills",
+        ]);
         expect(JSON.stringify(listed).length).toBeLessThan(4000);
         expect(lists).toEqual([]);
         expect(schemaReads).toEqual([]);
@@ -563,7 +793,7 @@ describe("passthrough mode server", () => {
       },
       async (client) => {
         const names = (await client.listTools()).tools.map((tool) => tool.name);
-        expect(names.sort()).toEqual(["invoke", "search"]);
+        expect(names.sort()).toEqual(["integrations", "invoke", "search", "skills"]);
       },
     );
   });

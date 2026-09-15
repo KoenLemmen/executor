@@ -167,6 +167,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         artifacts: executor.artifacts,
         connections: executor.connections,
         tools: executor.tools,
+        integrations: executor.integrations,
         // Artifacts are on by default, opt-out per connection. A session
         // persisted without a value restores to the default, same as a fresh
         // connection whose URL says nothing about `?artifacts=`.

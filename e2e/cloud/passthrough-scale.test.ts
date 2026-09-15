@@ -45,7 +45,12 @@ scenario(
             `a ${visible.length}-tool passthrough connect stays bounded (took ${elapsedMs}ms)`,
           ).toBeLessThan(MAX_PASSTHROUGH_CONNECT_MS);
 
-          expect(served.map((tool) => tool.name).sort()).toEqual(["invoke", "search"]);
+          expect(served.map((tool) => tool.name).sort()).toEqual([
+            "integrations",
+            "invoke",
+            "search",
+            "skills",
+          ]);
           const first = decodeToolSearch(
             (yield* session.call("search", { query: "org", limit: 20 })).raw,
           ).structuredContent;

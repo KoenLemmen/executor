@@ -1,4 +1,4 @@
-// Real OpenCode codemode discovers and invokes tools through a two-tool MCP surface.
+// Real OpenCode codemode discovers and invokes tools through a fixed MCP tool surface.
 // The server retains 10,200 tools; the replay model scripts discovery and a real upstream call.
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";

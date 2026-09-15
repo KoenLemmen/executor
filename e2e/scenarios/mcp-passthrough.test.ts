@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 
 import { expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 import {
@@ -16,7 +16,23 @@ import {
 import { decodeToolSearch } from "./support/search-invoke";
 
 import { scenario } from "../src/scenario";
-import { Api, Mcp, Target } from "../src/services";
+import { Api, Browser, Mcp, Target } from "../src/services";
+import { visit, settle } from "../src/surfaces/browser";
+
+const decodeInventory = Schema.decodeUnknownSync(
+  Schema.Struct({
+    structuredContent: Schema.Struct({
+      items: Schema.Array(
+        Schema.Struct({
+          integration: Schema.String,
+          owner: Schema.String,
+          connection: Schema.String,
+        }),
+      ),
+      total: Schema.Number,
+    }),
+  }),
+);
 
 const api = composePluginApi([openApiHttpPlugin()] as const);
 
@@ -133,6 +149,7 @@ scenario(
     Effect.gen(function* () {
       const target = yield* Target;
       const mcp = yield* Mcp;
+      const browser = yield* Browser;
       const { client: makeClient } = yield* Api;
 
       const identity = yield* target.newIdentity();
@@ -170,12 +187,35 @@ scenario(
             });
           }
 
+          yield* browser.session(identity, async ({ page, step }) => {
+            await step("Choose Search and invoke in the Connect card", async () => {
+              await visit(page, "/");
+              await page.getByRole("button", { name: "Advanced" }).click();
+              await page.getByRole("switch", { name: "Search and invoke" }).check();
+              await settle(page);
+              expect(await page.locator("code").first().innerText()).toContain("mode=passthrough");
+              expect(
+                await page
+                  .getByText(
+                    "Discover connected accounts with integrations and read the guide with skills.",
+                    { exact: false },
+                  )
+                  .isVisible(),
+              ).toBe(true);
+            });
+          });
+
           const codemode = mcp.session(identity);
           expect(yield* codemode.listTools()).toContain("execute");
 
           const passthrough = mcp.session(identity, { mode: "passthrough" });
           const described = yield* passthrough.describeTools();
-          expect(described.map((tool) => tool.name).sort()).toEqual(["invoke", "search"]);
+          expect(described.map((tool) => tool.name).sort()).toEqual([
+            "integrations",
+            "invoke",
+            "search",
+            "skills",
+          ]);
           expect(described.find((tool) => tool.name === "search")?.annotations).toMatchObject({
             readOnlyHint: true,
             destructiveHint: false,
@@ -184,9 +224,42 @@ scenario(
             readOnlyHint: false,
             destructiveHint: true,
           });
+          const inventory = yield* passthrough.call("integrations", {
+            integration: slug,
+            owner: "org",
+          });
+          expect(inventory.ok).toBe(true);
+          const decodedInventory = decodeInventory(inventory.raw).structuredContent;
+          expect(decodedInventory).toEqual({
+            items: [{ integration: slug, owner: "org", connection: "main" }],
+            total: 1,
+          });
+          expect(inventory.text).not.toContain(`tok_${slug}`);
+          const skills = yield* passthrough.call("skills", {});
+          expect(skills.ok).toBe(true);
+          expect(skills.text).toContain("search-invoke");
+          const guide = yield* passthrough.call("skills", { name: "search-invoke" });
+          expect(guide.ok).toBe(true);
+          expect(guide.text).toContain("integrations({})");
+          expect((yield* passthrough.call("skills", { name: "execute" })).ok).toBe(false);
           const found = decodeToolSearch(
-            (yield* passthrough.call("search", { query: slug })).raw,
+            (yield* passthrough.call("search", {
+              query: "notes",
+              integration: slug,
+              owner: "org",
+              connection: "main",
+            })).raw,
           ).structuredContent;
+          expect(found.items.every((tool) => tool.integration === slug)).toBe(true);
+          const missingAccount = decodeToolSearch(
+            (yield* passthrough.call("search", {
+              query: "notes",
+              integration: slug,
+              owner: "user",
+              connection: "main",
+            })).raw,
+          ).structuredContent;
+          expect(missingAccount.items).toEqual([]);
           const listDef = found.items.find((tool) => tool.id.endsWith(".listNotes"));
           const createDef = found.items.find((tool) => tool.id.endsWith(".createNote"));
           if (!listDef || !createDef) return yield* Effect.die("Search omitted notes operations");

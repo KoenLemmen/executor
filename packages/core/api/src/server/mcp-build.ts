@@ -72,6 +72,7 @@ export const makeMcpBuildServer =
           artifacts: executor.artifacts,
           connections: executor.connections,
           tools: executor.tools,
+          integrations: executor.integrations,
           ...(hostOptions?.loadAppShellHtml
             ? { loadAppShellHtml: hostOptions.loadAppShellHtml }
             : {}),
