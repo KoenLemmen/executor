@@ -328,6 +328,9 @@ export const firstPartyOAuthClientsFor = (
   }),
   ...client(env.FIRST_PARTY_SLACK_CLIENT_ID, env.FIRST_PARTY_SLACK_CLIENT_SECRET, {
     name: "slack",
+    // Slack MCP requires Marketplace approval for use outside the app's workspace.
+    // Keep the client resolvable for existing connections while withholding it.
+    unlisted: true,
     authorizationUrl: "https://slack.com/oauth/v2_user/authorize",
     tokenUrl: "https://slack.com/api/oauth.v2.user.access",
     resource: "https://mcp.slack.com",
