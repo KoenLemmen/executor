@@ -57,6 +57,23 @@ join the same traces via traceparent).
   `execute`/`execute-action` calls `mcp.execute.code` (the script itself,
   capped at 10k chars — cloud-only content capture; local/self-host
   telemetry never records content).
+- `auth.authorize_organization` — every membership authorization.
+  `mirror.ready` (bool: the local membership mirror answered; `false` =
+  the request fell back to a live WorkOS read) and `mirror.readiness`
+  (why: `ready`, `backfill pending: …`, `reconciler stale: …`). The
+  mirror's write spans are `workos_mirror.<op>`; the reconciler run is
+  `workos_events.sync`. `workos_sync.drained_at` in the prod DB is the
+  reconciler heartbeat.
+
+**Recipe — membership-mirror fallback rate (should be ~0 after cutover):**
+
+```apl
+['executor-cloud']
+| where _time > ago(1h) and name == "auth.authorize_organization"
+| extend ready = tobool(['attributes.custom']['mirror.ready'])
+| extend why = tostring(['attributes.custom']['mirror.readiness'])
+| summarize n = count() by ready, why
+```
 
 **Recipe — error signatures by class (the daily-digest query):**
 
