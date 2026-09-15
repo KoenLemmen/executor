@@ -7,6 +7,7 @@ import { Effect, Schema } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 import {
+  ArtifactId,
   AuthTemplateSlug,
   ConnectionName,
   IntegrationSlug,
@@ -31,6 +32,12 @@ const decodeInventory = Schema.decodeUnknownSync(
       ),
       total: Schema.Number,
     }),
+  }),
+);
+
+const decodeArtifact = Schema.decodeUnknownSync(
+  Schema.Struct({
+    structuredContent: Schema.Struct({ artifactId: ArtifactId, url: Schema.String }),
   }),
 );
 
@@ -192,7 +199,14 @@ scenario(
               await visit(page, "/");
               await page.getByRole("button", { name: "Advanced" }).click();
               await page.getByRole("switch", { name: "Search and invoke" }).check();
+              await page.getByRole("switch", { name: "Artifacts", exact: true }).check();
               await settle(page);
+              expect(
+                await page.getByRole("switch", { name: "Artifacts", exact: true }).isEnabled(),
+              ).toBe(true);
+              expect(await page.locator("code").first().innerText()).not.toContain(
+                "artifacts=false",
+              );
               expect(await page.locator("code").first().innerText()).toContain("mode=passthrough");
               expect(
                 await page
@@ -205,10 +219,58 @@ scenario(
             });
           });
 
+          const withArtifacts = mcp.session(identity, { mode: "passthrough" });
+          expect(yield* withArtifacts.listTools()).toEqual(
+            expect.arrayContaining([
+              "search",
+              "invoke",
+              "create-artifact",
+              "edit-artifact",
+              "list-artifacts",
+              "show-artifact",
+            ]),
+          );
+          const artifactGuide = yield* withArtifacts.call("skills", { name: "create-artifact" });
+          expect(artifactGuide.ok).toBe(true);
+          expect(artifactGuide.text).toContain("invoke");
+          expect(artifactGuide.text).not.toContain("`execute`");
+          expect((yield* withArtifacts.call("list-artifacts", {})).ok).toBe(true);
+          const artifact = yield* withArtifacts.call("create-artifact", {
+            title: "Search and invoke artifact",
+            code: "function App() { return <div>Artifact available</div>; }",
+          });
+          expect(artifact.ok, artifact.text).toBe(true);
+          const saved = decodeArtifact(artifact.raw).structuredContent;
+          yield* Effect.ensuring(
+            Effect.gen(function* () {
+              const edited = yield* withArtifacts.call("edit-artifact", {
+                artifactId: saved.artifactId,
+                edits: [{ oldText: "Artifact available", newText: "Artifact restored" }],
+              });
+              expect(edited.ok, edited.text).toBe(true);
+              const shown = yield* withArtifacts.call("show-artifact", { id: saved.artifactId });
+              expect(shown.ok, shown.text).toBe(true);
+              expect(shown.text).toContain("Artifact restored");
+              yield* browser.session(identity, async ({ page, step }) => {
+                await step("Open the artifact created through Search and invoke", async () => {
+                  await visit(page, saved.url);
+                  await page
+                    .frameLocator('[data-testid="artifact-shell-frame"]')
+                    .frameLocator("iframe")
+                    .getByText("Artifact restored", { exact: true })
+                    .waitFor({ timeout: 30_000 });
+                });
+              });
+            }),
+            client.artifacts
+              .remove({ params: { artifactId: saved.artifactId } })
+              .pipe(Effect.orDie),
+          );
+
           const codemode = mcp.session(identity);
           expect(yield* codemode.listTools()).toContain("execute");
 
-          const passthrough = mcp.session(identity, { mode: "passthrough" });
+          const passthrough = mcp.session(identity, { mode: "passthrough", artifacts: false });
           const described = yield* passthrough.describeTools();
           expect(described.map((tool) => tool.name).sort()).toEqual([
             "integrations",
@@ -328,7 +390,7 @@ scenario(
           });
           yield* Effect.ensuring(
             Effect.gen(function* () {
-              const afterBlock = mcp.session(identity, { mode: "passthrough" });
+              const afterBlock = mcp.session(identity, { mode: "passthrough", artifacts: false });
               const afterNames = decodeToolSearch(
                 (yield* afterBlock.call("search", { query: slug })).raw,
               ).structuredContent.items.map((tool) => tool.id);

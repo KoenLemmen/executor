@@ -776,27 +776,49 @@ describe("passthrough mode server", () => {
     );
   });
 
-  it("serves no artifact tools in passthrough even when artifacts are requested", async () => {
-    const { engine } = makeRecordingEngine();
-    await withClient(
-      {
-        engine,
-        mode: "passthrough",
-        artifactsEnabled: true,
-        loadAppShellHtml: async () => "<html></html>",
-        artifacts: {
-          list: () => Effect.succeed([]),
-          get: () => Effect.die("unused"),
-          save: () => Effect.die("unused"),
+  it.each([true, false])(
+    "honors artifacts=%s independently of passthrough",
+    async (artifactsEnabled) => {
+      const { engine } = makeRecordingEngine();
+      await withClient(
+        {
+          engine,
+          mode: "passthrough",
+          artifactsEnabled,
+          loadAppShellHtml: async () => "<html></html>",
+          artifacts: {
+            list: () => Effect.succeed([]),
+            get: () => Effect.die("unused"),
+            save: () => Effect.die("unused"),
+          },
+          tools: toolPort(CATALOG),
         },
-        tools: toolPort(CATALOG),
-      },
-      async (client) => {
-        const names = (await client.listTools()).tools.map((tool) => tool.name);
-        expect(names.sort()).toEqual(["integrations", "invoke", "search", "skills"]);
-      },
-    );
-  });
+        async (client) => {
+          const names = (await client.listTools()).tools.map((tool) => tool.name);
+          expect(names).toEqual(
+            expect.arrayContaining(["integrations", "invoke", "search", "skills"]),
+          );
+          expect(names).not.toContain("execute");
+          expect(names).not.toContain("resume");
+          for (const name of [
+            "create-artifact",
+            "edit-artifact",
+            "list-artifacts",
+            "show-artifact",
+          ]) {
+            expect(names.includes(name)).toBe(artifactsEnabled);
+          }
+          const guide = await client.callTool({
+            name: "skills",
+            arguments: { name: "create-artifact" },
+          });
+          expect(guide.isError === true).toBe(!artifactsEnabled);
+          expect(JSON.stringify(guide.content).includes("queryOptions")).toBe(artifactsEnabled);
+          expect(JSON.stringify(guide.content)).not.toContain("`execute`");
+        },
+      );
+    },
+  );
 
   it("rejects arguments that fail the advertised schema before running anything", async () => {
     const recording = makeRecordingEngine();

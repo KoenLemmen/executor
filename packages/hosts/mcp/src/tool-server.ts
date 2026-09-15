@@ -1533,12 +1533,16 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     // Artifacts are on unless this connection opted out (`?artifacts=false`).
     // One flag decides the whole surface: the tools, the shell resource, and
     // the skills catalog below.
-    // Search/invoke serves no artifact tools: artifacts run sandboxed code.
-    const artifactsEnabled =
-      config.mode === "passthrough" ? false : (config.artifactsEnabled ?? true);
+    const artifactsEnabled = config.artifactsEnabled ?? true;
     const skillCatalog: readonly Skill[] =
       config.mode === "passthrough"
-        ? [SEARCH_INVOKE_SKILL]
+        ? [
+            SEARCH_INVOKE_SKILL,
+            ...skillCatalogFor({
+              artifacts: artifactsEnabled && config.loadAppShellHtml !== undefined,
+              discovery: "search-invoke",
+            }),
+          ]
         : skillCatalogFor({ artifacts: artifactsEnabled });
     // Per-integration search tools are off unless this connection opted in
     // (`?search_tools=true`).
@@ -2619,7 +2623,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
               'Call `skills({ name: "create-artifact" })` for the full guide: the discovery-then-render protocol, TanStack Query rules, and every component already in scope. Call `skills({ name: "artifact-style" })` for how it must look — artifacts render inside the Executor console and must match its design system.',
               "Write a component named `App` in `code`. Do not import anything and do not paste fetched data into JSX — read it live with `useQuery(tools.<integration>.<tool>.queryOptions(args))`.",
               "Lay it out as an app, not a document: an artifact may be given the whole viewport, so make the root `flex h-full flex-col`, keep headers and filters as ordinary children, and give the one long table or list `flex-1 min-h-0 overflow-auto` — its header then stays put while the rows scroll under it.",
-              "Artifact code addresses an INTEGRATION, never a connection: write `tools.vercel.domains.getDomains`, not the full `tools.vercel.user.personalVercel.domains.getDomains` address `execute` uses for discovery. The connection is bound when the artifact is saved, so it stays portable. Code containing a `.user.` or `.org.` segment is rejected.",
+              "Artifact code addresses an INTEGRATION, never a connection: write `tools.vercel.domains.getDomains`, not the full `tools.vercel.user.personalVercel.domains.getDomains` address used during discovery. The connection is bound when the artifact is saved, so it stays portable. Code containing a `.user.` or `.org.` segment is rejected.",
               'To use two accounts of the same integration, tag each call site with a role — `tools.linear("prod").issues.list` and `tools.linear("staging").issues.list` — and map every role in `connections`.',
               "All data access is declarative `tools.*`: `.queryOptions()` to read, `.infiniteQueryOptions()` to page through a cursor, `.mutationOptions()` to write. There is no `run()` and no arbitrary code — never hand-roll `useQuery({ queryKey, queryFn })`, or invalidation breaks.",
               "To read every page of a paginated tool, call `useInfiniteQuery(tools.<integration>.<tool>.infiniteQueryOptions(args, { cursorKey, getNextPageParam }))` once and render `data.pages`. Never call hooks inside a loop — a `useQuery` per page is rejected.",
@@ -2640,7 +2644,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
                 .record(z.string(), z.string())
                 .optional()
                 .describe(
-                  'Which connection each integration role in `code` uses, as `<integration>.<user|org>.<connection>` (the address `connections.list` reports, minus the leading `tools.`). Keys are roles: the integration slug for an untagged `tools.linear.…`, or the tag for `tools.linear("prod").…`. Optional when you have exactly one connection per integration used — that one binds automatically. Required when you have several, and the error lists them.',
+                  'Which connection each integration role in `code` uses, as `<integration>.<user|org>.<connection>` (use the integration, owner, and connection from discovery). Keys are roles: the integration slug for an untagged `tools.linear.…`, or the tag for `tools.linear("prod").…`. Optional when you have exactly one connection per integration used — that one binds automatically. Required when you have several, and the error lists them.',
                 ),
               title: z
                 .string()

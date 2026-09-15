@@ -29,7 +29,7 @@ export const passthroughInstructions = (): string =>
   "Find connected integration tools with search, then call invoke with the returned tool ID and JSON arguments. " +
   "Search returns input schemas and account details. Use its nextOffset to get more matches. " +
   "Invoke can change external state; your client handles approval for each call. Workspace block policies remain enforced. " +
-  "No JavaScript, execute, resume, or artifact tools are exposed in this mode.";
+  "No general execute or resume tools are exposed. When artifacts are enabled, use skills to read their guides.";
 
 /** On-demand guidance for the JSON tool surface; no sandbox or artifact instructions. */
 export const SEARCH_INVOKE_SKILL: Skill = {
@@ -49,6 +49,6 @@ export const SEARCH_INVOKE_SKILL: Skill = {
     "## Results and approval",
     "Invoke forwards the tool's result, including supported MCP content. Check `isError` and any returned error before treating a call as successful. Your client handles approval for invoke; workspace block policies still apply. An upstream request for user input needs a client that supports native elicitation.",
     "If a tool is no longer available, search again. If an account needs authentication, ask the user to reconnect it in Executor. Never ask for credentials in chat.",
-    "This mode accepts JSON tool arguments. It does not expose execute, resume, or artifact tools. The skills tool serves only this server's guides, not files or skills from your harness or project.",
+    "This mode accepts JSON tool arguments. It does not expose general execute or resume tools. When artifacts are enabled, use create-artifact, edit-artifact, list-artifacts, and show-artifact; read the create-artifact and artifact-style guides through skills first. The skills tool serves only this server's guides, not files or skills from your harness or project.",
   ].join("\n"),
 };
