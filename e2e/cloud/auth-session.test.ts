@@ -46,11 +46,10 @@ scenario(
     const decoded = decodeLoginState(
       Result.getOrElse(Encoding.decodeBase64UrlString(state), () => ""),
     );
-    expect(decoded._tag, "the state decodes as our login-state envelope").toBe("Some");
-    expect(
-      decoded._tag === "Some" ? decoded.value.nonce : "",
-      "the state carries an unguessable CSRF nonce",
-    ).toMatch(/^[0-9a-f]{64}$/);
+    expect(Option.isSome(decoded), "the state decodes as our login-state envelope").toBe(true);
+    expect(Option.getOrThrow(decoded).nonce, "the state carries an unguessable CSRF nonce").toMatch(
+      /^[0-9a-f]{64}$/,
+    );
     expect(
       authorizeUrl.searchParams.get("redirect_uri"),
       "AuthKit is told to come back to this deployment's callback",
@@ -84,7 +83,7 @@ scenario(
       const decoded = decodeLoginState(
         Result.getOrElse(Encoding.decodeBase64UrlString(state), () => ""),
       );
-      expect(decoded._tag).toBe("Some");
+      expect(Option.isSome(decoded)).toBe(true);
       expect(Option.getOrThrow(decoded).returnTo).toBeUndefined();
     }
   }),
