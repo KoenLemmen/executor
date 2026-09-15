@@ -112,7 +112,12 @@ export type { Tool, ToolDef, ToolListFilter, ToolAnnotations } from "./tool";
 export type { CredentialProvider, ProviderEntry } from "./provider";
 
 // Public projections / detection.
-export { ToolSchemaView, ToolAnnotationsView, IntegrationDetectionResult } from "./types";
+export {
+  ToolSchemaView,
+  ToolAnnotationsView,
+  ToolProjection,
+  IntegrationDetectionResult,
+} from "./types";
 
 // Health-check vocabulary (pure Schema + helpers).
 export {
@@ -387,6 +392,7 @@ export {
   type OwnerBinding,
   type ToolPolicyProvider,
   type ToolPolicyProviderRule,
+  type PreparedToolPolicy,
   type IntegrationRecord,
   type StaticIntegrationDecl,
   type StaticToolDecl,
