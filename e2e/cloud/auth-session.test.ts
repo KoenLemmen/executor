@@ -66,6 +66,31 @@ scenario(
 );
 
 scenario(
+  "Auth · login refuses return paths that normalize outside the allowed pages",
+  {},
+  Effect.gen(function* () {
+    yield* Api;
+    const target = yield* Target;
+    for (const returnTo of [
+      "/\\evil.example",
+      "/safe/../api/auth/me",
+      "/safe/%2e%2e/api/auth/me",
+    ]) {
+      const login = new URL("/api/auth/login", target.baseUrl);
+      login.searchParams.set("returnTo", returnTo);
+      const response = yield* Effect.promise(() => fetch(login, { redirect: "manual" }));
+      expect(response.status).toBe(302);
+      const state = new URL(response.headers.get("location") ?? "").searchParams.get("state") ?? "";
+      const decoded = decodeLoginState(
+        Result.getOrElse(Encoding.decodeBase64UrlString(state), () => ""),
+      );
+      expect(decoded._tag).toBe("Some");
+      if (decoded._tag === "Some") expect(decoded.value.returnTo).toBeUndefined();
+    }
+  }),
+);
+
+scenario(
   "Auth · the callback rejects forged or incomplete redirects without exchanging the code",
   {},
   Effect.gen(function* () {
