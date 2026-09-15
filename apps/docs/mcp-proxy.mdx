@@ -60,7 +60,7 @@ agent automatically.
 ## Search and invoke mode
 
 Add `?mode=passthrough` to your MCP endpoint, or enable **Search and invoke**
-in the Connect card. This mode exposes four tools:
+in the Connect card. This mode exposes four discovery and invocation tools:
 
 - `integrations`: list connected accounts with integration descriptions, account
   labels, and their last recorded health. Results are paginated, with one item per
@@ -83,5 +83,7 @@ has its own pagination for records.
 
 The tool list stays small as you add integrations. Input schemas are loaded only
 for matching search results. Your client handles approval for `invoke`, and
-workspace block policies still apply. This mode does not expose code execution or
-artifact tools.
+workspace block policies still apply. This mode does not expose a general code execution tool. Artifacts remain
+available unless you disable them with `artifacts=false` or the Artifacts toggle.
+Use `skills({ name: "create-artifact" })` for the guide to building artifacts
+after discovering data with search and invoke.

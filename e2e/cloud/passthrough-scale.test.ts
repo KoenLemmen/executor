@@ -35,7 +35,7 @@ scenario(
           );
           expect(visible.length, "the seeded catalog is large").toBeGreaterThan(3000);
 
-          const session = mcp.session(identity, { mode: "passthrough" });
+          const session = mcp.session(identity, { mode: "passthrough", artifacts: false });
           const startedAt = Date.now();
           const served = yield* session.describeTools();
           const elapsedMs = Date.now() - startedAt;
