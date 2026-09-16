@@ -6,7 +6,6 @@ import { MemberDirectory, type DirectoryMember } from "@executor-js/api/server";
 
 import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
-import { MirrorReadiness, MirrorReadinessState } from "../auth/mirror-readiness";
 import { ORG_SELECTOR_HEADER } from "../auth/organization";
 import { WorkOSClient, type WorkOSClientService } from "../auth/workos";
 import { WorkOsMirror, type WorkOsMirrorShape } from "../auth/workos-mirror";
@@ -48,12 +47,6 @@ const memberships = new Map<string, DirectoryMember>([
   ["user_member", mirrored("user_member")],
   ["user_invited_admin", mirrored("user_invited_admin", { role: "admin", status: "pending" })],
 ]);
-
-// The mirror is READY in these tests (backfill complete, reconciler caught
-// up), so membership is read from the stubbed directory, never from WorkOS.
-const stubReadiness = Layer.succeed(MirrorReadiness)({
-  state: () => Effect.succeed(MirrorReadinessState.Ready()),
-});
 
 const stubDirectory = Layer.succeed(MemberDirectory)({
   membership: (accountId, organizationId) =>
@@ -149,7 +142,11 @@ const stubWorkOS = (userId: string) =>
       get: (_target, prop) => {
         if (prop === "authenticateRequest") {
           return () =>
-            Effect.succeed({ userId, email: `${userId}@placeholder.test`, organizationId: null });
+            Effect.succeed({
+              userId,
+              email: `${userId}@placeholder.test`,
+              organizationId: null,
+            });
         }
         return () => Effect.die(`unexpected WorkOSClient.${String(prop)} call`);
       },
@@ -163,14 +160,7 @@ const authorizeAs = (userId: string) =>
     }),
   ).pipe(
     Effect.provide(
-      Layer.mergeAll(
-        stubDirectory,
-        stubApiKeys,
-        stubUsers,
-        stubWorkOS(userId),
-        stubMirror,
-        stubReadiness,
-      ),
+      Layer.mergeAll(stubDirectory, stubApiKeys, stubUsers, stubWorkOS(userId), stubMirror),
     ),
   );
 

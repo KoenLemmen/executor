@@ -87,7 +87,6 @@ import { encodeLoginState } from "./login-state";
 import { cloudMemberDirectoryLayer } from "./member-directory";
 import { SessionAuthLive } from "./middleware-live";
 import { mirrorSignIn } from "./mirror-feeders";
-import { MirrorReadiness, MirrorReadinessState } from "./mirror-readiness";
 import {
   ORG_SELECTOR_HEADER,
   authorizeOrganization,
@@ -171,14 +170,6 @@ const seedOrganization = (id: string) =>
       Effect.scoped,
     ),
   );
-
-// The mirror is READY throughout (backfill complete, reconciler caught up):
-// every membership read below is against the mirror, never WorkOS. The
-// readiness rule itself is pinned in workos-mirror.node.test.ts and the
-// fallback in org-selector-auth.node.test.ts.
-const readyMirror = Layer.succeed(MirrorReadiness)({
-  state: () => Effect.succeed(MirrorReadinessState.Ready()),
-});
 
 const stubAutumn = Layer.succeed(AutumnService)({
   use: () => Effect.die("feeders do not read billing"),
@@ -500,7 +491,12 @@ describe("a delayed sign-in feeder", () => {
         const rejoinedAt = "2026-01-03T00:00:00.000Z";
         yield* mirrorSignIn(
           workosUser(userId),
-          [workosMembership(userId, org, { id: `om_${userId}_${org}_2`, updatedAt: rejoinedAt })],
+          [
+            workosMembership(userId, org, {
+              id: `om_${userId}_${org}_2`,
+              updatedAt: rejoinedAt,
+            }),
+          ],
           new Date(rejoinedAt),
         );
         return { membership, rejoined: yield* readMembership(userId, org) };
@@ -581,20 +577,14 @@ describe("session handlers read membership from the mirror", () => {
         DbService | UserStoreService | WorkOsMirror | MemberDirectory
       >;
       readonly autumn?: Layer.Layer<AutumnService>;
-      /** The mirror's readiness for this request; ready unless a test says otherwise. */
-      readonly readiness?: Layer.Layer<MirrorReadiness>;
     } = {},
   ) =>
     HttpRouter.toWebHandler(
       HttpApiBuilder.layer(NonProtectedApi).pipe(
         Layer.provide(Layer.mergeAll(CloudAuthPublicHandlers, CloudSessionAuthHandlers)),
         Layer.provide(
-          requestScopedMiddleware(
-            Layer.mergeAll(
-              options.services ?? RequestScopedServicesLive,
-              options.readiness ?? readyMirror,
-            ),
-          ).layer,
+          requestScopedMiddleware(Layer.mergeAll(options.services ?? RequestScopedServicesLive))
+            .layer,
         ),
         Layer.provideMerge(SessionAuthLive),
         Layer.provideMerge(options.autumn ?? stubAutumn),
@@ -627,9 +617,10 @@ describe("session handlers read membership from the mirror", () => {
     );
 
   /**
-   * `authorizeOrganization` over the live stores and a READY mirror, as every
-   * protected request runs it; `workos` serves whatever the check may read
-   * from WorkOS (nothing, by default: any read dies).
+   * `authorizeOrganization` over the live stores, as every protected request
+   * runs it: membership is read from the mirror unconditionally; `workos`
+   * serves whatever the check may read from WorkOS (nothing, by default: any
+   * read dies).
    */
   const authorize = (
     userId: string,
@@ -639,12 +630,9 @@ describe("session handlers read membership from the mirror", () => {
     Effect.runPromise(
       authorizeOrganization(userId, org).pipe(
         Effect.provide(
-          Layer.mergeAll(
-            UserStoreService.Live,
-            WorkOsMirror.Live,
-            cloudMemberDirectoryLayer,
-            readyMirror,
-          ).pipe(Layer.provideMerge(DbService.Live)),
+          Layer.mergeAll(UserStoreService.Live, WorkOsMirror.Live, cloudMemberDirectoryLayer).pipe(
+            Layer.provideMerge(DbService.Live),
+          ),
         ),
         Effect.provide(workos),
         Effect.scoped,
@@ -665,7 +653,12 @@ describe("session handlers read membership from the mirror", () => {
                   purges.push(op);
                 }).pipe(
                   Effect.flatMap(() =>
-                    Effect.fail(new UserStoreError({ operation: op, reason: "connection_closed" })),
+                    Effect.fail(
+                      new UserStoreError({
+                        operation: op,
+                        reason: "connection_closed",
+                      }),
+                    ),
                   ),
                 )
               : live.use(op, fn),
@@ -914,7 +907,7 @@ describe("session handlers read membership from the mirror", () => {
     expect(await authorized(admin, org)).toBe(false);
   });
 
-  it("finishes on a retry while the mirror is not ready, after WorkOS already deleted the org", async () => {
+  it("finishes on a retry after WorkOS already deleted the org", async () => {
     const admin = freshId("user");
     const member = freshId("user");
     const org = freshId("org");
@@ -931,19 +924,17 @@ describe("session handlers read membership from the mirror", () => {
     expect(first.status).toBe(500);
     expect(purges).toEqual(["deleteOrganizationCascade"]);
 
-    // The reconciler stalls before the retry. WorkOS no longer lists the org
-    // or the admin's membership in it — and the fallback must not ask it:
-    // the stub dies on `listUserMemberships`. The admin's own mirror row,
-    // which the failed purge left behind, is what admits the retry.
+    // WorkOS no longer has the org to delete a second time. The admin's own
+    // mirror row, which the failed purge left behind, is what admits the
+    // retry — membership is read from the mirror unconditionally.
     const retry = sessionHandler(admin, {
       autumn: deletingAutumn,
-      readiness: Layer.succeed(MirrorReadiness)({
-        state: () => Effect.succeed(MirrorReadinessState.ReconcilerStale({ drainedAt: null })),
-      }),
-      workos: { deleteOrganization: () => Effect.fail(new WorkOSError({ status: 404 })) },
+      workos: {
+        deleteOrganization: () => Effect.fail(new WorkOSError({ status: 404 })),
+      },
     });
     const second = await retry(deleteOrganizationRequest(org));
-    expect(second.status, "the retry is admitted from the mirror, not WorkOS").toBe(200);
+    expect(second.status, "the retry is admitted from the mirror").toBe(200);
     expect(await second.json()).toEqual({ success: true });
     expect(await readMembers(org), "and the purge ran").toEqual([]);
     expect((await readOrganization(org))?.deletedAt).not.toBeNull();
@@ -961,7 +952,9 @@ describe("session handlers read membership from the mirror", () => {
         calls.push(`getUserOrgMembership:${userId}`);
         return Effect.succeed(
           userId === memberId
-            ? (workosMembership(userId, organizationId, { role: { slug: "admin" } }) as never)
+            ? (workosMembership(userId, organizationId, {
+                role: { slug: "admin" },
+              }) as never)
             : null,
         );
       },
@@ -1089,7 +1082,9 @@ describe("session handlers read membership from the mirror", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { organizations: { id: string; slug: string }[] };
+    const body = (await response.json()) as {
+      organizations: { id: string; slug: string }[];
+    };
     expect(body.organizations.map((o) => [o.id, o.slug])).toEqual([[live, liveSlug]]);
   });
 });
@@ -1156,7 +1151,6 @@ describe("account service writes through to the mirror", () => {
       UserStoreService.Live,
       WorkOsMirror.Live,
       cloudMemberDirectoryLayer,
-      readyMirror,
     );
     return workosAccountProvider.pipe(
       Layer.provide(
@@ -1778,7 +1772,17 @@ describe("backfill", () => {
     );
 
     const counts = await runBackfill(
-      new Map([[org, [workosMembership(paused, org, { status: "inactive", updatedAt: T2 })]]]),
+      new Map([
+        [
+          org,
+          [
+            workosMembership(paused, org, {
+              status: "inactive",
+              updatedAt: T2,
+            }),
+          ],
+        ],
+      ]),
       false,
     );
     expect(counts, "the deactivated membership is written, not tombstoned").toMatchObject({
@@ -1904,7 +1908,10 @@ describe("backfill", () => {
       [orgB, [workosMembership(staying, orgB)]],
     ]);
     const retried = await runBackfill(attemptB, false);
-    expect(retried).toMatchObject({ organizations: 2, membershipsTombstoned: 1 });
+    expect(retried).toMatchObject({
+      organizations: 2,
+      membershipsTombstoned: 1,
+    });
     expect(
       await syncState(),
       "the retry keeps the first attempt's boundary instead of taking a later one",

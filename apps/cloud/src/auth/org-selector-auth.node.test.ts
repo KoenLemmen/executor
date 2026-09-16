@@ -6,7 +6,6 @@ import { MemberDirectory, type DirectoryMember } from "@executor-js/api/server";
 
 import { ApiKeyService } from "./api-keys";
 import { UserStoreService } from "./context";
-import { MirrorReadiness, MirrorReadinessState } from "./mirror-readiness";
 import { AUTHORIZE_ORGANIZATION_SPAN } from "./organization";
 import { resolveSessionPrincipal } from "./workos-auth-provider";
 import { WorkOSClient, type WorkOSClientService } from "./workos";
@@ -67,12 +66,6 @@ const memberships = new Map<string, DirectoryMember>([
   [URL_ORG, mirrored(URL_ORG, { role: "admin" })],
   [PENDING_ORG, mirrored(PENDING_ORG, { status: "pending" })],
 ]);
-
-// The mirror is READY in these tests (backfill complete, reconciler caught
-// up), so membership is read from the stubbed directory, never from WorkOS.
-const stubReadiness = Layer.succeed(MirrorReadiness)({
-  state: () => Effect.succeed(MirrorReadinessState.Ready()),
-});
 
 const stubDirectory = Layer.succeed(MemberDirectory)({
   membership: (accountId, organizationId) =>
@@ -167,85 +160,28 @@ const stubMirror = Layer.succeed(
   }),
 );
 
-const run = (
-  headers: Record<string, string>,
-  readiness: Layer.Layer<MirrorReadiness> = stubReadiness,
-) =>
+const run = (headers: Record<string, string>) =>
   resolveSessionPrincipal(new Request("https://executor.test/api/tools", { headers })).pipe(
-    Effect.provide(
-      Layer.mergeAll(stubApiKeys, stubWorkOS, stubUsers, stubDirectory, stubMirror, readiness),
-    ),
+    Effect.provide(Layer.mergeAll(stubApiKeys, stubWorkOS, stubUsers, stubDirectory, stubMirror)),
   );
 
-// The mirror before the cutover has landed: the backfill has not covered
-// every organization, or the reconciler has not drained recently.
-const unreadyMirror = (state: MirrorReadinessState) =>
-  Layer.succeed(MirrorReadiness)({ state: () => Effect.succeed(state) });
-
 /**
- * A WorkOS that answers the pre-cutover membership list for MEMBER — active
- * in SESSION_ORG only, as a member — and records the calls, so the fallback
- * is assertable: with the mirror unready the list is read from WorkOS and
- * the directory (which says MEMBER is active in URL_ORG too) is never asked.
- */
-const workosMemberships = (calls: string[]) =>
-  Layer.succeed(
-    WorkOSClient,
-    new Proxy({} as WorkOSClientService, {
-      get: (_t, prop) => {
-        if (prop === "authenticateRequest") {
-          return () =>
-            Effect.succeed({
-              userId: MEMBER,
-              email: "u@e2e.test",
-              organizationId: SESSION_ORG,
-            });
-        }
-        if (prop === "listUserMemberships") {
-          return (userId: string) =>
-            Effect.sync(() => {
-              calls.push(`listUserMemberships:${userId}`);
-              return {
-                object: "list" as const,
-                data: [
-                  {
-                    id: `om_${MEMBER}_${SESSION_ORG}`,
-                    userId: MEMBER,
-                    organizationId: SESSION_ORG,
-                    status: "active",
-                    role: { slug: "member" },
-                  },
-                ] as never[],
-                listMetadata: { before: null, after: null },
-              };
-            });
-        }
-        return () => Effect.die(`unexpected WorkOSClient.${String(prop)} call`);
-      },
-    }),
-  );
-
-const unreadDirectory = Layer.succeed(MemberDirectory)({
-  membership: () => Effect.die("an unready mirror must not be asked for membership"),
-  membershipById: () => Effect.die("an unready mirror must not be asked for membership"),
-  membershipsOf: () => Effect.die("an unready mirror must not be asked for membership"),
-  members: () => Effect.die("an unready mirror must not be asked for membership"),
-  membersById: () => Effect.die("an unready mirror must not be asked for membership"),
-  findByEmail: () => Effect.die("an unready mirror must not be asked for membership"),
-});
-
-/**
- * A tracer that keeps every span's attributes, so the readiness decision the
- * authorization stamps on its span (`mirror.ready`, `mirror.readiness`) is
- * assertable: that attribute is what production counts the fallback by.
+ * A tracer that keeps every span's attributes, so the authorization span
+ * itself — {@link AUTHORIZE_ORGANIZATION_SPAN} — is assertable.
  */
 const makeRecordingTracer = () => {
-  const spans: { readonly name: string; readonly attributes: Map<string, unknown> }[] = [];
+  const spans: {
+    readonly name: string;
+    readonly attributes: Map<string, unknown>;
+  }[] = [];
   const tracer: Tracer.Tracer = {
     span: (options) => {
       const attributes = new Map<string, unknown>();
       spans.push({ name: options.name, attributes });
-      let status: Tracer.SpanStatus = { _tag: "Started", startTime: options.startTime };
+      let status: Tracer.SpanStatus = {
+        _tag: "Started",
+        startTime: options.startTime,
+      };
       return {
         _tag: "Span",
         name: options.name,
@@ -261,7 +197,12 @@ const makeRecordingTracer = () => {
         sampled: options.sampled,
         kind: options.kind,
         end: (endTime, exit) => {
-          status = { _tag: "Ended", startTime: options.startTime, endTime, exit };
+          status = {
+            _tag: "Ended",
+            startTime: options.startTime,
+            endTime,
+            exit,
+          };
         },
         attribute: (key, value) => {
           attributes.set(key, value);
@@ -273,24 +214,6 @@ const makeRecordingTracer = () => {
   };
   const attributesOf = (name: string) => spans.find((span) => span.name === name)?.attributes;
   return { tracer, attributesOf };
-};
-
-const runAgainstWorkOs = (headers: Record<string, string>, state: MirrorReadinessState) => {
-  const calls: string[] = [];
-  return resolveSessionPrincipal(new Request("https://executor.test/api/tools", { headers }))
-    .pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          stubApiKeys,
-          workosMemberships(calls),
-          stubUsers,
-          unreadDirectory,
-          stubMirror,
-          unreadyMirror(state),
-        ),
-      ),
-    )
-    .pipe(Effect.map((principal) => ({ principal, calls })));
 };
 
 describe("resolveSessionPrincipal · URL org selector", () => {
@@ -358,79 +281,21 @@ describe("resolveSessionPrincipal · URL org selector", () => {
   );
 });
 
-// The mirror authorizes only while it is READY (`mirror-readiness.ts`):
-// the backfill has written every organization and the reconciler has drained
-// the stream within its lag budget. Until then the membership check reads
-// WorkOS, as it did before the cutover — so a member the backfill has not
-// written yet is not locked out, and a stale mirror row cannot grant access
-// WorkOS has revoked.
-describe("resolveSessionPrincipal · mirror readiness", () => {
-  const unready: readonly [string, MirrorReadinessState][] = [
-    ["the backfill has not completed", MirrorReadinessState.BackfillPending()],
-    ["the reconciler has never drained", MirrorReadinessState.ReconcilerStale({ drainedAt: null })],
-    [
-      "the reconciler's last drain is older than the budget",
-      MirrorReadinessState.ReconcilerStale({ drainedAt: createdAt }),
-    ],
-  ];
-
-  for (const [why, state] of unready) {
-    it.effect(`reads membership from WorkOS, not the mirror, while ${why}`, () =>
-      Effect.gen(function* () {
-        // WorkOS says MEMBER is active in SESSION_ORG: authorized there...
-        const granted = yield* runAgainstWorkOs(
-          { cookie: "wos-session=x", "x-executor-organization": SESSION_ORG },
-          state,
-        );
-        expect(granted.principal.organizationId).toBe(SESSION_ORG);
-        expect(granted.principal.orgRole, "the role comes from WorkOS's list too").toBe("member");
-        expect(granted.calls).toEqual([`listUserMemberships:${MEMBER}`]);
-
-        // ...and NOT in URL_ORG, even though the (unready) mirror holds an
-        // active admin membership there: the mirror's word is not taken.
-        const refused = yield* Effect.flip(
-          runAgainstWorkOs({ cookie: "wos-session=x", "x-executor-organization": URL_SLUG }, state),
-        );
-        expect(refused).toMatchObject({ _tag: "NoOrganization" });
-      }),
-    );
-  }
-
-  it.effect("reads the mirror once it is ready, without any WorkOS membership call", () =>
+// Membership is read from the local mirror unconditionally — there is no
+// readiness gate and no per-request WorkOS fallback (`auth/organization.ts`).
+// The span every authorization runs under is still pinned here; a stalled
+// reconciler is now an operational alert (`workos-events-runner.ts`), not a
+// request-path branch, so it has no span attribute left to assert on.
+describe("resolveSessionPrincipal · authorization span", () => {
+  it.effect("runs the authorization under its span", () =>
     Effect.gen(function* () {
-      // `stubWorkOS` dies on any call past session authentication, so a
-      // resolved principal here proves the list was never requested.
-      const principal = yield* run(
-        { cookie: "wos-session=x", "x-executor-organization": URL_SLUG },
-        stubReadiness,
-      );
+      const recorder = makeRecordingTracer();
+      const principal = yield* run({
+        cookie: "wos-session=x",
+        "x-executor-organization": URL_SLUG,
+      }).pipe(Effect.withTracer(recorder.tracer));
       expect(principal.organizationId).toBe(URL_ORG);
-      expect(principal.orgRole).toBe("admin");
-    }),
-  );
-
-  it.effect("stamps which source answered on the authorization span", () =>
-    Effect.gen(function* () {
-      // The fallback is counted in production by this attribute, not by
-      // grepping the warning it logs beside it — so both branches must set it.
-      const ready = makeRecordingTracer();
-      yield* run({ cookie: "wos-session=x", "x-executor-organization": URL_SLUG }).pipe(
-        Effect.withTracer(ready.tracer),
-      );
-      const readyAttrs = ready.attributesOf(AUTHORIZE_ORGANIZATION_SPAN);
-      expect(readyAttrs?.get("mirror.ready"), "the mirror answered").toBe(true);
-      expect(readyAttrs?.get("mirror.readiness")).toBe("ready");
-
-      const stale = makeRecordingTracer();
-      yield* runAgainstWorkOs(
-        { cookie: "wos-session=x", "x-executor-organization": SESSION_ORG },
-        MirrorReadinessState.ReconcilerStale({ drainedAt: null }),
-      ).pipe(Effect.withTracer(stale.tracer));
-      const staleAttrs = stale.attributesOf(AUTHORIZE_ORGANIZATION_SPAN);
-      expect(staleAttrs?.get("mirror.ready"), "WorkOS answered").toBe(false);
-      expect(String(staleAttrs?.get("mirror.readiness")), "and the span says why").toContain(
-        "reconciler",
-      );
+      expect(recorder.attributesOf(AUTHORIZE_ORGANIZATION_SPAN)).toBeDefined();
     }),
   );
 });

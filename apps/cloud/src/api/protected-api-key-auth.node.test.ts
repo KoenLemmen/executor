@@ -5,7 +5,6 @@ import { MemberDirectory } from "@executor-js/api/server";
 
 import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
-import { MirrorReadiness, MirrorReadinessState } from "../auth/mirror-readiness";
 import { WorkOSClient, type WorkOSClientService } from "../auth/workos";
 import { WorkOsMirror, type WorkOsMirrorShape } from "../auth/workos-mirror";
 import { resolveProtectedPrincipal } from "./protected";
@@ -55,13 +54,8 @@ const stubWorkOS = Layer.succeed(
 );
 
 // The mirror as the directory reads it: user_123 holds an active membership in
-// org_123 and nothing else. Membership is never read from WorkOS.
-// The mirror is READY in these tests (backfill complete, reconciler caught
-// up), so membership is read from the stubbed directory, never from WorkOS.
-const stubReadiness = Layer.succeed(MirrorReadiness)({
-  state: () => Effect.succeed(MirrorReadinessState.Ready()),
-});
-
+// org_123 and nothing else. Membership is always read from the mirror, never
+// from WorkOS.
 const stubDirectory = Layer.succeed(MemberDirectory)({
   membership: (accountId, organizationId) =>
     Effect.succeed(
@@ -136,9 +130,7 @@ const stubMirror = Layer.succeed(
 
 const run = (request: Request) =>
   resolveProtectedPrincipal(request).pipe(
-    Effect.provide(
-      Layer.mergeAll(stubApiKeys, stubWorkOS, stubUsers, stubDirectory, stubMirror, stubReadiness),
-    ),
+    Effect.provide(Layer.mergeAll(stubApiKeys, stubWorkOS, stubUsers, stubDirectory, stubMirror)),
   );
 
 describe("protected API key auth", () => {

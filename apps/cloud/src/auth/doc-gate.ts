@@ -42,7 +42,6 @@ import { makeUserStoreLayer, UserStoreService } from "./context";
 import { parseCookie } from "./cookies";
 import { LAST_ORG_COOKIE } from "./last-org-cookie";
 import { makeMemberDirectoryLayer } from "./member-directory";
-import { makeMirrorReadinessLayer } from "./mirror-readiness";
 import { makeWorkOsMirrorLayer } from "./workos-mirror";
 import { sealedSessionDisplayName } from "./middleware";
 import { authorizeOrganizationSelector } from "./organization";
@@ -184,7 +183,6 @@ const authorizeLastOrgSlug = async (
         Layer.mergeAll(
           makeUserStoreLayer(),
           makeMemberDirectoryLayer(),
-          makeMirrorReadinessLayer(),
           makeWorkOsMirrorLayer(),
         ).pipe(Layer.provide(dbLive)),
       ),
@@ -258,7 +256,9 @@ export const authGateMiddleware = createMiddleware({ type: "request" }).server(
     // the client AuthGate makes mid-session, made here before the document
     // exists so the app shell is never painted for an org-less session.
     if (!session.organizationId && !ONBOARDING_PATHS.has(pathname)) {
-      return redirect("/create-org", { refreshedSession: session.refreshedSession });
+      return redirect("/create-org", {
+        refreshedSession: session.refreshedSession,
+      });
     }
 
     // A BARE console path (no org slug in the URL) canonicalizes onto the org

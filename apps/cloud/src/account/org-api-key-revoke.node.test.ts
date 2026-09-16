@@ -6,7 +6,6 @@ import { AccountError, AccountForbidden } from "@executor-js/api";
 
 import { ApiKeyService, OrgApiKeyNotFound } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
-import { MirrorReadiness, MirrorReadinessState } from "../auth/mirror-readiness";
 import { ORG_SELECTOR_HEADER } from "../auth/organization";
 import { WorkOSClient, type WorkOSClientService } from "../auth/workos";
 import { WorkOsMirror } from "../auth/workos-mirror";
@@ -132,12 +131,6 @@ const stubMirror = Layer.succeed(WorkOsMirror)({
 // The mirror as the directory reads it: both are active members of ORG, and
 // only ADMIN carries the `admin` role. Revoke reads the caller's membership
 // (the org check and the admin gate) and nothing else.
-// The mirror is READY in these tests (backfill complete, reconciler caught
-// up), so membership is read from the stubbed directory, never from WorkOS.
-const stubReadiness = Layer.succeed(MirrorReadiness)({
-  state: () => Effect.succeed(MirrorReadinessState.Ready()),
-});
-
 const stubDirectory = Layer.succeed(MemberDirectory)({
   membership: (accountId, organizationId) =>
     Effect.succeed(
@@ -201,7 +194,6 @@ const providerWith = (accountId: string) => {
             stubUsers,
             stubMirror,
             stubDirectory,
-            stubReadiness,
             stubApiKeys,
             stubAutumn,
             Layer.succeed(AccountCaller)({ session: session(accountId) }),

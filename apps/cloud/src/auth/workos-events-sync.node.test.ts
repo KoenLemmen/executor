@@ -62,7 +62,6 @@ import { UserStoreService } from "./context";
 import { WorkOSError } from "./errors";
 import { cloudMemberDirectoryLayer } from "./member-directory";
 import { mirrorSignIn } from "./mirror-feeders";
-import { MirrorReadiness, MirrorReadinessState } from "./mirror-readiness";
 import { authorizeOrganization } from "./organization";
 import { WorkOSClient, type WorkOSClientService, type WorkOSListEventsOptions } from "./workos";
 import {
@@ -202,26 +201,14 @@ const profiles = (reads: string[] = []): Partial<WorkOSClientService> => ({
 });
 
 const DbLive = DbService.Live;
-// The mirror is READY here (the authorization checks below read the mirror,
-// not WorkOS); the readiness rule is pinned in workos-mirror.node.test.ts.
-const readyMirror = Layer.succeed(MirrorReadiness)({
-  state: () => Effect.succeed(MirrorReadinessState.Ready()),
-});
-
+// The authorization checks below always read the mirror, never WorkOS.
 const MirrorServices = Layer.mergeAll(
   WorkOsMirror.Live,
   UserStoreService.Live,
   cloudMemberDirectoryLayer,
-  readyMirror,
 ).pipe(Layer.provideMerge(DbLive));
 
-type Services =
-  | WorkOsMirror
-  | UserStoreService
-  | MemberDirectory
-  | MirrorReadiness
-  | DbService
-  | WorkOSClient;
+type Services = WorkOsMirror | UserStoreService | MemberDirectory | DbService | WorkOSClient;
 
 const run = <A, E>(
   body: Effect.Effect<A, E, Services>,
@@ -549,7 +536,10 @@ describe("applyEvent", () => {
         const promoted = yield* applyEvent(
           membershipEvent(
             "organization_membership.updated",
-            workosMembership(joiner, org, { role: { slug: "admin" }, updatedAt: T2 }),
+            workosMembership(joiner, org, {
+              role: { slug: "admin" },
+              updatedAt: T2,
+            }),
           ),
         );
         // A member WorkOS no longer has (their `user.deleted` is further down
@@ -558,7 +548,15 @@ describe("applyEvent", () => {
           membershipEvent("organization_membership.created", workosMembership(gone, org)),
         );
         const goneRow = yield* readMembership(gone, org);
-        return { knownJoins, knownRow, joins, joinerRow, promoted, goneJoins, goneRow };
+        return {
+          knownJoins,
+          knownRow,
+          joins,
+          joinerRow,
+          promoted,
+          goneJoins,
+          goneRow,
+        };
       }),
       stubWorkOS({
         getUser: (userId) =>
@@ -581,7 +579,10 @@ describe("applyEvent", () => {
     expect(result.joinerRow?.email).toBe(`${joiner}@placeholder.test`);
     expect(result.promoted).toBe("applied");
     expect(result.goneJoins, "a member WorkOS no longer has is still mirrored").toBe("applied");
-    expect(result.goneRow).toMatchObject({ membershipId: `om_${gone}_${org}`, name: null });
+    expect(result.goneRow).toMatchObject({
+      membershipId: `om_${gone}_${org}`,
+      name: null,
+    });
     expect(reads, "one read per unprofiled member, none for a profiled one").toEqual([
       joiner,
       gone,
@@ -601,7 +602,9 @@ describe("applyEvent", () => {
         Effect.provide(
           Layer.mergeAll(
             MirrorServices,
-            stubWorkOS({ getUser: () => Effect.fail(new WorkOSError({ status: 503 })) }),
+            stubWorkOS({
+              getUser: () => Effect.fail(new WorkOSError({ status: 503 })),
+            }),
           ),
         ),
         Effect.scoped,
@@ -731,7 +734,11 @@ describe("applyEvent", () => {
         // deletion, and stalled past it now writes what it holds.
         yield* mirrorSignIn(
           workosUser(userId),
-          [workosMembership(userId, org, { organizationName: "Never Mirrored" })],
+          [
+            workosMembership(userId, org, {
+              organizationName: "Never Mirrored",
+            }),
+          ],
           new Date(T1),
         );
         const afterLogin = yield* readOrganization(org);
@@ -1108,7 +1115,14 @@ describe("syncWorkOsEvents", () => {
         const cursor = yield* mirror.getCursor();
         const membership = yield* readMembership(userId, org);
         const drainedAfter = yield* mirror.drainedAt();
-        return { report, cursor, intruder, membership, drainedBefore, drainedAfter };
+        return {
+          report,
+          cursor,
+          intruder,
+          membership,
+          drainedBefore,
+          drainedAfter,
+        };
       }),
     );
     expect(requests, "the second page is never read").toHaveLength(1);

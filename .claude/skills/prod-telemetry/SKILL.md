@@ -57,22 +57,33 @@ join the same traces via traceparent).
   `execute`/`execute-action` calls `mcp.execute.code` (the script itself,
   capped at 10k chars — cloud-only content capture; local/self-host
   telemetry never records content).
-- `auth.authorize_organization` — every membership authorization.
-  `mirror.ready` (bool: the local membership mirror answered; `false` =
-  the request fell back to a live WorkOS read) and `mirror.readiness`
-  (why: `ready`, `backfill pending: …`, `reconciler stale: …`). The
-  mirror's write spans are `workos_mirror.<op>`; the reconciler run is
+- `auth.authorize_organization` — every membership authorization. Reads the
+  local membership mirror unconditionally; there is no per-request readiness
+  check and no WorkOS fallback, so this span carries no readiness attribute.
+  The mirror's write spans are `workos_mirror.<op>`; the reconciler run is
   `workos_events.sync`. `workos_sync.drained_at` in the prod DB is the
-  reconciler heartbeat.
+  reconciler heartbeat, and a stalled reconciler now raises its own error
+  from the cron (see below) rather than showing up as a fallback here.
 
-**Recipe — membership-mirror fallback rate (should be ~0 after cutover):**
+**Recipe — reconciler heartbeat (ticks should land roughly every minute; a
+gap wider than the 10-minute lag budget means the cron alert should already
+have fired — see `workos_events: reconciler stale` below):**
 
 ```apl
 ['executor-cloud']
-| where _time > ago(1h) and name == "auth.authorize_organization"
-| extend ready = tobool(['attributes.custom']['mirror.ready'])
-| extend why = tostring(['attributes.custom']['mirror.readiness'])
-| summarize n = count() by ready, why
+| where _time > ago(1h) and name == "workos_events.sync"
+| summarize n = count() by bin(_time, 1m)
+| sort by _time desc
+```
+
+**Recipe — stale-reconciler alerts (should be empty; each row is one paging
+event):**
+
+```apl
+['executor-cloud']
+| where _time > ago(1d) and ['status.message'] contains "workos_events: reconciler stale"
+| project _time, trace_id, msg = tostring(['status.message'])
+| sort by _time desc
 ```
 
 **Recipe — error signatures by class (the daily-digest query):**

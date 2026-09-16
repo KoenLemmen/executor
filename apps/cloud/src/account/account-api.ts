@@ -10,7 +10,6 @@ import {
 
 import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
-import { MirrorReadiness } from "../auth/mirror-readiness";
 import { WorkOsMirror } from "../auth/workos-mirror";
 import { sessionFromSealed, type Session } from "../auth/middleware";
 import { WorkOSClient } from "../auth/workos";
@@ -51,7 +50,9 @@ import { AccountCaller, workosAccountProvider } from "./workos-account-service";
 // `UserStoreService` / `WorkOsMirror` / `MemberDirectory` are supplied by the
 // combined `rsLive` layer.
 // `ApiKeyService.WorkOS` is built here on top of the boot `WorkOSClient`.
-const AccountProviderMiddleware = HttpRouter.middleware<{ provides: AccountProvider }>()(
+const AccountProviderMiddleware = HttpRouter.middleware<{
+  provides: AccountProvider;
+}>()(
   Effect.gen(function* () {
     // Long-lived services only (built once at boot). `UserStoreService` and
     // `DbService` are NOT grabbed here — they come per request from the combined
@@ -100,15 +101,11 @@ const AccountProviderMiddleware = HttpRouter.middleware<{ provides: AccountProvi
  * (the seat-gate) stays a residual requirement, satisfied by the app `boot`.
  */
 export const workosAccountMiddleware = (
-  rsLive: Layer.Layer<
-    DbService | UserStoreService | WorkOsMirror | MemberDirectory | MirrorReadiness
-  >,
+  rsLive: Layer.Layer<DbService | UserStoreService | WorkOsMirror | MemberDirectory>,
 ) => AccountProviderMiddleware.combine(requestScopedMiddleware(rsLive)).layer;
 
 export const makeAccountApiLive = (
-  rsLive: Layer.Layer<
-    DbService | UserStoreService | WorkOsMirror | MemberDirectory | MirrorReadiness
-  >,
+  rsLive: Layer.Layer<DbService | UserStoreService | WorkOsMirror | MemberDirectory>,
 ) => {
   // Cloud builds the WorkOS `AccountProvider` INSIDE the request body (so it
   // closes over the per-request postgres socket), so it can't be a self-

@@ -16,7 +16,6 @@ import {
 import { cloudPlugins, type CloudPlugins } from "../plugins";
 import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
-import { MirrorReadiness } from "../auth/mirror-readiness";
 import { WorkOsMirror } from "../auth/workos-mirror";
 import { cloudIdentityFailureStrategy, workosIdentityLayer } from "../auth/workos-auth-provider";
 import { AutumnService } from "../extensions/billing/service";
@@ -97,9 +96,7 @@ const ExecutionStackMiddleware = makeExecutionStackMiddleware<
 // account seat-gate, and the createOrganization free-limit gate each provide it
 // where they run.)
 export const makeProtectedApiLive = (
-  rsLive: Layer.Layer<
-    DbService | UserStoreService | MemberDirectory | MirrorReadiness | WorkOsMirror
-  >,
+  rsLive: Layer.Layer<DbService | UserStoreService | MemberDirectory | WorkOsMirror>,
 ) => {
   // The neutral `IdentityProvider`, built per request: it reads `UserStoreService`
   // + `MemberDirectory` from `rsLive` and the WorkOS control plane (`WorkOSClient` + `ApiKeyService`,

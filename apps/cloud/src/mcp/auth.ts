@@ -18,7 +18,6 @@ import { BEARER_PREFIX } from "../auth/bearer";
 import { authorizeOrganization } from "../auth/organization";
 import { UserStoreService, makeUserStoreLayer } from "../auth/context";
 import { makeMemberDirectoryLayer } from "../auth/member-directory";
-import { makeMirrorReadinessLayer } from "../auth/mirror-readiness";
 import { makeWorkOsMirrorLayer } from "../auth/workos-mirror";
 import { CoreSharedServices } from "../auth/workos";
 import { makeDbLayer } from "../db/db";
@@ -211,13 +210,11 @@ const makeMcpOrganizationAuthServices = () => {
   const dbLive = makeDbLayer();
   const userStoreLive = makeUserStoreLayer().pipe(Layer.provide(dbLive));
   const memberDirectoryLive = makeMemberDirectoryLayer().pipe(Layer.provide(dbLive));
-  const mirrorReadinessLive = makeMirrorReadinessLayer().pipe(Layer.provide(dbLive));
   const workOsMirrorLive = makeWorkOsMirrorLayer().pipe(Layer.provide(dbLive));
   return Layer.mergeAll(
     dbLive,
     userStoreLive,
     memberDirectoryLive,
-    mirrorReadinessLive,
     workOsMirrorLive,
     CoreSharedServices,
   );
@@ -329,7 +326,9 @@ export const McpAuthLive = Layer.effect(
       if (!verified) return mcpUnauthorized("invalid_token", "The access token is invalid");
       if (Predicate.isTagged(verified, "Unauthorized")) return verified;
       if (!verified.accountId) {
-        yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_subject" });
+        yield* Effect.annotateCurrentSpan({
+          "mcp.auth.outcome": "missing_subject",
+        });
         return mcpUnauthorized("invalid_token", "The access token is invalid");
       }
       yield* Effect.annotateCurrentSpan({
@@ -344,7 +343,9 @@ export const McpAuthLive = Layer.effect(
       verifyBearer: Effect.fn("mcp.auth.verify_bearer")(function* (request) {
         const authHeader = request.headers.get("authorization");
         if (!authHeader?.startsWith(BEARER_PREFIX)) {
-          yield* Effect.annotateCurrentSpan({ "mcp.auth.outcome": "missing_bearer" });
+          yield* Effect.annotateCurrentSpan({
+            "mcp.auth.outcome": "missing_bearer",
+          });
           return mcpUnauthorized("missing_bearer");
         }
         const token = authHeader.slice(BEARER_PREFIX.length).trim();
