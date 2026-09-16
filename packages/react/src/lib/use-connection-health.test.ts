@@ -141,16 +141,27 @@ describe("shouldAutoProbe", () => {
     expect(shouldAutoProbe(key, null, Date.now() + 1_000)).toBe(true);
   });
 
-  it("does not treat a never-persisted unknown verdict as a reconnect clear", () => {
+  it("does not treat a never-persisted verdict as a reconnect clear", () => {
     // A plugin with no health probe answers `unknown` and the server persists
     // nothing, so `persisted` stays `null` for that connection forever. That
     // is not a clearing transition: the floor must still apply, or every
     // remount would re-probe.
     const key = "u|org|org:noprobe:default";
     const now = Date.now();
-    recordAutomaticProbe(key, { status: "unknown", checkedAt: now });
+    recordAutomaticProbe(key, { status: "unknown", checkedAt: now }, { persisted: false });
     expect(shouldAutoProbe(key, null, now + 1_000)).toBe(false);
     expect(shouldAutoProbe(key, null, now + AUTO_PROBE_FLOOR_MS + 1)).toBe(true);
+  });
+
+  it("treats a cleared PERSISTED unknown verdict as a reconnect clear", () => {
+    // A plugin health check can legitimately answer `unknown`, and the server
+    // persists that. If a reconnect then clears it while the row is
+    // unmounted, the remount must probe: the status alone cannot tell the
+    // two `unknown`s apart, only whether the server held a verdict.
+    const key = "u|org|org:flaky:default";
+    const now = Date.now();
+    recordAutomaticProbe(key, { status: "unknown", checkedAt: now }, { persisted: true });
+    expect(shouldAutoProbe(key, null, now + 1_000)).toBe(true);
   });
 
   it("keys the memory by identity, so two orgs' same-named connections do not collide", () => {

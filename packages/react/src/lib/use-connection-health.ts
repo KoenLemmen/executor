@@ -101,7 +101,18 @@ const freshestVerdict = (
  *  elapsed time and defeat the floor below. */
 const automaticProbeMemory = new Map<
   string,
-  { readonly at: number; readonly result: HealthCheckResult }
+  {
+    readonly at: number;
+    readonly result: HealthCheckResult;
+    /** Whether the SERVER held a persisted verdict for this connection when
+     *  the probe was recorded — the row's `lastHealth` after the probe, or
+     *  the probe's own result when it was one the server persists. A later
+     *  `null` from the server is then a clearing (an OAuth re-mint wiped a
+     *  verdict that existed), not the steady state of a connection whose
+     *  probes are never persisted (a plugin with no health check answers
+     *  `unknown` and the server writes nothing). */
+    readonly persisted: boolean;
+  }
 >();
 
 /** The identity partition of the module memory: the signed-in user and the
@@ -145,16 +156,16 @@ export function shouldAutoProbe(
   now: number = Date.now(),
 ): boolean {
   const remembered = automaticProbeMemory.get(key);
-  // A persisted verdict of `null` next to a remembered REAL verdict means
-  // the grant was re-minted (an OAuth reconnect clears `last_health`) since
-  // that probe. The hooks catch this transition while mounted; this catches
-  // it when the reconnect landed while the row was UNMOUNTED — a remount
-  // inside the floor must still fire the recovery probe, not keep the
-  // pre-reconnect verdict. `unknown` is excluded on purpose: the server never
-  // persists a no-capability probe, so for such a connection `null` next to a
-  // remembered `unknown` is the steady state, not a clearing — treating it as
-  // one would re-probe on every remount, the storm this memory exists to end.
-  if (persisted === null && remembered !== undefined && remembered.result.status !== "unknown") {
+  // A persisted verdict of `null` where the server HELD one when the probe
+  // was recorded means the grant was re-minted (an OAuth reconnect clears
+  // `last_health`) since that probe. The hooks catch this transition while
+  // mounted; this catches it when the reconnect landed while the row was
+  // UNMOUNTED — a remount inside the floor must still fire the recovery
+  // probe, not keep the pre-reconnect verdict. A connection the server never
+  // persisted a verdict for (`remembered.persisted === false`) is the steady
+  // state, not a clearing: it stays under the floor, or every remount would
+  // re-probe it — the storm this memory exists to end.
+  if (persisted === null && remembered !== undefined && remembered.persisted) {
     automaticProbeMemory.delete(key);
     return true;
   }
@@ -170,9 +181,25 @@ export function shouldAutoProbe(
  *  `checkedAt`. Exported (not test-only) so `shouldAutoProbe`'s decision logic
  *  can be exercised directly, without rendering the hooks that normally call
  *  it. */
-export function recordAutomaticProbe(key: string, result: HealthCheckResult): void {
-  automaticProbeMemory.set(key, { at: Date.now(), result });
+export function recordAutomaticProbe(
+  key: string,
+  result: HealthCheckResult,
+  options: { readonly persisted: boolean } = { persisted: true },
+): void {
+  automaticProbeMemory.set(key, { at: Date.now(), result, persisted: options.persisted });
 }
+
+/** Whether the server persists a probe with this status. Mirrors the SDK's
+ *  `connectionCheckHealth`: every real probe verdict is written to the row,
+ *  and the one that is not is the no-capability `unknown` (a plugin without a
+ *  health check), which the server answers without writing. A plugin CAN
+ *  legitimately probe to `unknown` and have it persisted, so the row's own
+ *  `lastHealth` after the probe is the better signal when it is available;
+ *  this is the fallback for a probe recorded before the row refetches. */
+const probePersisted = (
+  result: HealthCheckResult,
+  persistedAfter: HealthCheckResult | null | undefined,
+): boolean => (persistedAfter != null ? true : result.status !== "unknown");
 
 /** Deletes the remembered probe for `key`, forcing the next `shouldAutoProbe`
  *  call to return `true` regardless of the floor. Called on the reconnect
@@ -272,7 +299,7 @@ export function useConnectionHealth(connection: Connection): {
       // churns the cache (which would refetch connections, re-run this
       // effect, and, but for the epoch guard, risk a probe loop).
       if (!Exit.isSuccess(exit)) return;
-      recordAutomaticProbe(key, exit.value);
+      recordAutomaticProbe(key, exit.value, { persisted: probePersisted(exit.value, last) });
       seenEpoch.current = exit.value.checkedAt;
       setLiveProbe(exit.value);
       if (exit.value.status !== (last?.status ?? "unknown")) {
@@ -294,7 +321,9 @@ export function useConnectionHealth(connection: Connection): {
       reactivityKeys: connectionCheckKeys,
     });
     if (Exit.isSuccess(exit)) {
-      recordAutomaticProbe(probeMemoryKey(scope, connection), exit.value);
+      recordAutomaticProbe(probeMemoryKey(scope, connection), exit.value, {
+        persisted: probePersisted(exit.value, connection.lastHealth),
+      });
       seenEpoch.current = exit.value.checkedAt;
       setLiveProbe(exit.value);
     }
@@ -364,7 +393,9 @@ export function useConnectionsHealth(
         // invalidate the connections cache only when the verdict changed so an
         // unchanged reconfirm never churns the cache.
         if (!Exit.isSuccess(exit)) return;
-        recordAutomaticProbe(memoryKey, exit.value);
+        recordAutomaticProbe(memoryKey, exit.value, {
+          persisted: probePersisted(exit.value, last),
+        });
         revalidated.current.set(key, exit.value.checkedAt);
         setLiveProbes((current) => new Map(current).set(key, exit.value));
         if (exit.value.status !== (last?.status ?? "unknown")) {
