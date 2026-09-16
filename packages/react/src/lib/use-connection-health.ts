@@ -196,10 +196,22 @@ export function recordAutomaticProbe(
  *  legitimately probe to `unknown` and have it persisted, so the row's own
  *  `lastHealth` after the probe is the better signal when it is available;
  *  this is the fallback for a probe recorded before the row refetches. */
-const probePersisted = (
+export const probePersisted = (
   result: HealthCheckResult,
-  persistedAfter: HealthCheckResult | null | undefined,
-): boolean => (persistedAfter != null ? true : result.status !== "unknown");
+  persistedBefore: HealthCheckResult | null | undefined,
+): boolean => (persistedBefore != null ? true : result.status !== "unknown");
+
+/** How long until the floor stops suppressing an automatic probe for `key`,
+ *  or `null` when nothing is suppressing it. The hooks arm a one-shot timer
+ *  for this so a suppressed probe still fires once the floor elapses WHILE
+ *  THE ROW STAYS MOUNTED — without it, a verdict cleared by a reconnect that
+ *  landed inside the floor would wait for the next remount to recover. */
+export function autoProbeRetryDelayMs(key: string, now: number = Date.now()): number | null {
+  const remembered = automaticProbeMemory.get(key);
+  if (remembered === undefined) return null;
+  const remaining = AUTO_PROBE_FLOOR_MS - (now - remembered.at);
+  return remaining > 0 ? remaining : null;
+}
 
 /** Deletes the remembered probe for `key`, forcing the next `shouldAutoProbe`
  *  call to return `true` regardless of the floor. Called on the reconnect
@@ -287,25 +299,39 @@ export function useConnectionHealth(connection: Connection): {
     if (!firstSight && !cleared) return;
     const key = probeMemoryKey(scope, connection);
     if (cleared) clearAutomaticProbeMemory(key);
-    if (!shouldAutoProbe(key, last)) return;
-    void doCheck({
-      params: connectionParams(connection),
-      query: revalidateQuery(last),
-    }).then((exit) => {
-      // Background refresh: update the dot on success, stay quiet on failure
-      // (the persisted verdict is still the best known state). Invalidate the
-      // connections cache ONLY when the verdict actually changed: on the
-      // common no-change reconfirm we skip it, so an automatic probe never
-      // churns the cache (which would refetch connections, re-run this
-      // effect, and, but for the epoch guard, risk a probe loop).
-      if (!Exit.isSuccess(exit)) return;
-      recordAutomaticProbe(key, exit.value, { persisted: probePersisted(exit.value, last) });
-      seenEpoch.current = exit.value.checkedAt;
-      setLiveProbe(exit.value);
-      if (exit.value.status !== (last?.status ?? "unknown")) {
-        invalidateConnections(connection.owner);
-      }
-    });
+    const probe = () =>
+      void doCheck({
+        params: connectionParams(connection),
+        query: revalidateQuery(last),
+      }).then((exit) => {
+        // Background refresh: update the dot on success, stay quiet on failure
+        // (the persisted verdict is still the best known state). Invalidate the
+        // connections cache ONLY when the verdict actually changed: on the
+        // common no-change reconfirm we skip it, so an automatic probe never
+        // churns the cache (which would refetch connections, re-run this
+        // effect, and, but for the epoch guard, risk a probe loop).
+        if (!Exit.isSuccess(exit)) return;
+        recordAutomaticProbe(key, exit.value, { persisted: probePersisted(exit.value, last) });
+        seenEpoch.current = exit.value.checkedAt;
+        setLiveProbe(exit.value);
+        if (exit.value.status !== (last?.status ?? "unknown")) {
+          invalidateConnections(connection.owner);
+        }
+      });
+    if (shouldAutoProbe(key, last)) {
+      probe();
+      return;
+    }
+    // Suppressed by the floor: re-decide once it elapses, while still
+    // mounted, so the suppression is bounded by the floor and never by the
+    // next remount. A healthy-and-fresh verdict has no timer to arm (the
+    // freshness window, not the floor, is what suppressed it).
+    const delay = autoProbeRetryDelayMs(key);
+    if (delay === null) return;
+    const timer = setTimeout(() => {
+      if (shouldAutoProbe(key, last)) probe();
+    }, delay);
+    return () => clearTimeout(timer);
   }, [connection, doCheck, invalidateConnections, scope]);
 
   const runCheck = useCallback(async () => {
@@ -371,6 +397,7 @@ export function useConnectionsHealth(
   // the module-scope `automaticProbeMemory`, which survives that remount.
   const revalidated = useRef(new Map<string, number | null>());
   useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
     for (const connection of connections) {
       const key = probeKey(connection);
       const last = connection.lastHealth;
@@ -382,27 +409,42 @@ export function useConnectionsHealth(
       revalidated.current.set(key, epoch);
       const memoryKey = probeMemoryKey(scope, connection);
       if (cleared) clearAutomaticProbeMemory(memoryKey);
-      if (!shouldAutoProbe(memoryKey, last)) continue;
-      void doCheck({
-        params: connectionParams(connection),
-        query: revalidateQuery(last),
-      }).then((exit) => {
-        // Same automatic-path rule as the single-connection hook: reflect the
-        // verdict, adopt its epoch so the refetch doesn't re-probe, record it
-        // into the module memory so a remount respects the floor, and
-        // invalidate the connections cache only when the verdict changed so an
-        // unchanged reconfirm never churns the cache.
-        if (!Exit.isSuccess(exit)) return;
-        recordAutomaticProbe(memoryKey, exit.value, {
-          persisted: probePersisted(exit.value, last),
+      const probe = () =>
+        void doCheck({
+          params: connectionParams(connection),
+          query: revalidateQuery(last),
+        }).then((exit) => {
+          // Same automatic-path rule as the single-connection hook: reflect the
+          // verdict, adopt its epoch so the refetch doesn't re-probe, record it
+          // into the module memory so a remount respects the floor, and
+          // invalidate the connections cache only when the verdict changed so an
+          // unchanged reconfirm never churns the cache.
+          if (!Exit.isSuccess(exit)) return;
+          recordAutomaticProbe(memoryKey, exit.value, {
+            persisted: probePersisted(exit.value, last),
+          });
+          revalidated.current.set(key, exit.value.checkedAt);
+          setLiveProbes((current) => new Map(current).set(key, exit.value));
+          if (exit.value.status !== (last?.status ?? "unknown")) {
+            invalidateConnections(connection.owner);
+          }
         });
-        revalidated.current.set(key, exit.value.checkedAt);
-        setLiveProbes((current) => new Map(current).set(key, exit.value));
-        if (exit.value.status !== (last?.status ?? "unknown")) {
-          invalidateConnections(connection.owner);
-        }
-      });
+      if (shouldAutoProbe(memoryKey, last)) {
+        probe();
+        continue;
+      }
+      // Same bounded suppression as the single-connection hook.
+      const delay = autoProbeRetryDelayMs(memoryKey);
+      if (delay === null) continue;
+      timers.push(
+        setTimeout(() => {
+          if (shouldAutoProbe(memoryKey, last)) probe();
+        }, delay),
+      );
     }
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+    };
   }, [connections, doCheck, invalidateConnections, scope]);
 
   return useCallback(

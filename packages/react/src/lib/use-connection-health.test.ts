@@ -13,7 +13,9 @@ import {
   AUTO_PROBE_FLOOR_MS,
   HEALTH_REVALIDATE_MS,
   clearAutomaticProbeMemory,
+  autoProbeRetryDelayMs,
   probeMemoryKey,
+  probePersisted,
   recordAutomaticProbe,
   resetAutomaticProbeMemoryForTest,
   revalidateQuery,
@@ -185,5 +187,45 @@ describe("shouldAutoProbe", () => {
       shouldAutoProbe(key, null, now + 1),
       "clearing the memory re-arms the probe even inside the floor",
     ).toBe(true);
+  });
+});
+
+describe("probePersisted", () => {
+  it("is true whenever the row already held a verdict before the probe", () => {
+    expect(probePersisted(verdict("unknown"), verdict("healthy"))).toBe(true);
+    expect(probePersisted(verdict("unknown"), verdict("expired"))).toBe(true);
+  });
+
+  it("on a row with no verdict, infers from the status: only unknown may be unpersisted", () => {
+    // The server's no-capability path is the only one that answers without
+    // writing, and it always answers `unknown`. A plugin probe that answers
+    // `unknown` on a first-ever check IS persisted, so this is a conservative
+    // guess for that case: the floor applies, and the retry timer bounds it.
+    expect(probePersisted(verdict("healthy"), null)).toBe(true);
+    expect(probePersisted(verdict("expired"), undefined)).toBe(true);
+    expect(probePersisted(verdict("unknown"), null)).toBe(false);
+  });
+});
+
+describe("autoProbeRetryDelayMs", () => {
+  beforeEach(() => {
+    resetAutomaticProbeMemoryForTest();
+  });
+
+  it("is null with no memory and null once the floor has elapsed", () => {
+    const key = "u|org|org:github:retry";
+    const now = Date.now();
+    expect(autoProbeRetryDelayMs(key, now)).toBeNull();
+    recordAutomaticProbe(key, verdict("expired"));
+    expect(autoProbeRetryDelayMs(key, now + AUTO_PROBE_FLOOR_MS + 1)).toBeNull();
+  });
+
+  it("is the time left on the floor while it is suppressing", () => {
+    const key = "u|org|org:github:retry";
+    recordAutomaticProbe(key, verdict("expired"));
+    const delay = autoProbeRetryDelayMs(key, Date.now() + 10_000);
+    expect(delay).not.toBeNull();
+    expect(delay!).toBeGreaterThan(AUTO_PROBE_FLOOR_MS - 10_000 - 50);
+    expect(delay!).toBeLessThanOrEqual(AUTO_PROBE_FLOOR_MS - 10_000);
   });
 });
