@@ -1,9 +1,8 @@
 // ---------------------------------------------------------------------------
 // Focused tests — the WorkOS login callback's CSRF gate.
 //
-// The callback's CSRF check must be unconditional: no state ⇒ 400 before any
-// WorkOS call; a replayed (already consumed) state ⇒ 400; a fresh state
-// matching the cookie ⇒ 302 + session.
+// Codes without state restart login without a WorkOS exchange; a replayed
+// state still fails with 400; a fresh state matching the cookie issues a session.
 //
 // Test seams follow repo conventions: @effect/vitest, Layer.succeed stubs
 // (see org-selector-auth.node.test.ts), and HttpRouter.toWebHandler for the
@@ -38,12 +37,14 @@ const stubWorkOS = Layer.succeed(
   new Proxy({} as WorkOSClientService, {
     get: (_t, prop) => {
       if (prop === "authenticateWithCode") {
-        return () =>
-          Effect.succeed({
-            user: { id: STUB_USER_ID, email: "u@test" },
-            organizationId: STUB_ORG_ID,
-            sealedSession: STUB_SESSION,
-          });
+        return (code: string) =>
+          code === "unbound-code"
+            ? Effect.die("An unbound authorization code must never be exchanged")
+            : Effect.succeed({
+                user: { id: STUB_USER_ID, email: "u@test" },
+                organizationId: STUB_ORG_ID,
+                sealedSession: STUB_SESSION,
+              });
       }
       if (prop === "listUserMemberships") {
         return () => Effect.succeed({ data: [] });
@@ -128,20 +129,30 @@ describe("workos callback · CSRF state hardening", () => {
     });
   }
 
-  it("rejects a callback with NO state (the former bypass) before any WorkOS call", async () => {
-    const res = await run(new Request(callbackUrl(undefined), { redirect: "manual" }));
-    expect(res.status).toBe(400);
-    expect(await res.text()).toContain("Invalid login state");
+  it("restarts login without exchanging a code that has no state", async () => {
+    const res = await run(
+      new Request(callbackUrl(undefined, "unbound-code"), { redirect: "manual" }),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/api/auth/login");
     expect(res.headers.get("set-cookie") ?? "").not.toContain(SESSION_COOKIE);
   });
 
-  it("rejects missing state even when the browser has a login cookie", async () => {
+  it("discards an existing login cookie when restarting a callback without state", async () => {
     const res = await run(
-      new Request(callbackUrl(undefined), {
+      new Request(callbackUrl(undefined, "unbound-code"), {
         headers: { cookie: `${STATE_COOKIE}=victim-login-state` },
         redirect: "manual",
       }),
     );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/api/auth/login");
+    expect(res.headers.get("set-cookie")).toContain(`${STATE_COOKIE}=; Max-Age=0`);
+    expect(res.headers.get("set-cookie") ?? "").not.toContain(SESSION_COOKIE);
+  });
+
+  it("rejects empty state instead of treating it as a provider-initiated login", async () => {
+    const res = await run(new Request(`${callbackUrl(undefined, "unbound-code")}&state=`));
     expect(res.status).toBe(400);
     expect(await res.text()).toBe("Invalid login state");
     expect(res.headers.get("set-cookie") ?? "").not.toContain(SESSION_COOKIE);

@@ -188,14 +188,19 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
         Effect.gen(function* () {
           const workos = yield* WorkOSClient;
           const users = yield* UserStoreService;
+          // Hosted invitations can start at WorkOS without app-issued state.
+          // Discard that unbound code and start a fresh browser-bound login.
+          // Exchanging it here would allow login CSRF.
+          if (query.state === undefined) {
+            return deleteResponseCookie(
+              HttpServerResponse.redirect(AUTH_PATHS.login, { status: 302 }),
+              STATE_COOKIE,
+            );
+          }
+
           const cookieState = request.cookies[STATE_COOKIE] ?? null;
-          // CSRF is unconditional: every callback must carry a state that
-          // matches the cookie set on /login. There is no legitimate
-          // no-state entry path — omitting state previously allowed an
-          // attacker to complete their own OAuth round-trip and redirect a
-          // victim's browser through this callback, signing the victim into
-          // the attacker's account (login CSRF).
-          if (!cookieState || !timingSafeEqual(cookieState, query.state ?? "")) {
+          // Only exchange codes bound to the state cookie set on /login.
+          if (!cookieState || !timingSafeEqual(cookieState, query.state)) {
             return deleteResponseCookie(
               HttpServerResponse.text("Invalid login state", { status: 400 }),
               STATE_COOKIE,
