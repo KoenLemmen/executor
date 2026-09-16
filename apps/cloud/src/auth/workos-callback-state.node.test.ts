@@ -57,12 +57,25 @@ const stubWorkOS = Layer.succeed(
   }),
 );
 
+// A bare account row, as `ensureAccount` mints it before any WorkOS profile
+// has been mirrored onto it.
+const bareAccount = (id: string) => ({
+  id,
+  email: null,
+  firstName: null,
+  lastName: null,
+  avatarUrl: null,
+  workosUpdatedAt: null,
+  lastSignInAt: null,
+  createdAt: new Date(),
+});
+
 const stubUsers = Layer.succeed(UserStoreService)({
   use: (_op, fn) =>
     Effect.promise(() =>
       fn({
-        ensureAccount: async (id: string) => ({ id, createdAt: new Date() }),
-        getAccount: async (id: string) => ({ id, createdAt: new Date() }),
+        ensureAccount: async (id: string) => bareAccount(id),
+        getAccount: async (id: string) => bareAccount(id),
         upsertOrganization: async (org: { id: string; name: string }) => ({
           ...org,
           slug: org.id,
