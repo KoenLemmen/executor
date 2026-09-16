@@ -145,12 +145,16 @@ export function shouldAutoProbe(
   now: number = Date.now(),
 ): boolean {
   const remembered = automaticProbeMemory.get(key);
-  // A persisted verdict of `null` next to a remembered one means the grant
-  // was re-minted (an OAuth reconnect clears `last_health`) since that probe.
-  // The hooks catch this transition while mounted; this catches it when the
-  // reconnect landed while the row was UNMOUNTED — a remount inside the floor
-  // must still fire the recovery probe, not keep the pre-reconnect verdict.
-  if (persisted === null && remembered !== undefined) {
+  // A persisted verdict of `null` next to a remembered REAL verdict means
+  // the grant was re-minted (an OAuth reconnect clears `last_health`) since
+  // that probe. The hooks catch this transition while mounted; this catches
+  // it when the reconnect landed while the row was UNMOUNTED — a remount
+  // inside the floor must still fire the recovery probe, not keep the
+  // pre-reconnect verdict. `unknown` is excluded on purpose: the server never
+  // persists a no-capability probe, so for such a connection `null` next to a
+  // remembered `unknown` is the steady state, not a clearing — treating it as
+  // one would re-probe on every remount, the storm this memory exists to end.
+  if (persisted === null && remembered !== undefined && remembered.result.status !== "unknown") {
     automaticProbeMemory.delete(key);
     return true;
   }

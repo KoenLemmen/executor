@@ -136,7 +136,7 @@ export const closePostgresAfter = (
     ? closePostgres(sql)
     : Effect.sync(() =>
         extend(
-          Promise.allSettled(retained).then(() =>
+          drainRetained(retained).then(() =>
             sql.end({ timeout: POSTGRES_END_TIMEOUT_SECONDS }).then(
               () => undefined,
               () => undefined,
@@ -144,6 +144,23 @@ export const closePostgresAfter = (
           ),
         ),
       );
+
+/**
+ * Settle every retained promise, INCLUDING ones registered while earlier
+ * ones were still settling. Retained work can register more retained work —
+ * a stale-catalog scan that runs past its grace deadline registers each
+ * expired rebuild it discovers — so a single `Promise.allSettled` snapshot
+ * would let the socket close under a rebuild registered after the snapshot.
+ * Re-check the list after each round until it stops growing.
+ */
+const drainRetained = async (retained: ReadonlyArray<Promise<unknown>>): Promise<void> => {
+  let settled = 0;
+  while (settled < retained.length) {
+    const round = retained.slice(settled);
+    settled = retained.length;
+    await Promise.allSettled(round);
+  }
+};
 
 const makePostgresResource = (extend: (work: Promise<unknown>) => void = waitUntil): DbResource => {
   const sql = makeSql();

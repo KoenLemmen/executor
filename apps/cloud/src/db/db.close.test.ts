@@ -152,6 +152,44 @@ describe("closePostgresAfter", () => {
     }),
   );
 
+  it.live("keeps waiting for work retained while earlier retained work was settling", () =>
+    Effect.gen(function* () {
+      // A stale-catalog scan past its grace deadline registers each expired
+      // rebuild AFTER the scope finalizer already handed the close off. The
+      // close must not fire until those late registrations settle too.
+      const order: string[] = [];
+      const retained: Promise<unknown>[] = [];
+      let releaseLate!: () => void;
+      const late = new Promise<void>((resolve) => {
+        releaseLate = () => {
+          order.push("late-settled");
+          resolve();
+        };
+      });
+      const early = Promise.resolve().then(() => {
+        order.push("early-settled");
+        retained.push(late);
+      });
+      retained.push(early);
+      const fakeSql = {
+        end: () => {
+          order.push("end-called");
+          return Promise.resolve();
+        },
+      };
+      const extended: Promise<unknown>[] = [];
+      yield* closePostgresAfter(fakeSql, retained, (work) => void extended.push(work));
+      // Let the early work settle and register the late work.
+      yield* Effect.promise(() => early);
+      yield* Effect.sleep("10 millis");
+      expect(order).toEqual(["early-settled"]);
+
+      releaseLate();
+      yield* Effect.promise(() => extended[0]!);
+      expect(order).toEqual(["early-settled", "late-settled", "end-called"]);
+    }),
+  );
+
   it.effect("closes even when the retained work fails", () =>
     Effect.gen(function* () {
       let ended = 0;
