@@ -328,7 +328,14 @@ export function useConnectionHealth(connection: Connection): {
     // freshness window, not the floor, is what suppressed it).
     const delay = autoProbeRetryDelayMs(key);
     if (delay === null) return;
+    // The decision is NOT final while the timer is pending: roll the epoch
+    // back to "unseen" so an effect rerun (a new `connection` identity from a
+    // list refetch, a scope change) that cancels this timer re-enters the
+    // decision above and re-arms it, instead of treating the epoch as already
+    // handled and leaving the row suppressed until the next remount.
+    seenEpoch.current = undefined;
     const timer = setTimeout(() => {
+      seenEpoch.current = epoch;
       if (shouldAutoProbe(key, last)) probe();
     }, delay);
     return () => clearTimeout(timer);
@@ -433,11 +440,16 @@ export function useConnectionsHealth(
         probe();
         continue;
       }
-      // Same bounded suppression as the single-connection hook.
+      // Same bounded suppression as the single-connection hook, and the same
+      // rule for a pending timer: the row is NOT yet considered for this
+      // epoch, so a rerun (the list re-merging as owners' rows arrive) that
+      // clears the timers re-enters the decision and re-arms it.
       const delay = autoProbeRetryDelayMs(memoryKey);
       if (delay === null) continue;
+      revalidated.current.delete(key);
       timers.push(
         setTimeout(() => {
+          revalidated.current.set(key, epoch);
           if (shouldAutoProbe(memoryKey, last)) probe();
         }, delay),
       );
