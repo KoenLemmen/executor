@@ -268,6 +268,16 @@ describe("createCachedRemoteJWKSet", () => {
     expect(second.inspect().blockingFetchCount).toBe(0);
   });
 
+  it("a cold isolate with no store entry and a dead upstream fails, and counts the wait", async () => {
+    const kp = await generateRotatableKeypair("k1");
+    const store = makeStoreHarness();
+    const cold = createCachedRemoteJWKSet(jwksUrl, { fetch: failingFetch, store });
+    const token = await sign(kp);
+    await expect(jwtVerify(token, cold, { issuer, audience })).rejects.toThrow();
+    expect(cold.inspect().blockingFetchCount).toBe(1);
+    expect(cold.inspect().storeHitCount).toBe(0);
+  });
+
   it("keeps serving the last good keys when the key server is down", async () => {
     const kp = await generateRotatableKeypair("k1");
     const harness = makeFetchHarness([kp.publicJwk]);

@@ -1,10 +1,19 @@
 import { beforeEach, describe, expect, it } from "@effect/vitest";
-import type { HealthCheckResult } from "@executor-js/sdk/shared";
+import {
+  AuthTemplateSlug,
+  ConnectionAddress,
+  ConnectionName,
+  IntegrationSlug,
+  ProviderKey,
+  type Connection,
+  type HealthCheckResult,
+} from "@executor-js/sdk/shared";
 
 import {
   AUTO_PROBE_FLOOR_MS,
   HEALTH_REVALIDATE_MS,
   clearAutomaticProbeMemory,
+  probeMemoryKey,
   recordAutomaticProbe,
   resetAutomaticProbeMemoryForTest,
   revalidateQuery,
@@ -15,6 +24,17 @@ const verdict = (status: HealthCheckResult["status"]): HealthCheckResult => ({
   status,
   checkedAt: Date.now(),
 });
+
+const githubDefault: Connection = {
+  owner: "org",
+  name: ConnectionName.make("default"),
+  integration: IntegrationSlug.make("github"),
+  template: AuthTemplateSlug.make("default"),
+  provider: ProviderKey.make("default"),
+  address: ConnectionAddress.make("tools.github.org.default"),
+  identityLabel: null,
+  expiresAt: null,
+};
 
 describe("revalidateQuery", () => {
   it("defers a healthy verdict to the server-enforced freshness window", () => {
@@ -95,7 +115,7 @@ describe("shouldAutoProbe", () => {
     recordAutomaticProbe(key, { status: "healthy", checkedAt: now });
 
     expect(
-      shouldAutoProbe(key, null, now + AUTO_PROBE_FLOOR_MS + 1),
+      shouldAutoProbe(key, { status: "healthy", checkedAt: now }, now + AUTO_PROBE_FLOOR_MS + 1),
       "a fresh healthy verdict must not probe just because the floor elapsed",
     ).toBe(false);
   });
@@ -109,6 +129,25 @@ describe("shouldAutoProbe", () => {
       shouldAutoProbe(key, null, now + HEALTH_REVALIDATE_MS + 1),
       "a healthy verdict must revalidate once it goes stale",
     ).toBe(true);
+  });
+
+  it("re-arms when the persisted verdict was cleared while unmounted, inside the floor", () => {
+    // An OAuth reconnect clears `last_health` server-side. If that landed
+    // while the row was unmounted, the remount's first sight sees `null`
+    // against a remembered pre-reconnect verdict: that IS the clearing
+    // transition, and it must fire the recovery probe despite the floor.
+    const key = "u|org|org:github:default";
+    recordAutomaticProbe(key, verdict("expired"));
+    expect(shouldAutoProbe(key, null, Date.now() + 1_000)).toBe(true);
+  });
+
+  it("keys the memory by identity, so two orgs' same-named connections do not collide", () => {
+    const a = probeMemoryKey("user_1|org_a", githubDefault);
+    const b = probeMemoryKey("user_1|org_b", githubDefault);
+    expect(a).not.toBe(b);
+    recordAutomaticProbe(a, verdict("healthy"));
+    expect(shouldAutoProbe(a, verdict("healthy"))).toBe(false);
+    expect(shouldAutoProbe(b, verdict("expired"))).toBe(true);
   });
 
   it("re-arms immediately once the entry is cleared, ignoring the floor", () => {

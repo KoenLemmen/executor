@@ -14,7 +14,7 @@
 // Migrations are run out-of-band (e.g. via a separate script or CI step),
 // not at request time — Cloudflare Workers cannot read the filesystem.
 
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { Context, Effect, Layer } from "effect";
 import { drizzle } from "drizzle-orm/postgres-js";
 import type { PgDatabase } from "drizzle-orm/pg-core";
@@ -34,6 +34,16 @@ export type DrizzleDb = PgDatabase<any, any, any>;
 export type DbServiceShape = {
   readonly sql?: Sql;
   readonly db: DrizzleDb;
+  /**
+   * Keep this request's driver open until `work` settles. The socket is
+   * request-scoped (see `closePostgres`), so background work an executor
+   * detaches from the request — a stale tool-catalog re-list that lands after
+   * the read answered — would otherwise persist into an already-ended pool
+   * and fail. Retained work defers the close (handed to the platform
+   * `waitUntil`, which keeps the invocation alive) instead of delaying the
+   * response; see `closePostgresAfter`.
+   */
+  readonly keepAlive?: (work: Promise<unknown>) => void;
 };
 
 type DbResource = DbServiceShape & {
@@ -108,12 +118,43 @@ export const closePostgres = (sql: Pick<Sql, "end">): Effect.Effect<void> =>
     }),
   );
 
-const makePostgresResource = (): DbResource => {
+/**
+ * Close a postgres pool once every retained piece of background work has
+ * settled. With nothing retained this IS `closePostgres` (awaited, in the
+ * request scope). With retained work the close cannot be awaited there — that
+ * would hold the response until the background work finished, which is the
+ * exact cost the work was detached to avoid — so the teardown is handed to
+ * `extend` (the platform `waitUntil`) to run after the response, still inside
+ * this request's I/O context, and the scope finalizer returns immediately.
+ */
+export const closePostgresAfter = (
+  sql: Pick<Sql, "end">,
+  retained: ReadonlyArray<Promise<unknown>>,
+  extend: (work: Promise<unknown>) => void,
+): Effect.Effect<void> =>
+  retained.length === 0
+    ? closePostgres(sql)
+    : Effect.sync(() =>
+        extend(
+          Promise.allSettled(retained).then(() =>
+            sql.end({ timeout: POSTGRES_END_TIMEOUT_SECONDS }).then(
+              () => undefined,
+              () => undefined,
+            ),
+          ),
+        ),
+      );
+
+const makePostgresResource = (extend: (work: Promise<unknown>) => void = waitUntil): DbResource => {
   const sql = makeSql();
+  const retained: Promise<unknown>[] = [];
   return {
     sql,
     db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb,
-    close: () => closePostgres(sql),
+    keepAlive: (work) => {
+      retained.push(work);
+    },
+    close: () => closePostgresAfter(sql, retained, extend),
   };
 };
 

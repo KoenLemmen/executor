@@ -398,6 +398,10 @@ export const createCachedRemoteJWKSet = (
       return upstream.entry;
     }
     if (stored) return adoptFromStore(stored);
+    // The caller waited on the upstream and it failed: that is a blocking
+    // fetch too, so `jwks.fetched_during_verify` stays honest on the failure
+    // path the attribute exists to explain.
+    blockingFetchCount += 1;
     // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: nothing usable anywhere, so the upstream failure is the real answer
     throw upstream.error;
   };

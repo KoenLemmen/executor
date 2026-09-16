@@ -327,26 +327,24 @@ export const workosAccountProvider: Layer.Layer<
           // ONCE here and shared instead of twice.
           //
           // Failure semantics differ per branch, so each branch is captured
-          // with `Effect.either` rather than left to fail the whole
-          // `Effect.all`: a `listOrgMembers` failure must still surface as an
-          // AccountError for the members list (unchanged from before); an
-          // Autumn or `listPendingInvitations` failure must only degrade
-          // seats to their safe defaults — never blank the page over a
-          // transient hiccup, exactly as `getMemberSeats`'s own `catchCause`
-          // fallback did before. The real cap gate lives in
-          // `reserveMemberSlot`, which fails closed.
-          const [membershipsResult, seatInputsResult] = yield* Effect.all(
+          // separately rather than left to fail the whole `Effect.all`: a
+          // `listOrgMembers` failure must still surface as an AccountError for
+          // the members list (unchanged from before); an Autumn or
+          // `listPendingInvitations` failure — error OR defect, exactly the
+          // `catchCause` fallback `getMemberSeats` had before — must only
+          // degrade seats to their safe defaults, never blank the page over a
+          // transient hiccup. The real cap gate lives in `reserveMemberSlot`,
+          // which fails closed.
+          const [membershipsResult, seatInputs] = yield* Effect.all(
             [
               Effect.result(workos.listOrgMembers(org.id)),
-              Effect.result(
-                Effect.all(
-                  [
-                    autumn.use((client) => client.customers.getOrCreate({ customerId: org.id })),
-                    workos.listPendingInvitations(org.id),
-                  ],
-                  { concurrency: "unbounded" },
-                ),
-              ),
+              Effect.all(
+                [
+                  autumn.use((client) => client.customers.getOrCreate({ customerId: org.id })),
+                  workos.listPendingInvitations(org.id),
+                ],
+                { concurrency: "unbounded" },
+              ).pipe(Effect.catchCause(() => Effect.succeed(null))),
             ],
             { concurrency: "unbounded" },
           );
@@ -356,13 +354,10 @@ export const workosAccountProvider: Layer.Layer<
           }
           const memberships = membershipsResult.success;
 
-          const seats = Result.isSuccess(seatInputsResult)
-            ? seatsFrom(
-                memberships,
-                seatInputsResult.success[1].data.length,
-                seatInputsResult.success[0].subscriptions,
-              )
-            : { used: 0, granted: 0, unlimited: false };
+          const seats =
+            seatInputs === null
+              ? { used: 0, granted: 0, unlimited: false }
+              : seatsFrom(memberships, seatInputs[1].data.length, seatInputs[0].subscriptions);
 
           const members = yield* Effect.all(
             memberships.data.map((m: (typeof memberships.data)[number]) =>

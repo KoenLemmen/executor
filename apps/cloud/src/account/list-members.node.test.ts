@@ -140,18 +140,21 @@ const stubApiKeys = Layer.succeed(ApiKeyService)({
   revokeOrgKey: () => Effect.die("listMembers does not touch api keys"),
 });
 
-/** Autumn stub whose `getOrCreate` either succeeds with a plan or fails. */
-const stubAutumn = (mode: "ok" | "fail") =>
+/** Autumn stub whose `getOrCreate` succeeds with a plan, fails as a typed
+ *  error, or dies (a defect — the SDK throwing something untyped). */
+const stubAutumn = (mode: "ok" | "fail" | "die") =>
   Layer.succeed(AutumnService)({
     use: <A>(fn: (client: Autumn) => Promise<A>) =>
-      mode === "fail"
-        ? Effect.fail(new AutumnError({ message: "autumn unreachable" }))
-        : Effect.promise(() =>
-            fn(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test stub narrows the SDK client to what getMemberSeats actually calls
-              { customers: { getOrCreate: async () => ({ subscriptions: [] }) } } as any,
+      mode === "die"
+        ? Effect.die("autumn sdk threw")
+        : mode === "fail"
+          ? Effect.fail(new AutumnError({ message: "autumn unreachable" }))
+          : Effect.promise(() =>
+              fn(
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test stub narrows the SDK client to what getMemberSeats actually calls
+                { customers: { getOrCreate: async () => ({ subscriptions: [] }) } } as any,
+              ),
             ),
-          ),
     ensureCustomer: () => Effect.void,
     checkExecutionBalance: () => Effect.die("listMembers does not check execution balance"),
     trackExecution: () => Effect.void,
@@ -160,7 +163,7 @@ const stubAutumn = (mode: "ok" | "fail") =>
 
 const providerWith = (
   members: ReadonlyArray<ReturnType<typeof membership>>,
-  autumnMode: "ok" | "fail",
+  autumnMode: "ok" | "fail" | "die",
 ) => {
   const { layer: workosLayer, calls } = stubWorkOS(members);
   const provider = AccountProvider.asEffect().pipe(
@@ -207,6 +210,18 @@ describe("listMembers · provider boundary", () => {
       expect(calls.listOrgMembers, "still only one shared fetch despite the Autumn failure").toBe(
         1,
       );
+    }),
+  );
+
+  it.effect("an Autumn DEFECT also degrades seats to defaults (the old catchCause contract)", () =>
+    Effect.gen(function* () {
+      const { provider } = providerWith([membership(USER)], "die");
+      const account = yield* provider;
+
+      const result = yield* account.listMembers(orgHeaders);
+
+      expect(result.members).toHaveLength(1);
+      expect(result.seats).toEqual({ used: 0, granted: 0, unlimited: false });
     }),
   );
 

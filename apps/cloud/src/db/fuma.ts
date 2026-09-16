@@ -57,7 +57,7 @@ export const cloudDbProviderLayer = (
   tables: FumaTables,
 ): Layer.Layer<DbProvider, never, DbService> =>
   Layer.effect(DbProvider)(
-    Effect.map(DbService.asEffect(), ({ db }): ExecutorDbHandle => {
+    Effect.map(DbService.asEffect(), ({ db, keepAlive }): ExecutorDbHandle => {
       const fuma = createDrizzleFumaDb({
         db,
         tables,
@@ -68,6 +68,10 @@ export const cloudDbProviderLayer = (
         db: fuma.db,
         fuma: fuma.fuma,
         close: async () => {},
+        // Background work the executor detaches from a read (stale catalog
+        // re-lists) must not outlive the request's socket: retaining it here
+        // defers `DbService`'s close past it. See `DbServiceShape.keepAlive`.
+        ...(keepAlive === undefined ? {} : { keepAlive }),
         // Plugin blobs (multi-MB resolved specs) live in R2, not Postgres.
         // Guarded because test workers / local dev may run without the
         // binding — the executor then falls back to the FumaDB `blob` table.

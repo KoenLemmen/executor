@@ -12,7 +12,9 @@ import * as Exit from "effect/Exit";
 import type { Connection, HealthCheckResult, HealthStatus, Owner } from "@executor-js/sdk/shared";
 
 import { checkConnectionHealth, connectionsOptimisticAtom } from "../api/atoms";
+import { useOrganizationId } from "../api/organization-context";
 import { connectionCheckKeys } from "../api/reactivity-keys";
+import { useAuth, type AuthState } from "../multiplayer/auth-context";
 
 /** Freshness window for automatic revalidation: a HEALTHY verdict younger
  *  than this renders as-is; anything else (stale, missing, or non-healthy)
@@ -26,6 +28,10 @@ const connectionParams = (connection: Connection) => ({
   name: connection.name,
 });
 
+/** Identity of a connection within the current scope. `owner` is only
+ *  `"org"`/`"user"`, so on its own two organizations' `org:github:default`
+ *  rows are the same key — the module memory below must therefore be
+ *  partitioned by the active identity as well; see `probeScope`. */
 const probeKey = (connection: Connection): string =>
   `${connection.owner}:${connection.integration}:${connection.name}`;
 
@@ -98,6 +104,21 @@ const automaticProbeMemory = new Map<
   { readonly at: number; readonly result: HealthCheckResult }
 >();
 
+/** The identity partition of the module memory: the signed-in user and the
+ *  active organization. A connection row's own key (`probeKey`) does not
+ *  carry either — `owner` is only `"org"`/`"user"` — so without this an org
+ *  switch in the same tab would read the previous org's remembered verdict
+ *  for a same-named connection. Hosts without an org (local, desktop) and
+ *  the loading/unauthenticated states fall into a single default partition,
+ *  which on those hosts IS one identity. */
+const probeScope = (auth: AuthState, organizationId: string | null): string =>
+  auth.status === "authenticated" ? `${auth.user.id}|${organizationId ?? ""}` : "";
+
+/** Memory key for a connection under an identity partition. Exported so the
+ *  decision logic is testable without rendering the hooks. */
+export const probeMemoryKey = (scope: string, connection: Connection): string =>
+  `${scope}|${probeKey(connection)}`;
+
 /** How long a remembered automatic probe blocks another automatic probe for
  *  the same connection, regardless of verdict. A non-healthy verdict must
  *  still eventually re-probe so recovery can show (see `revalidateQuery`),
@@ -124,6 +145,15 @@ export function shouldAutoProbe(
   now: number = Date.now(),
 ): boolean {
   const remembered = automaticProbeMemory.get(key);
+  // A persisted verdict of `null` next to a remembered one means the grant
+  // was re-minted (an OAuth reconnect clears `last_health`) since that probe.
+  // The hooks catch this transition while mounted; this catches it when the
+  // reconnect landed while the row was UNMOUNTED — a remount inside the floor
+  // must still fire the recovery probe, not keep the pre-reconnect verdict.
+  if (persisted === null && remembered !== undefined) {
+    automaticProbeMemory.delete(key);
+    return true;
+  }
   const freshest = freshestVerdict(remembered?.result ?? null, persisted);
   if (healthyAndFresh(freshest, now)) return false;
   if (remembered !== undefined && now - remembered.at < AUTO_PROBE_FLOOR_MS) return false;
@@ -193,8 +223,9 @@ export function useConnectionHealth(connection: Connection): {
   // key and can remount this row) would render the OLDER persisted verdict
   // until the background probe resolves, even though we already know the
   // last automatic probe's result.
+  const scope = probeScope(useAuth(), useOrganizationId());
   const [liveProbe, setLiveProbe] = useState<HealthCheckResult | null>(
-    () => automaticProbeMemory.get(probeKey(connection))?.result ?? null,
+    () => automaticProbeMemory.get(probeMemoryKey(scope, connection))?.result ?? null,
   );
   const doCheck = useAtomSet(checkConnectionHealth, { mode: "promiseExit" });
   const invalidateConnections = useInvalidateConnections();
@@ -223,7 +254,7 @@ export function useConnectionHealth(connection: Connection): {
     const cleared = epoch === null && seenEpoch.current !== null && !firstSight;
     seenEpoch.current = epoch;
     if (!firstSight && !cleared) return;
-    const key = probeKey(connection);
+    const key = probeMemoryKey(scope, connection);
     if (cleared) clearAutomaticProbeMemory(key);
     if (!shouldAutoProbe(key, last)) return;
     void doCheck({
@@ -244,7 +275,7 @@ export function useConnectionHealth(connection: Connection): {
         invalidateConnections(connection.owner);
       }
     });
-  }, [connection, doCheck, invalidateConnections]);
+  }, [connection, doCheck, invalidateConnections, scope]);
 
   const runCheck = useCallback(async () => {
     // Manual "Check now": invalidate the connections cache unconditionally so
@@ -259,12 +290,12 @@ export function useConnectionHealth(connection: Connection): {
       reactivityKeys: connectionCheckKeys,
     });
     if (Exit.isSuccess(exit)) {
-      recordAutomaticProbe(probeKey(connection), exit.value);
+      recordAutomaticProbe(probeMemoryKey(scope, connection), exit.value);
       seenEpoch.current = exit.value.checkedAt;
       setLiveProbe(exit.value);
     }
     return exit;
-  }, [connection, doCheck]);
+  }, [connection, doCheck, scope]);
 
   return { probe, status, runCheck };
 }
@@ -285,10 +316,11 @@ export function useConnectionsHealth(
   // a remount must show the last automatic probe's verdict, not fall back to
   // the older persisted one while a new probe is (or isn't, thanks to
   // `shouldAutoProbe`) in flight.
+  const scope = probeScope(useAuth(), useOrganizationId());
   const [liveProbes, setLiveProbes] = useState<ReadonlyMap<string, HealthCheckResult>>(() => {
     const seeded = new Map<string, HealthCheckResult>();
     for (const connection of connections) {
-      const remembered = automaticProbeMemory.get(probeKey(connection));
+      const remembered = automaticProbeMemory.get(probeMemoryKey(scope, connection));
       if (remembered) seeded.set(probeKey(connection), remembered.result);
     }
     return seeded;
@@ -315,8 +347,9 @@ export function useConnectionsHealth(
       if (!firstSight && previousEpoch === epoch) continue;
       const cleared = !firstSight && previousEpoch !== null && epoch === null;
       revalidated.current.set(key, epoch);
-      if (cleared) clearAutomaticProbeMemory(key);
-      if (!shouldAutoProbe(key, last)) continue;
+      const memoryKey = probeMemoryKey(scope, connection);
+      if (cleared) clearAutomaticProbeMemory(memoryKey);
+      if (!shouldAutoProbe(memoryKey, last)) continue;
       void doCheck({
         params: connectionParams(connection),
         query: revalidateQuery(last),
@@ -327,7 +360,7 @@ export function useConnectionsHealth(
         // invalidate the connections cache only when the verdict changed so an
         // unchanged reconfirm never churns the cache.
         if (!Exit.isSuccess(exit)) return;
-        recordAutomaticProbe(key, exit.value);
+        recordAutomaticProbe(memoryKey, exit.value);
         revalidated.current.set(key, exit.value.checkedAt);
         setLiveProbes((current) => new Map(current).set(key, exit.value));
         if (exit.value.status !== (last?.status ?? "unknown")) {
@@ -335,7 +368,7 @@ export function useConnectionsHealth(
         }
       });
     }
-  }, [connections, doCheck, invalidateConnections]);
+  }, [connections, doCheck, invalidateConnections, scope]);
 
   return useCallback(
     (connection: Connection) =>

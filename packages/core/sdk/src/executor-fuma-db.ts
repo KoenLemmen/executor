@@ -114,4 +114,13 @@ export interface ExecutorDbHandle<
    * `blob` table over `db`.
    */
   readonly blobs?: BlobStore;
+  /**
+   * Keep this handle's driver open until `work` settles. Hosts whose driver
+   * is REQUEST-scoped (cloud: one postgres socket per request) supply it so
+   * background work the executor detaches from a request — a stale tool
+   * catalog re-list that lands after the read answered — can still persist.
+   * `makeScopedExecutor` folds it into `ExecutorConfig.waitUntil`. Hosts with
+   * a long-lived driver omit it.
+   */
+  readonly keepAlive?: (work: Promise<unknown>) => void;
 }

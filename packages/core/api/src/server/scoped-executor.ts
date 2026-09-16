@@ -50,7 +50,7 @@ import {
   touchSubject,
 } from "@executor-js/sdk/host-internal";
 
-import { DbProvider } from "./executor-fuma-db";
+import { DbProvider, type ExecutorDbHandle } from "./executor-fuma-db";
 
 // ---------------------------------------------------------------------------
 // HostConfig seam — the two host scalars that vary the `createExecutor` options.
@@ -246,6 +246,26 @@ export class PluginsProvider extends Context.Service<PluginsProvider, PluginsPro
 // The default keeps the un-narrowed `Executor` for hosts that don't care.
 // ---------------------------------------------------------------------------
 
+/**
+ * The executor's `waitUntil`: the host's platform keep-alive AND the DB
+ * handle's own `keepAlive`, when the driver is request-scoped. Both must see
+ * every detached piece of work — the platform one so the invocation stays
+ * alive, the handle's so the socket the work will write through is not closed
+ * under it by the request scope's finalizer.
+ */
+const composeWaitUntil = (
+  handle: Pick<ExecutorDbHandle, "keepAlive">,
+  config: Pick<HostConfigShape, "waitUntil">,
+): ((work: Promise<unknown>) => void) | undefined => {
+  const keepAlive = handle.keepAlive;
+  const platform = config.waitUntil;
+  if (keepAlive === undefined) return platform;
+  return (work) => {
+    keepAlive(work);
+    platform?.(work);
+  };
+};
+
 export const makeScopedExecutor = <
   const TPlugins extends readonly AnyPlugin[] = readonly AnyPlugin[],
 >(
@@ -264,9 +284,11 @@ export const makeScopedExecutor = <
   },
 ): Effect.Effect<Executor<TPlugins>, StorageFailure, DbProvider | PluginsProvider | HostConfig> =>
   Effect.gen(function* () {
-    const { db, blobs } = yield* DbProvider.asEffect();
+    const dbHandle = yield* DbProvider.asEffect();
+    const { db, blobs } = dbHandle;
     const { plugins: pluginsFactory } = yield* PluginsProvider.asEffect();
     const config = yield* HostConfig.asEffect();
+    const waitUntil = composeWaitUntil(dbHandle, config);
     // Explicit config wins; otherwise fall back to the request origin if a host
     // provided one (HTTP middleware / MCP session DO). Stays `undefined` for
     // non-request callers — `coreTools.webBaseUrl` is optional and only the
@@ -323,7 +345,7 @@ export const makeScopedExecutor = <
       fetch: hostedFetch,
       onIntegrationChange: config.onIntegrationChange,
       ...(config.toolsSyncTtlMs !== undefined ? { toolsSyncTtlMs: config.toolsSyncTtlMs } : {}),
-      ...(config.waitUntil !== undefined ? { waitUntil: config.waitUntil } : {}),
+      ...(waitUntil !== undefined ? { waitUntil } : {}),
       onElicitation: "accept-all",
       ...(options?.orgWrites === undefined ? {} : { orgWrites: options.orgWrites }),
       redirectUri,

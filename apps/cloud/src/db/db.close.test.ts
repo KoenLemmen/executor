@@ -21,7 +21,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 
-import { POSTGRES_END_TIMEOUT_SECONDS, closePostgres } from "./db";
+import { POSTGRES_END_TIMEOUT_SECONDS, closePostgres, closePostgresAfter } from "./db";
 
 describe("closePostgres", () => {
   it.effect("passes a non-zero drain window to sql.end (clean Terminate, not abandon)", () =>
@@ -104,6 +104,64 @@ describe("closePostgres", () => {
       };
       const exit = yield* Effect.exit(closePostgres(fakeSql));
       expect(Exit.isSuccess(exit)).toBe(true);
+    }),
+  );
+});
+
+describe("closePostgresAfter", () => {
+  it.effect("with nothing retained, closes in the scope like closePostgres", () =>
+    Effect.gen(function* () {
+      let ended = 0;
+      const fakeSql = { end: () => Promise.resolve(void (ended += 1)) };
+      const extended: Promise<unknown>[] = [];
+      yield* closePostgresAfter(fakeSql, [], (work) => void extended.push(work));
+      expect(ended).toBe(1);
+      expect(extended).toHaveLength(0);
+    }),
+  );
+
+  it.effect("with retained work, returns immediately and closes only after it settles", () =>
+    Effect.gen(function* () {
+      // The bug this pins: a read detaches a stale catalog re-list, answers,
+      // and the request scope closes the socket. The re-list then persists
+      // into an ended pool. Retained work must keep the socket open past the
+      // scope finalizer, and the finalizer itself must not wait on it.
+      const order: string[] = [];
+      let release!: () => void;
+      const retained = new Promise<void>((resolve) => {
+        release = () => {
+          order.push("work-settled");
+          resolve();
+        };
+      });
+      const fakeSql = {
+        end: () => {
+          order.push("end-called");
+          return Promise.resolve();
+        },
+      };
+      const extended: Promise<unknown>[] = [];
+      yield* closePostgresAfter(fakeSql, [retained], (work) => void extended.push(work));
+      order.push("finalizer-returned");
+      expect(order).toEqual(["finalizer-returned"]);
+      expect(extended).toHaveLength(1);
+
+      release();
+      yield* Effect.promise(() => extended[0]!);
+      expect(order).toEqual(["finalizer-returned", "work-settled", "end-called"]);
+    }),
+  );
+
+  it.effect("closes even when the retained work fails", () =>
+    Effect.gen(function* () {
+      let ended = 0;
+      const fakeSql = { end: () => Promise.resolve(void (ended += 1)) };
+      const extended: Promise<unknown>[] = [];
+      // oxlint-disable-next-line executor/no-promise-reject -- test fake: model a rejected background rebuild
+      const failed = Promise.reject("rebuild failed");
+      yield* closePostgresAfter(fakeSql, [failed], (work) => void extended.push(work));
+      yield* Effect.promise(() => extended[0]!);
+      expect(ended).toBe(1);
     }),
   );
 });
