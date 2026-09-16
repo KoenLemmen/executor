@@ -1,33 +1,30 @@
 // ---------------------------------------------------------------------------
-// Mirror READINESS: whether the local membership mirror may be trusted as
-// the membership authority for a request, or WorkOS must still be asked.
+// Mirror READINESS: whether the local membership mirror has ever been fit to
+// authorize from, per the ORIGINAL cutover rule. The request path
+// (`organization.ts`) no longer consults this — it authorizes from the
+// mirror unconditionally, because the one-off backfill is complete and
+// permanent and a pre-mirror organization is covered by the on-demand scan
+// (`ensureOrganizationBackfilled`). What remains is the deploy gate
+// (`scripts/ensure-workos-mirror-ready.ts`), which still refuses to ship a
+// build that trusts the mirror while it is unready, and the reconciler's own
+// staleness alert (`workos-events-runner.ts`), which reads `drainedAt` after
+// each run and raises a Sentry error when the drain has fallen behind the lag
+// budget below — a stalled reconciler is now an operational page, not a
+// per-request fallback.
 //
-// The mirror is fed by login, write-through, and the Events API reconciler
-// (`workos-mirror.ts`), and is complete only once the one-off backfill has
-// written every organization and the reconciler has caught up to the
-// present. Before that, two things go wrong if it is trusted anyway:
-//   - a member who has not signed in since the mirror shipped has no row
-//     yet, and every protected request of theirs is refused — the backfill
-//     is what writes them;
-//   - a member revoked in the WorkOS dashboard while the reconciler was not
-//     running still holds an active row, and keeps their access until the
-//     stream is replayed — the reconciler is what tombstones them.
-// So readiness is BOTH: the backfill's completion mark
+// Readiness is BOTH: the backfill's completion mark
 // (`workos_sync.backfill_completed_at`, written once by a run that covered
 // every live organization) AND a recent drain of the events stream
 // (`workos_sync.drained_at`, moved forward by every reconciler run that read
 // the stream to its end). The lag budget bounds how far behind the reconciler
 // may be: it runs every minute, so a mark older than the budget means it has
 // stalled (WorkOS unreachable, the cron not deployed, a backlog draining over
-// many runs) and the mirror may be missing revocations. While either half is
-// missing the authorization path reads membership from WorkOS instead
-// (`organization.ts`), exactly as it did before the cutover; nothing is
-// denied or granted on the mirror's word.
+// many runs) and the mirror may be missing revocations.
 //
 // The rule and the row read live here, free of `cloudflare:workers`, so the
-// deploy gate (`scripts/ensure-workos-mirror-ready.ts`) applies the SAME rule
-// over a plain postgres.js connection under bun before the build that trusts
-// the mirror goes live. The request-scoped service is `mirror-readiness.ts`.
+// deploy gate applies the SAME rule over a plain postgres.js connection under
+// bun before a build goes live, and the reconciler's alert applies the SAME
+// `drainedAt` age check the gate does.
 // ---------------------------------------------------------------------------
 
 import { eq } from "drizzle-orm";

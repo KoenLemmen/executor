@@ -5,7 +5,6 @@ import { MemberDirectory, NoOrganization } from "@executor-js/api/server";
 
 import { ApiKeyService } from "./api-keys";
 import { UserStoreService } from "./context";
-import { MirrorReadiness, MirrorReadinessState } from "./mirror-readiness";
 import { WorkOSClient, type WorkOSClientService } from "./workos";
 import { WorkOsMirror, type WorkOsMirrorShape } from "./workos-mirror";
 import { isPlatformAuth, resolveApiKeyPrincipal, resolveBearerAuth } from "./workos-auth-provider";
@@ -70,13 +69,8 @@ const stubWorkOS = Layer.succeed(
 );
 
 // The mirror as the directory reads it: user_123 holds an active membership in
-// org_123 and nothing else. Membership is never read from WorkOS.
-// The mirror is READY in these tests (backfill complete, reconciler caught
-// up), so membership is read from the stubbed directory, never from WorkOS.
-const stubReadiness = Layer.succeed(MirrorReadiness)({
-  state: () => Effect.succeed(MirrorReadinessState.Ready()),
-});
-
+// org_123 and nothing else. Membership is always read from the mirror, never
+// from WorkOS.
 const stubDirectory = Layer.succeed(MemberDirectory)({
   membership: (accountId, organizationId) =>
     Effect.succeed(
@@ -149,14 +143,7 @@ const stubMirror = Layer.succeed(
   }),
 );
 
-const layers = Layer.mergeAll(
-  stubApiKeys,
-  stubWorkOS,
-  stubUsers,
-  stubDirectory,
-  stubMirror,
-  stubReadiness,
-);
+const layers = Layer.mergeAll(stubApiKeys, stubWorkOS, stubUsers, stubDirectory, stubMirror);
 
 const bearer = (token: string) =>
   new Request("https://executor.test/api/tools", {
@@ -224,14 +211,7 @@ describe("org-level API keys", () => {
       const exit = yield* Effect.exit(
         resolveBearerAuth(bearer("valid_org_key")).pipe(
           Effect.provide(
-            Layer.mergeAll(
-              stubApiKeys,
-              stubWorkOS,
-              deletedOrgUsers,
-              stubDirectory,
-              stubMirror,
-              stubReadiness,
-            ),
+            Layer.mergeAll(stubApiKeys, stubWorkOS, deletedOrgUsers, stubDirectory, stubMirror),
           ),
         ),
       );
@@ -292,14 +272,7 @@ describe("org-level API keys", () => {
       });
       const auth = yield* resolveBearerAuth(bearer("valid_org_key")).pipe(
         Effect.provide(
-          Layer.mergeAll(
-            stubApiKeys,
-            stubWorkOS,
-            stubUsers,
-            noMembershipReads,
-            stubMirror,
-            stubReadiness,
-          ),
+          Layer.mergeAll(stubApiKeys, stubWorkOS, stubUsers, noMembershipReads, stubMirror),
         ),
       );
 

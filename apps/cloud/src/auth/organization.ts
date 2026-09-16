@@ -18,7 +18,6 @@ import { EXECUTOR_ORG_SELECTOR_HEADER } from "@executor-js/sdk/shared";
 
 import { UserStoreService } from "./context";
 import { ensureOrganizationBackfilled } from "./mirror-feeders";
-import { MirrorReadiness, MirrorReadinessState, describeMirrorReadiness } from "./mirror-readiness";
 import type { Organization } from "./user-store";
 import { WorkOSClient } from "./workos";
 
@@ -94,12 +93,11 @@ export const markOrganizationDeleted = (organizationId: string) =>
 // until their access token naturally expired (~10 min) if the session were
 // trusted on its own.
 //
-// To close that gap, membership is verified on every protected request — but
+// To close that gap, membership is verified on every protected request
 // against the LOCAL mirror of WorkOS memberships (`memberships` join
-// `accounts`, read through the shared `MemberDirectory`), never against WorkOS
-// itself. This used to be one `listUserMemberships` call per request (2026-07:
-// deliberately NOT cached, because a positive TTL cache is exactly what would
-// re-open the revocation gap). The mirror is not a cache with a TTL; it is a
+// `accounts`, read through the shared `MemberDirectory`) — never against
+// WorkOS itself, and unconditionally: there is no readiness gate and no
+// per-request WorkOS fallback. The mirror is not a cache with a TTL; it is a
 // replica whose freshness is defined by its feeders:
 //   - login (`auth/handlers.ts` callback): the user and every membership WorkOS
 //     lists for them, from the list the callback already fetches;
@@ -117,45 +115,39 @@ export const markOrganizationDeleted = (organizationId: string) =>
 // not finish refuses every session at once — its membership rows are still
 // there, live, until the purge removes them, and must not authorize anyone.
 //
-// The mirror is trusted only while it is READY (`mirror-readiness.ts`): the
-// one-off backfill has written every organization, and the events reconciler
-// has drained the stream within its lag budget. Until both hold, membership is
-// read from WorkOS (`listUserMemberships`, one call per request) exactly as
-// before the cutover — a member the backfill has not written yet must not be
-// locked out, and a member revoked in the dashboard while the reconciler was
-// down must not be let in on a stale row. The readiness row is one indexed
-// point read on the same socket; the deploy gate
-// (`scripts/ensure-workos-mirror-ready.ts`) applies the same rule before this
-// build goes live, so in steady state the fallback is never taken. A
-// readiness or mirror read failure fails the request (500), never a silent
-// fallback in either direction. The one org the fallback never asks WorkOS
-// about is one the mirror holds as DELETED: WorkOS no longer has it (or is
-// about to not), so its answer is "no member" for everyone — including the
-// admin whose deletion failed part-way and must retry it (below). That
-// membership is read from the mirror, whose rows are exactly what the purge
-// has not removed yet, ready or not; a refused caller gets null either way.
+// The one-off backfill is complete and permanent, and an organization that
+// predates it is covered on demand (below), so there is nothing left for a
+// per-request readiness check to gate. What can still go wrong is the events
+// reconciler falling behind — a member revoked in the WorkOS dashboard would
+// keep a stale active row until it catches up. That is now an OPERATIONAL
+// concern, not a request-path fallback: the reconciler itself
+// (`workos-events-runner.ts`) checks its own drain lag after every run and
+// raises a Sentry error when it has stalled, so it is fixed by paging someone,
+// not by asking WorkOS on every request. The deploy gate
+// (`scripts/ensure-workos-mirror-ready.ts`) separately refuses to ship a build
+// that trusts the mirror while it is unready, using the same rule
+// (`mirror-readiness-store.ts`).
 //
-// Readiness is database-wide; completeness is PER ORGANIZATION. An
-// organization whose row was minted after the backfill ran — lazily by a
-// request (`resolveOrganization`), or by a first login — carries no
-// `backfilled_at`, and the mirror holds only the memberships login and
-// write-through happened to record for it: a member who has not signed in
-// since would be refused on a row that was never written. So the org row is
-// read FIRST, and an unmarked live organization is scanned from WorkOS
-// (`ensureOrganizationBackfilled`: one membership listing plus one `getUser`
-// per member, then the mark) BEFORE its mirror is read — the same on-demand
-// scan the seat gates run. One-time per organization: the scan marks the
-// row, and this branch is never taken for it again. An organization the
-// mirror does not hold at all — one that predates the mirror and that nobody
-// has signed in to since (a CLI or MCP token names it, and the JWT path has
-// no login feeder), or one created in the WorkOS dashboard — is reachable by
-// neither the backfill (which lists the mirror's organizations) nor the
-// reconciler (which starts at the replay boundary), so it is resolved on
-// demand HERE: WorkOS is asked for the caller's own membership in it first
-// (`getUserOrgMembership`, a read scoped to this caller — never a listing
-// of the org), and only a member's answer mints the row
-// (`resolveOrganization`) and scans it as above. A non-member mints nothing:
-// a signed-in caller cannot create the row of an arbitrary WorkOS
+// Completeness is PER ORGANIZATION. An organization whose row was minted
+// after the backfill ran — lazily by a request (`resolveOrganization`), or by
+// a first login — carries no `backfilled_at`, and the mirror holds only the
+// memberships login and write-through happened to record for it: a member
+// who has not signed in since would be refused on a row that was never
+// written. So the org row is read FIRST, and an unmarked live organization is
+// scanned from WorkOS (`ensureOrganizationBackfilled`: one membership listing
+// plus one `getUser` per member, then the mark) BEFORE its mirror is read —
+// the same on-demand scan the seat gates run. One-time per organization: the
+// scan marks the row, and this branch is never taken for it again. An
+// organization the mirror does not hold at all — one that predates the
+// mirror and that nobody has signed in to since (a CLI or MCP token names it,
+// and the JWT path has no login feeder), or one created in the WorkOS
+// dashboard — is reachable by neither the backfill (which lists the mirror's
+// organizations) nor the reconciler (which starts at the replay boundary), so
+// it is resolved on demand HERE: WorkOS is asked for the caller's own
+// membership in it first (`getUserOrgMembership`, a read scoped to this
+// caller — never a listing of the org), and only a member's answer mints the
+// row (`resolveOrganization`) and scans it as above. A non-member mints
+// nothing: a signed-in caller cannot create the row of an arbitrary WorkOS
 // organization by naming its id. An organization marked deleted is never
 // scanned: WorkOS no longer has it, and its rows are the purge's to remove,
 // not a listing's to refresh.
@@ -186,20 +178,6 @@ const activeMembershipFromMirror = (userId: string, organizationId: string) =>
     const membership = yield* directory.membership(userId, organizationId);
     if (!membership || membership.status !== "active") return null;
     const active: ActiveMembership = { role: membership.role };
-    return active;
-  });
-
-// The pre-cutover read, kept for the window in which the mirror is not yet
-// ready: WorkOS's own membership list for the user, one call per request.
-const activeMembershipFromWorkOs = (userId: string, organizationId: string) =>
-  Effect.gen(function* () {
-    const workos = yield* WorkOSClient;
-    const memberships = yield* workos.listUserMemberships(userId);
-    const membership = memberships.data.find(
-      (m) => m.organizationId === organizationId && m.status === "active",
-    );
-    if (!membership) return null;
-    const active: ActiveMembership = { role: membership.role.slug };
     return active;
   });
 
@@ -236,14 +214,7 @@ const heldOrResolvedForMember = (userId: string, organizationId: string) =>
     return yield* resolveOrganization(organizationId);
   });
 
-/**
- * The span every membership authorization runs under, with the readiness
- * decision stamped on it so the fallback can be counted rather than grepped:
- * `mirror.ready` (boolean, which source answered) and `mirror.readiness` (the
- * state's description, why). Query Axiom for `name == "auth.authorize_organization"`
- * and `mirror.ready == false` to see how many requests are on the WorkOS
- * fallback and for which reason.
- */
+/** The span every membership authorization runs under. */
 export const AUTHORIZE_ORGANIZATION_SPAN = "auth.authorize_organization";
 
 export const authorizeOrganization = (
@@ -252,43 +223,14 @@ export const authorizeOrganization = (
   options: AuthorizeOrganizationOptions = {},
 ) =>
   Effect.gen(function* () {
-    const readiness = yield* MirrorReadiness;
-    const state = yield* readiness.state();
-    const ready = MirrorReadinessState.$is("Ready")(state);
-    yield* Effect.annotateCurrentSpan({
-      "mirror.ready": ready,
-      "mirror.readiness": describeMirrorReadiness(state),
-    });
-    if (!ready) {
-      yield* Effect.logWarning(
-        "authorizeOrganization: membership mirror not ready; membership read from WorkOS",
-        { readiness: describeMirrorReadiness(state) },
-      );
-      // A marked organization is the mirror's to answer for (see above):
-      // WorkOS lists no member of it, and the deletion retry must still
-      // get in.
-      const users = yield* UserStoreService;
-      const held = yield* users.use("getOrganization", (s) => s.getOrganization(organizationId));
-      if (held?.deletedAt != null) {
-        if (options.deleted !== "allow") return null;
-        const membership = yield* activeMembershipFromMirror(userId, organizationId);
-        if (!membership) return null;
-        return authorized(held, membership, options);
-      }
-      const membership = yield* activeMembershipFromWorkOs(userId, organizationId);
-      if (!membership) return null;
-      // The row read above is reused: `resolveOrganization` would read it a
-      // second time, and a request reads the organization row ONCE (the MCP
-      // session DO relies on that — see e2e `mcp-session-cold-init`).
-      const org = held ?? (yield* resolveOrganization(organizationId));
-      return authorized(org, membership, options);
-    }
-
     const org = yield* heldOrResolvedForMember(userId, organizationId);
     if (!org) return null;
     // An unmarked live organization is scanned before its mirror is read
     // (see above). The row returned below still shows the mark as it was
-    // read; nothing past this point reads it.
+    // read; nothing past this point reads it. A marked-deleted organization
+    // is never scanned, so the deletion retry (`deleted: "allow"`) reaches
+    // `authorized()` below with the membership row the purge has not removed
+    // yet.
     if (org.deletedAt === null && org.backfilledAt === null) {
       yield* ensureOrganizationBackfilled(organizationId);
     }

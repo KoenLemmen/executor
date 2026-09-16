@@ -31,7 +31,6 @@ import { AccountApi, AdminUsersApi } from "@executor-js/api";
 import { requestScopedMiddleware, type MemberDirectory } from "@executor-js/api/server";
 
 import { UserStoreService } from "../auth/context";
-import { MirrorReadiness } from "../auth/mirror-readiness";
 import { WorkOsMirror } from "../auth/workos-mirror";
 import {
   CloudAuthPublicHandlers,
@@ -80,9 +79,7 @@ const spec = OpenApi.fromApi(CloudOpenApi);
  * core.
  */
 export const makeCloudExtensionRoutes = (
-  rsLive: Layer.Layer<
-    DbService | UserStoreService | WorkOsMirror | MemberDirectory | MirrorReadiness
-  >,
+  rsLive: Layer.Layer<DbService | UserStoreService | WorkOsMirror | MemberDirectory>,
 ) => {
   // Session routes (login / callback / me / switch-org / …). Handlers yield
   // `UserStoreService` directly; the per-request DB combine keeps the postgres
@@ -119,7 +116,9 @@ export const makeCloudExtensionRoutes = (
   // rather than on the protected API because the protected plane's middleware
   // binds a product-view executor to one acting member — this one authorizes an
   // org key (or an admin session) and builds a subject-less platform view.
-  const AdminUsersRoutes = makeCloudAdminUsersRoutes(rsLive, { router: apiPrefixedRouter });
+  const AdminUsersRoutes = makeCloudAdminUsersRoutes(rsLive, {
+    router: apiPrefixedRouter,
+  });
 
   // The WorkOS webhook needs no per-request DB layer: it verifies the
   // signature with the boot `WorkOSClient` and detaches a reconciler pass

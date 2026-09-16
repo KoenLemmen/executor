@@ -5,7 +5,6 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 
 import { AuthContext, MemberDirectory, type DirectoryMember } from "@executor-js/api/server";
 import { UserStoreService } from "../auth/context";
-import { MirrorReadiness, MirrorReadinessState } from "../auth/mirror-readiness";
 import { ORG_SELECTOR_HEADER } from "../auth/organization";
 import { WorkOSClient, type WorkOSClientService } from "../auth/workos";
 import { WorkOsMirror, type WorkOsMirrorShape } from "../auth/workos-mirror";
@@ -23,8 +22,8 @@ import { OrgHandlers, assertDomainInSessionOrg, requireAdmin } from "./handlers"
 // share — the REAL `requireAdmin` and `assertDomainInSessionOrg` exported from
 // `org/handlers.ts`, so a change to the gate cannot pass on a stale copy — and
 // the admin gate's SOURCE: the role `orgAuthMiddleware` resolved for the
-// request, so a stale mirror row cannot admit a demoted admin while the mirror
-// is not trusted (the readiness rule in `auth/organization.ts`).
+// request, read from the local membership mirror unconditionally
+// (`auth/organization.ts`).
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test stub needs wide function types
@@ -99,7 +98,11 @@ describe("Org domain handlers", () => {
         Effect.provide(
           provide("admin", {
             getOrganizationDomain: () =>
-              Effect.succeed({ id: "dom_1", organizationId: "org_1", domain: "acme.test" }),
+              Effect.succeed({
+                id: "dom_1",
+                organizationId: "org_1",
+                domain: "acme.test",
+              }),
           }),
         ),
       ),
@@ -113,7 +116,11 @@ describe("Org domain handlers", () => {
         Effect.provide(
           provide("admin", {
             getOrganizationDomain: () =>
-              Effect.succeed({ id: "dom_other", organizationId: "org_2", domain: "evil.test" }),
+              Effect.succeed({
+                id: "dom_other",
+                organizationId: "org_2",
+                domain: "evil.test",
+              }),
           }),
         ),
       ),
@@ -136,11 +143,12 @@ describe("Org domain handlers", () => {
 
 // ---------------------------------------------------------------------------
 // The admin gate over HTTP, through `orgAuthMiddleware`: the role the gate
-// sees is the one the middleware resolved through `authorizeOrganizationSelector`
-// — the mirror while it is ready, WorkOS otherwise. The mirror row below is
-// STALE: it still says `admin` for a caller WorkOS has demoted to `member`.
-// While the mirror is not trusted (the reconciler is behind), WorkOS's answer
-// must decide, and the delete must be refused.
+// sees is the one the middleware resolved through `authorizeOrganizationSelector`,
+// which reads the local membership mirror unconditionally — there is no
+// readiness gate and no WorkOS fallback (`auth/organization.ts`). The mirror
+// row below is the sole source of the role, so `stubWorkOS` here serves only
+// session authentication and dies on anything else, proving membership is
+// never re-checked against WorkOS.
 // ---------------------------------------------------------------------------
 
 const ORG = "org_1";
@@ -148,33 +156,30 @@ const CALLER = "user_caller";
 const DOMAIN = "dom_1";
 const createdAt = new Date("2026-01-01T00:00:00.000Z");
 
-// The mirror's row for the caller: an active admin — stale once WorkOS has
-// demoted them and the reconciler has not landed the change yet.
-const staleAdminRow: DirectoryMember = {
+// The mirror's row for the caller, at whatever role a test sets.
+const callerRow = (role: "admin" | "member"): DirectoryMember => ({
   accountId: CALLER,
   membershipId: `om_${CALLER}_${ORG}`,
   organizationId: ORG,
   email: null,
   name: null,
   avatarUrl: null,
-  role: "admin",
+  role,
   status: "active",
   lastActiveAt: null,
-};
-
-const unread = (why: string) => () => Effect.die(why);
-const stubDirectory = Layer.succeed(MemberDirectory)({
-  membership: (accountId, organizationId) =>
-    Effect.succeed(accountId === CALLER && organizationId === ORG ? staleAdminRow : null),
-  membershipById: unread("the org plane does not look up by membership id"),
-  membershipsOf: unread("the org plane reads one membership, not the list"),
-  members: unread("the org plane does not list members"),
-  membersById: unread("the org plane does not batch members"),
-  findByEmail: unread("the org plane does not resolve emails"),
 });
 
-const readiness = (state: MirrorReadinessState) =>
-  Layer.succeed(MirrorReadiness)({ state: () => Effect.succeed(state) });
+const unread = (why: string) => () => Effect.die(why);
+const stubDirectory = (role: "admin" | "member") =>
+  Layer.succeed(MemberDirectory)({
+    membership: (accountId, organizationId) =>
+      Effect.succeed(accountId === CALLER && organizationId === ORG ? callerRow(role) : null),
+    membershipById: unread("the org plane does not look up by membership id"),
+    membershipsOf: unread("the org plane reads one membership, not the list"),
+    members: unread("the org plane does not list members"),
+    membersById: unread("the org plane does not batch members"),
+    findByEmail: unread("the org plane does not resolve emails"),
+  });
 
 const organizationRow = (id: string) => ({
   id,
@@ -226,22 +231,16 @@ const stubAutumn = Layer.succeed(AutumnService)({
   setMemberSeats: unread("the delete does not count seats"),
 });
 
-// WorkOS as the org plane sees it: the caller's session, their CURRENT
-// membership list (demoted to member), and the domain to delete.
-const workosWithCallerAs = (role: "admin" | "member", deleted: string[]) =>
+// WorkOS as the org plane sees it: session authentication and the domain to
+// delete. `stubWorkOS` dies on anything else, so a `listUserMemberships` call
+// would fail the test — membership is never re-checked against WorkOS.
+const workosForCaller = (deleted: string[]) =>
   stubWorkOS({
     authenticateSealedSession: () =>
-      Effect.succeed({ userId: CALLER, email: "caller@placeholder.test", organizationId: ORG }),
-    listUserMemberships: () =>
       Effect.succeed({
-        data: [
-          {
-            id: staleAdminRow.membershipId,
-            organizationId: ORG,
-            status: "active",
-            role: { slug: role },
-          },
-        ],
+        userId: CALLER,
+        email: "caller@placeholder.test",
+        organizationId: ORG,
       }),
     getOrganizationDomain: () =>
       Effect.succeed({ id: DOMAIN, organizationId: ORG, domain: "acme.test" }),
@@ -251,8 +250,8 @@ const workosWithCallerAs = (role: "admin" | "member", deleted: string[]) =>
       }),
   });
 
-const orgApp = (state: MirrorReadinessState, workos: Layer.Layer<WorkOSClient>) => {
-  const rsLive = Layer.mergeAll(stubDb, stubUsers, stubDirectory, stubMirror, readiness(state));
+const orgApp = (role: "admin" | "member", workos: Layer.Layer<WorkOSClient>) => {
+  const rsLive = Layer.mergeAll(stubDb, stubUsers, stubDirectory(role), stubMirror);
   const App = HttpApiBuilder.layer(OrgHttpApi).pipe(
     Layer.provide(OrgHandlers),
     Layer.provide(orgAuthMiddleware(rsLive)),
@@ -268,9 +267,9 @@ afterAll(async () => {
   await Promise.all(apps.map((app) => app.dispose()));
 });
 
-const deleteDomain = async (state: MirrorReadinessState, role: "admin" | "member") => {
+const deleteDomain = async (role: "admin" | "member") => {
   const deleted: string[] = [];
-  const app = orgApp(state, workosWithCallerAs(role, deleted));
+  const app = orgApp(role, workosForCaller(deleted));
   apps.push(app);
   const response = await app.handler(
     new Request(`https://executor.test/org/domains/${DOMAIN}`, {
@@ -285,30 +284,15 @@ const deleteDomain = async (state: MirrorReadinessState, role: "admin" | "member
 };
 
 describe("Org domain handlers over HTTP: the admin gate is the authorized role", () => {
-  it("lets a mirrored admin delete a domain while the mirror is ready", async () => {
-    const { status, deleted } = await deleteDomain(MirrorReadinessState.Ready(), "member");
-    // WorkOS is not consulted for membership while the mirror is ready: the
-    // mirror row (admin) decides, and the demotion lands through the
-    // reconciler within its lag budget.
+  it("lets a mirrored admin delete a domain", async () => {
+    const { status, deleted } = await deleteDomain("admin");
     expect(status).toBe(200);
     expect(deleted).toEqual([DOMAIN]);
   });
 
-  it("refuses a demoted admin while the mirror is not ready, however stale the mirror row is", async () => {
-    const { status, deleted } = await deleteDomain(
-      MirrorReadinessState.ReconcilerStale({ drainedAt: null }),
-      "member",
-    );
-    expect(status, "WorkOS says member; the stale admin row does not grant the delete").toBe(403);
+  it("refuses a mirrored plain member, without ever consulting WorkOS", async () => {
+    const { status, deleted } = await deleteDomain("member");
+    expect(status).toBe(403);
     expect(deleted).toEqual([]);
-  });
-
-  it("lets an admin WorkOS confirms delete a domain while the mirror is not ready", async () => {
-    const { status, deleted } = await deleteDomain(
-      MirrorReadinessState.ReconcilerStale({ drainedAt: null }),
-      "admin",
-    );
-    expect(status).toBe(200);
-    expect(deleted).toEqual([DOMAIN]);
   });
 });

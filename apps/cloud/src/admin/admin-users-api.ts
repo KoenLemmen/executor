@@ -56,7 +56,6 @@ import type { Executor } from "@executor-js/sdk";
 
 import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
-import { MirrorReadiness } from "../auth/mirror-readiness";
 import { WorkOsMirror } from "../auth/workos-mirror";
 import { isPlatformAuth, resolveBearerAuth } from "../auth/workos-auth-provider";
 import { orgSelectorFromRequest, authorizeOrganizationSelector } from "../auth/organization";
@@ -77,7 +76,7 @@ export const authorizeTenant = (
 ): Effect.Effect<
   string,
   AdminUsersUnauthorized | AdminUsersForbidden,
-  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | MirrorReadiness | WorkOsMirror
+  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | WorkOsMirror
 > =>
   Effect.gen(function* () {
     // (1) The bearer path. `resolveBearerAuth` (not `resolveApiKeyPrincipal`,
@@ -138,7 +137,6 @@ const withPlatformView = <A, E extends AdminUsersError | AdminUserNotFound = Adm
   | ApiKeyService
   | UserStoreService
   | MemberDirectory
-  | MirrorReadiness
   | WorkOsMirror
   | DbProvider
   | PluginsProvider
@@ -178,7 +176,6 @@ export const workosAdminUsersProvider: Layer.Layer<
   | ApiKeyService
   | UserStoreService
   | MemberDirectory
-  | MirrorReadiness
   | WorkOsMirror
   | DbProvider
   | PluginsProvider
@@ -190,7 +187,6 @@ export const workosAdminUsersProvider: Layer.Layer<
       | ApiKeyService
       | UserStoreService
       | MemberDirectory
-      | MirrorReadiness
       | WorkOsMirror
       | DbProvider
       | PluginsProvider
@@ -241,7 +237,9 @@ export const workosAdminUsersProvider: Layer.Layer<
 // per-request `DbService`/`UserStoreService`/`MemberDirectory` (and the
 // execution seams built over them) are supplied by the combined
 // `requestScopedMiddleware`.
-const AdminUsersProviderMiddleware = HttpRouter.middleware<{ provides: AdminUsersProvider }>()(
+const AdminUsersProviderMiddleware = HttpRouter.middleware<{
+  provides: AdminUsersProvider;
+}>()(
   Effect.gen(function* () {
     const longLived = yield* Effect.context<WorkOSClient | ApiKeyService>();
     return (httpEffect) =>
@@ -265,9 +263,7 @@ const AdminUsersProviderMiddleware = HttpRouter.middleware<{ provides: AdminUser
  * `/api` prefix as the rest of the cloud router.
  */
 export const makeCloudAdminUsersRoutes = (
-  rsLive: Layer.Layer<
-    DbService | UserStoreService | MemberDirectory | MirrorReadiness | WorkOsMirror
-  >,
+  rsLive: Layer.Layer<DbService | UserStoreService | MemberDirectory | WorkOsMirror>,
   options: Parameters<typeof makeAdminUsersApiLayer>[1] = {},
 ) =>
   makeAdminUsersApiLayer(

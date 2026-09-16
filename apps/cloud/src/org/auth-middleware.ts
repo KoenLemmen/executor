@@ -9,7 +9,6 @@ import {
 
 import { UserStoreService } from "../auth/context";
 import { sessionFromSealed } from "../auth/middleware";
-import { MirrorReadiness } from "../auth/mirror-readiness";
 import { WorkOsMirror } from "../auth/workos-mirror";
 import { ORG_SELECTOR_HEADER, authorizeOrganizationSelector } from "../auth/organization";
 import { WorkOSClient } from "../auth/workos";
@@ -35,19 +34,19 @@ const noOrganization = () =>
 
 /**
  * The caller's role in the session org, as `authorizeOrganizationSelector`
- * read it for THIS request: from the mirror while the mirror is ready, from
- * WorkOS otherwise (`auth/organization.ts`). Provided beside `AuthContext` —
- * the shared seam, which carries no role — so the domain handlers' admin gate
- * is this one value, never a second read of the mirror that would skip the
- * readiness rule and admit a demoted admin on a stale row while the
- * reconciler is behind.
+ * read it for THIS request from the membership mirror (`auth/organization.ts`).
+ * Provided beside `AuthContext` — the shared seam, which carries no role — so
+ * the domain handlers' admin gate is this one value, never a second read of
+ * the mirror.
  */
 export class OrgMemberRole extends Context.Service<
   OrgMemberRole,
   { readonly memberRole: "admin" | "member" }
 >()("@executor-js/cloud/OrgMemberRole") {}
 
-const OrgAuthMiddleware = HttpRouter.middleware<{ provides: AuthContext | OrgMemberRole }>()(
+const OrgAuthMiddleware = HttpRouter.middleware<{
+  provides: AuthContext | OrgMemberRole;
+}>()(
   Effect.gen(function* () {
     const captured = yield* Effect.context<WorkOSClient>();
     const workos = yield* WorkOSClient;
@@ -93,7 +92,5 @@ const OrgAuthMiddleware = HttpRouter.middleware<{ provides: AuthContext | OrgMem
 );
 
 export const orgAuthMiddleware = (
-  rsLive: Layer.Layer<
-    DbService | UserStoreService | MemberDirectory | MirrorReadiness | WorkOsMirror
-  >,
+  rsLive: Layer.Layer<DbService | UserStoreService | MemberDirectory | WorkOsMirror>,
 ) => OrgAuthMiddleware.combine(requestScopedMiddleware(rsLive)).layer;

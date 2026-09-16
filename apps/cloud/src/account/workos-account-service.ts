@@ -11,7 +11,6 @@ import {
 import { ApiKeyService } from "../auth/api-keys";
 import { UserStoreService } from "../auth/context";
 import type { Session } from "../auth/middleware";
-import { MirrorReadiness } from "../auth/mirror-readiness";
 import { WorkOSClient } from "../auth/workos";
 import { ensureOrganizationBackfilled, mirrorInvitedMember } from "../auth/mirror-feeders";
 import { WorkOsMirror, mirrorMembershipFromWorkOs } from "../auth/workos-mirror";
@@ -72,7 +71,6 @@ export const workosAccountProvider: Layer.Layer<
   | UserStoreService
   | WorkOsMirror
   | MemberDirectory
-  | MirrorReadiness
   | ApiKeyService
   | AutumnService
   | AccountCaller
@@ -103,12 +101,7 @@ export const workosAccountProvider: Layer.Layer<
     // erased to `R = never`, as the neutral AccountProvider shape requires.
     // Provided per method below.
     const ctx = yield* Effect.context<
-      | WorkOSClient
-      | UserStoreService
-      | AutumnService
-      | MemberDirectory
-      | MirrorReadiness
-      | WorkOsMirror
+      WorkOSClient | UserStoreService | AutumnService | MemberDirectory | WorkOsMirror
     >();
 
     // Unauthenticated (missing/invalid session) => AccountUnauthorized, exactly

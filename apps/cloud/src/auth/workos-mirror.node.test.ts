@@ -63,11 +63,10 @@ import {
 import { makeWorkOsMirrorStore } from "./workos-mirror-store";
 import {
   MIRROR_RECONCILER_LAG_BUDGET,
-  MirrorReadiness,
   MirrorReadinessState,
-  makeMirrorReadinessLayer,
   mirrorReadinessFrom,
-} from "./mirror-readiness";
+  readMirrorReadiness,
+} from "./mirror-readiness-store";
 
 const DbLive = DbService.Live;
 const Services = Layer.mergeAll(
@@ -243,7 +242,11 @@ describe("WorkOsMirror upserts", () => {
         // the row holds — the payload a timestamp guard would let through.
         // Same id: the membership is deleted, it never returns.
         const newerSameId = yield* mirror.upsertMembership(
-          membership(org, id, { id: membershipId, role: "admin", updatedAt: T3 }),
+          membership(org, id, {
+            id: membershipId,
+            role: "admin",
+            updatedAt: T3,
+          }),
         );
         const afterNewerSameId = yield* directory.membership(id, org, ["inactive"]);
         // The member re-added in WorkOS: a payload newer than the deletion,
@@ -299,7 +302,10 @@ describe("WorkOsMirror upserts", () => {
       result.newerSameId,
       "a payload of the deleted id stamped AFTER the removal is refused: identity, not time",
     ).toBe(false);
-    expect(result.afterNewerSameId).toMatchObject({ status: "inactive", role: "member" });
+    expect(result.afterNewerSameId).toMatchObject({
+      status: "inactive",
+      role: "member",
+    });
     expect(result.readded, "a replacement under a new id reactivates").toBe(true);
     expect(result.afterReadd?.status).toBe("active");
     expect(result.lateDelete, "a replayed deletion of the OLD id is refused").toBe(false);
@@ -516,7 +522,11 @@ describe("WorkOsMirror upserts", () => {
         // with status inactive): the row is inactive but still WorkOS's, with
         // no `deleted_at` to protect it.
         const deactivated = yield* mirror.upsertMembership(
-          membership(org, id, { id: membershipId, status: "inactive", updatedAt: T2 }),
+          membership(org, id, {
+            id: membershipId,
+            status: "inactive",
+            updatedAt: T2,
+          }),
         );
         const whileInactive = yield* directory.membership(id, org);
         // A payload older than the deactivation cannot undo it, nor one
@@ -529,7 +539,11 @@ describe("WorkOsMirror upserts", () => {
         );
         // WorkOS reactivates it, same id, newer stamp: live again.
         const reactivated = yield* mirror.upsertMembership(
-          membership(org, id, { id: membershipId, role: "admin", updatedAt: T3 }),
+          membership(org, id, {
+            id: membershipId,
+            role: "admin",
+            updatedAt: T3,
+          }),
         );
         const afterReactivate = yield* directory.membership(id, org);
         return {
@@ -634,7 +648,10 @@ describe("WorkOsMirror upserts", () => {
       result.rejoined,
       "a membership of a deleted user is refused however it is stamped: identity, not time",
     ).toBe(false);
-    expect(result.afterRejoin).toMatchObject({ status: "inactive", name: null });
+    expect(result.afterRejoin).toMatchObject({
+      status: "inactive",
+      name: null,
+    });
     expect(result.unknown, "deleting an unseen user leaves a tombstone").toBe(true);
     expect(result.unseenProfile, "which the older profile cannot fill").toBe(false);
     expect(
@@ -883,19 +900,20 @@ describe("mirror readiness", () => {
     const result = await run(
       Effect.gen(function* () {
         const mirror = yield* WorkOsMirror;
-        const readiness = yield* MirrorReadiness;
+        const { db } = yield* DbService;
+        const readiness = () => Effect.promise(() => readMirrorReadiness(db, new Date()));
         yield* clearEventsRow;
-        const noRow = yield* readiness.state();
+        const noRow = yield* readiness();
         yield* mirror.setReplayBoundary(T1);
         yield* mirror.markBackfillCompleted(T1);
-        const backfilledOnly = yield* readiness.state();
+        const backfilledOnly = yield* readiness();
         // A drain as of now: what a reconciler run that just read the stream
         // to its end records.
         const drainedAt = new Date();
         yield* mirror.markDrained(drainedAt);
-        const ready = yield* readiness.state();
+        const ready = yield* readiness();
         return { noRow, backfilledOnly, ready };
-      }).pipe(Effect.provide(makeMirrorReadinessLayer().pipe(Layer.provide(DbLive)))),
+      }),
     );
     expect(result.noRow).toEqual(MirrorReadinessState.BackfillPending());
     expect(result.backfilledOnly).toEqual(
@@ -1006,7 +1024,12 @@ describe("WorkOsMirror backfill sync state", () => {
         yield* mirror.applyOrganizationScan({
           organizationId: org,
           listedAt: T2,
-          members: [{ user: user(kept), membership: membership(org, kept, { updatedAt: T1 }) }],
+          members: [
+            {
+              user: user(kept),
+              membership: membership(org, kept, { updatedAt: T1 }),
+            },
+          ],
         });
         // The stalled login resumes and writes what it holds: refused, the
         // revocation predates the scan and nothing would ever undo the row.

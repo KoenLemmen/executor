@@ -4,7 +4,6 @@ import { Effect, Layer } from "effect";
 import { MemberDirectory } from "@executor-js/api/server";
 
 import { UserStoreService } from "../../auth/context";
-import { MirrorReadiness, MirrorReadinessState } from "../../auth/mirror-readiness";
 import { WorkOSClient, type WorkOSClientService } from "../../auth/workos";
 import { WorkOsMirror, type WorkOsMirrorShape } from "../../auth/workos-mirror";
 import { resolveBillingOrganization } from "./route";
@@ -40,12 +39,6 @@ const stubWorkOS = Layer.succeed(
 );
 
 // MEMBER is active in both orgs, as the mirror reports it.
-// The mirror is READY in these tests (backfill complete, reconciler caught
-// up), so membership is read from the stubbed directory, never from WorkOS.
-const stubReadiness = Layer.succeed(MirrorReadiness)({
-  state: () => Effect.succeed(MirrorReadinessState.Ready()),
-});
-
 const stubDirectory = Layer.succeed(MemberDirectory)({
   membership: (accountId, organizationId) =>
     Effect.succeed(
@@ -122,9 +115,7 @@ const run = (headers: Record<string, string>) =>
   resolveBillingOrganization(
     new Request("https://executor.test/api/billing/customer", { headers }),
     { userId: MEMBER },
-  ).pipe(
-    Effect.provide(Layer.mergeAll(stubWorkOS, stubUsers, stubDirectory, stubMirror, stubReadiness)),
-  );
+  ).pipe(Effect.provide(Layer.mergeAll(stubWorkOS, stubUsers, stubDirectory, stubMirror)));
 
 describe("billing route org selector", () => {
   it.effect("fails closed when no selector header is sent", () =>

@@ -20,16 +20,16 @@
 //   - session org not authorized -> NoOrganization 403 no_organization
 //   - no auth header             -> falls through to the sealed-session path
 // The org-resolution infra errors (`UserStoreError` / `WorkOSError` /
-// `MemberDirectoryError` / `WorkOsMirrorError`, the last from the mirror
-// readiness read) are `Effect.die`d so they surface as 500 defects — the
-// same status the old inline resolver produced when those bubbled up.
+// `MemberDirectoryError` / `WorkOsMirrorError`) are `Effect.die`d so they
+// surface as 500 defects — the same status the old inline resolver produced
+// when those bubbled up.
 //
-// The per-request `UserStoreService` + `MemberDirectory` + `MirrorReadiness`
-// + `WorkOsMirror` (read by the org-resolution path: the org row, whether
-// the mirror may be trusted, the caller's mirrored membership, and the
-// on-demand scan of an organization the backfill never covered) stay
-// REQUIREMENTS OF THE LAYER, satisfied by the facade's per-request DB combine —
-// NOT function-level requirements (that is what forced a forked tag before).
+// The per-request `UserStoreService` + `MemberDirectory` + `WorkOsMirror`
+// (read by the org-resolution path: the org row, the caller's mirrored
+// membership, and the on-demand scan of an organization the backfill never
+// covered) stay REQUIREMENTS OF THE LAYER, satisfied by the facade's
+// per-request DB combine — NOT function-level requirements (that is what
+// forced a forked tag before).
 // ---------------------------------------------------------------------------
 
 import { Effect, Layer } from "effect";
@@ -54,7 +54,6 @@ import type {
 
 import { ApiKeyService } from "./api-keys";
 import { workosApiJwtBearerConfig } from "./api-jwt-bearer";
-import { MirrorReadiness } from "./mirror-readiness";
 import { WorkOsMirror } from "./workos-mirror";
 import { BEARER_PREFIX } from "./bearer";
 import {
@@ -215,7 +214,7 @@ export const resolveBearerAuth = (
   | WorkOSError
   | WorkOsMirrorError
   | MemberDirectoryError,
-  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | MirrorReadiness | WorkOsMirror
+  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | WorkOsMirror
 > =>
   Effect.gen(function* () {
     const authHeader = request.headers.get("authorization");
@@ -301,7 +300,7 @@ export const resolveApiKeyPrincipal = (
   | WorkOSError
   | WorkOsMirrorError
   | MemberDirectoryError,
-  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | MirrorReadiness | WorkOsMirror
+  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | WorkOsMirror
 > =>
   Effect.gen(function* () {
     const auth = yield* resolveBearerAuth(request, jwt);
@@ -383,7 +382,7 @@ export const resolveProtectedPrincipal = (
   | WorkOSError
   | WorkOsMirrorError
   | MemberDirectoryError,
-  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | MirrorReadiness | WorkOsMirror
+  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | WorkOsMirror
 > =>
   Effect.gen(function* () {
     const bearerPrincipal = yield* resolveApiKeyPrincipal(request, jwt);
@@ -404,17 +403,12 @@ export const resolveProtectedPrincipal = (
 export const workosIdentityLayer: Layer.Layer<
   IdentityProvider,
   never,
-  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | MirrorReadiness | WorkOsMirror
+  WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | WorkOsMirror
 > = Layer.effect(
   IdentityProvider,
   Effect.gen(function* () {
     const context = yield* Effect.context<
-      | WorkOSClient
-      | ApiKeyService
-      | UserStoreService
-      | MemberDirectory
-      | MirrorReadiness
-      | WorkOsMirror
+      WorkOSClient | ApiKeyService | UserStoreService | MemberDirectory | WorkOsMirror
     >();
     return IdentityProvider.of({
       authenticate: (request) =>
@@ -430,7 +424,7 @@ export const workosIdentityLayer: Layer.Layer<
             WorkOSError: (error) => Effect.die(error),
             // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: membership-mirror read failure -> 500 defect, same class as the store failure above
             MemberDirectoryError: (error) => Effect.die(error),
-            // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: mirror-readiness read failure -> 500 defect, same class as the store failure above
+            // oxlint-disable-next-line executor/no-effect-escape-hatch -- boundary: membership-mirror read failure -> 500 defect, same class as the store failure above
             WorkOsMirrorError: (error) => Effect.die(error),
           }),
           Effect.provide(context),
