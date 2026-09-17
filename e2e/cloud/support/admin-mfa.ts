@@ -9,6 +9,9 @@ const Challenge = Schema.Struct({ kind: Schema.Literal("challenge") });
 const decodeChallenge = Schema.decodeUnknownOption(Challenge);
 const Verified = Schema.Struct({ verified: Schema.Literal(true) });
 const decodeVerified = Schema.decodeUnknownOption(Verified);
+const decodeVerifiedState = Schema.decodeUnknownOption(
+  Schema.Struct({ state: Schema.Literal("verified") }),
+);
 
 /** Apply response cookie rotations and deletions to a test client's cookie header. */
 export const responseCookies = (current: string, response: Response): string => {
@@ -102,9 +105,17 @@ export const verifyAdminInBrowser = async (page: Page, secret?: string): Promise
     page.waitForResponse((response) => response.url().endsWith("/api/auth/admin-mfa/verify")),
     page.getByRole("button", { name: "Verify", exact: true }).click(),
   ]);
-  if (!verified.ok() || Option.isNone(decodeVerified(await verified.json())))
-    throw new Error("Browser admin verification failed");
+  if (!verified.ok()) throw new Error("Browser admin verification failed");
   await page
     .getByRole("heading", { name: "Verify to use admin settings" })
     .waitFor({ state: "detached" });
+  // Successful verification reloads the document, so Chromium can discard that
+  // response body. Check the persisted session through the product instead.
+  const selector = new URL(page.url()).pathname.split("/")[1];
+  if (!selector) throw new Error("Admin verification has no organization scope");
+  const status = await page.request.get("/api/auth/admin-mfa", {
+    headers: { "x-executor-organization": selector },
+  });
+  if (!status.ok() || Option.isNone(decodeVerifiedState(await status.json())))
+    throw new Error("The browser session is not verified");
 };
