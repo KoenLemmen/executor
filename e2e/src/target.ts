@@ -27,7 +27,11 @@ export interface Identity {
     readonly secure?: boolean;
   }>;
   /** Credentials for surfaces that sign in themselves (Better Auth, OAuth consent). */
-  readonly credentials?: { readonly email: string; readonly password: string };
+  readonly credentials?: {
+    readonly email: string;
+    readonly password: string;
+    readonly totpSecret?: string;
+  };
 }
 
 export interface Target {

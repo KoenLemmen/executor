@@ -1,9 +1,12 @@
 import { Effect, Option, Schema } from "effect";
 import { TOTP } from "otpauth";
+import type { Page } from "playwright";
 import type { Identity } from "../../src/target";
 
 const Setup = Schema.Struct({ kind: Schema.Literal("enroll"), secret: Schema.String });
 const decodeSetup = Schema.decodeUnknownOption(Setup);
+const Challenge = Schema.Struct({ kind: Schema.Literal("challenge") });
+const decodeChallenge = Schema.decodeUnknownOption(Challenge);
 const Verified = Schema.Struct({ verified: Schema.Literal(true) });
 const decodeVerified = Schema.decodeUnknownOption(Verified);
 
@@ -39,8 +42,8 @@ export const browserCookies = (cookie: string): NonNullable<Identity["cookies"]>
       };
     });
 
-/** Enroll a fresh test admin through the real product and the installed WorkOS emulator. */
-export const verifyFreshAdmin = (baseUrl: string, identity: Identity): Effect.Effect<Identity> =>
+/** Verify a test admin through the product, retaining the test authenticator for later sign-ins. */
+export const verifyAdmin = (baseUrl: string, identity: Identity): Effect.Effect<Identity> =>
   Effect.promise(async () => {
     const headers = {
       ...identity.headers,
@@ -53,13 +56,17 @@ export const verifyFreshAdmin = (baseUrl: string, identity: Identity): Effect.Ef
       body: "{}",
     });
     if (!started.ok) throw new Error(`Admin enrollment failed (${started.status})`);
-    const setup = Option.getOrNull(decodeSetup(await started.json()));
-    if (!setup) throw new Error("Expected a fresh MFA enrollment");
+    const raw: unknown = await started.json();
+    const setup = Option.getOrNull(decodeSetup(raw));
+    const secret =
+      setup?.secret ??
+      (Option.isSome(decodeChallenge(raw)) ? identity.credentials?.totpSecret : undefined);
+    if (!secret) throw new Error("Missing test authenticator");
     const pending = responseCookies(identity.headers?.cookie ?? "", started);
     const verified = await fetch(new URL("/api/auth/admin-mfa/verify", baseUrl), {
       method: "POST",
       headers: { ...headers, cookie: pending },
-      body: JSON.stringify({ code: new TOTP({ secret: setup.secret }).generate() }),
+      body: JSON.stringify({ code: new TOTP({ secret }).generate() }),
     });
     if (!verified.ok || Option.isNone(decodeVerified(await verified.json())))
       throw new Error(`Admin verification failed (${verified.status})`);
@@ -73,5 +80,31 @@ export const verifyFreshAdmin = (baseUrl: string, identity: Identity): Effect.Ef
       ...identity,
       headers: { ...identity.headers, cookie },
       cookies: browserCookies(cookie),
+      ...(identity.credentials
+        ? { credentials: { ...identity.credentials, totpSecret: secret } }
+        : {}),
     };
   });
+
+/** Complete the visible MFA prompt using enrollment or this test identity's authenticator. */
+export const verifyAdminInBrowser = async (page: Page, secret?: string): Promise<void> => {
+  await page.getByRole("heading", { name: "Verify to use admin settings" }).waitFor();
+  const [started] = await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith("/api/auth/admin-mfa/start")),
+    page.getByRole("button", { name: "Continue", exact: true }).click(),
+  ]);
+  const raw: unknown = await started.json();
+  const setup = Option.getOrNull(decodeSetup(raw));
+  const key = setup?.secret ?? (Option.isSome(decodeChallenge(raw)) ? secret : undefined);
+  if (!started.ok() || !key) throw new Error("Could not open the test authenticator");
+  await page.getByLabel("Six-digit code").fill(new TOTP({ secret: key }).generate());
+  const [verified] = await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith("/api/auth/admin-mfa/verify")),
+    page.getByRole("button", { name: "Verify", exact: true }).click(),
+  ]);
+  if (!verified.ok() || Option.isNone(decodeVerified(await verified.json())))
+    throw new Error("Browser admin verification failed");
+  await page
+    .getByRole("heading", { name: "Verify to use admin settings" })
+    .waitFor({ state: "detached" });
+};

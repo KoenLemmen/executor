@@ -10,7 +10,7 @@ import { Effect } from "effect";
 
 import { connectEmulator } from "@executor-js/emulate";
 
-import { verifyFreshAdmin } from "../cloud/support/admin-mfa";
+import { verifyAdmin } from "../cloud/support/admin-mfa";
 import { e2ePort } from "../src/ports";
 import type { Identity, Target } from "../src/target";
 
@@ -110,7 +110,7 @@ export const cloudTarget = (): Target => ({
         credentials: { email, password: "emulated" },
       };
       return org && adminMfa
-        ? await Effect.runPromise(verifyFreshAdmin(CLOUD_BASE_URL, identity))
+        ? await Effect.runPromise(verifyAdmin(CLOUD_BASE_URL, identity))
         : identity;
     }),
   // MCP OAuth against the emulator's authorization server: complete the
