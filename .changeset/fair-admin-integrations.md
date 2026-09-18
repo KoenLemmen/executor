@@ -2,4 +2,4 @@
 "@executor-js/react": patch
 ---
 
-Hide integration creation controls from workspace members and explain the admin requirement on direct add links.
+Show restricted integration actions as disabled controls with an admin explanation. Members can browse the catalog and add personal connections to existing integrations.

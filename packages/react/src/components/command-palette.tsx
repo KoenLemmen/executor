@@ -141,11 +141,7 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (open: bool
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput
-        placeholder={
-          canCreateIntegration ? "Search integrations or jump to add…" : "Search integrations…"
-        }
-      />
+      <CommandInput placeholder="Search integrations or jump to add…" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
 
@@ -175,32 +171,33 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (open: bool
           </CommandGroup>
         )}
 
-        {canCreateIntegration &&
-          connectedIntegrations.length > 0 &&
-          integrationPlugins.length > 0 && <CommandSeparator />}
+        {connectedIntegrations.length > 0 && integrationPlugins.length > 0 && <CommandSeparator />}
 
-        {canCreateIntegration && integrationPlugins.length > 0 && (
+        {integrationPlugins.length > 0 && (
           <CommandGroup heading="Add integration">
             {integrationPlugins.map((plugin) => (
               <CommandItem
                 key={`add-${plugin.key}`}
+                disabled={!canCreateIntegration}
                 value={`add ${plugin.label} ${plugin.key}`}
                 onSelect={() => goToAdd(plugin.key)}
               >
                 <PlusIcon />
                 <span className="flex-1 truncate">Add {plugin.label}</span>
+                {!canCreateIntegration && <CommandShortcut>Admin only</CommandShortcut>}
               </CommandItem>
             ))}
           </CommandGroup>
         )}
 
-        {canCreateIntegration && presetEntries.length > 0 && <CommandSeparator />}
+        {presetEntries.length > 0 && <CommandSeparator />}
 
-        {canCreateIntegration && presetEntries.length > 0 && (
+        {presetEntries.length > 0 && (
           <CommandGroup heading="Popular integrations">
             {presetEntries.map((e) => (
               <CommandItem
                 key={`preset-${e.pluginKey}-${e.presetId}`}
+                disabled={!canCreateIntegration}
                 value={`preset ${e.presetName} ${e.presetSummary ?? ""} ${e.pluginLabel}`}
                 onSelect={() => goToPreset(e.pluginKey, e.presetId, e.presetUrl)}
               >
@@ -216,7 +213,9 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (open: bool
                   }
                 />
                 <span className="flex-1 truncate">{e.presetName}</span>
-                <CommandShortcut>{e.pluginLabel}</CommandShortcut>
+                <CommandShortcut>
+                  {canCreateIntegration ? e.pluginLabel : "Admin only"}
+                </CommandShortcut>
               </CommandItem>
             ))}
           </CommandGroup>

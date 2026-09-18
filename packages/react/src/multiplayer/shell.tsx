@@ -6,6 +6,7 @@ import { BookOpen, Command, ExternalLink, PlusIcon } from "lucide-react";
 import type { Integration } from "@executor-js/sdk/shared";
 import { integrationsOptimisticAtom } from "../api/atoms";
 import { trackEvent } from "../api/analytics";
+import { WorkspaceAdminHint } from "../components/workspace-admin-hint";
 import { Button } from "../components/button";
 import { Skeleton } from "../components/skeleton";
 import { SidebarUpdateCard } from "../components/update-card";
@@ -387,11 +388,12 @@ function SidebarContent(
 
         <div className="mt-5 mb-1 flex items-center justify-between px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <span>Integrations</span>
-          {canCreateIntegration && (
+          <WorkspaceAdminHint allowed={canCreateIntegration}>
             <Button
               type="button"
               variant="ghost"
               size="icon-xs"
+              disabled={!canCreateIntegration}
               aria-label="Browse integrations"
               title="Browse integrations"
               onClick={props.onOpenIntegrationConnect}
@@ -399,7 +401,7 @@ function SidebarContent(
             >
               <PlusIcon className="size-3.5" />
             </Button>
-          )}
+          </WorkspaceAdminHint>
         </div>
 
         <IntegrationList pathname={props.pathname} onNavigate={props.onNavigate} />

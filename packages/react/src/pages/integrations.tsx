@@ -8,6 +8,7 @@ import { useIntegrationPlugins, type IntegrationPlugin } from "@executor-js/sdk/
 import { integrationsOptimisticAtom } from "../api/atoms";
 import { trackEvent } from "../api/analytics";
 import { McpInstallCard } from "../components/mcp-install-card";
+import { WorkspaceAdminHint } from "../components/workspace-admin-hint";
 import { Button } from "../components/button";
 import { PageContainer, PageHeader } from "../components/page";
 import {
@@ -57,7 +58,7 @@ export function IntegrationsPage() {
         title="Integrations"
         description="Tool providers available in this workspace."
         actions={
-          canCreate && (
+          canCreate ? (
             <Button asChild size="sm" className="gap-1.5">
               <Link
                 to="/{-$orgSlug}/integrations/browse"
@@ -67,6 +68,13 @@ export function IntegrationsPage() {
                 Add integration
               </Link>
             </Button>
+          ) : (
+            <WorkspaceAdminHint allowed={false}>
+              <Button disabled size="sm">
+                <PlusIcon className="size-4" />
+                Add integration
+              </Button>
+            </WorkspaceAdminHint>
           )
         }
       />
@@ -118,7 +126,7 @@ function EmptyIntegrations({ canCreate }: { readonly canCreate: boolean }) {
           ? "Connect an integration to start curating tools."
           : "Ask a workspace admin to add an integration."}
       </p>
-      {canCreate && (
+      {canCreate ? (
         <Button asChild size="sm" className="gap-1.5">
           <Link
             to="/{-$orgSlug}/integrations/browse"
@@ -128,6 +136,13 @@ function EmptyIntegrations({ canCreate }: { readonly canCreate: boolean }) {
             Add an integration
           </Link>
         </Button>
+      ) : (
+        <WorkspaceAdminHint allowed={false}>
+          <Button disabled size="sm">
+            <PlusIcon className="size-4" />
+            Add an integration
+          </Button>
+        </WorkspaceAdminHint>
       )}
     </div>
   );

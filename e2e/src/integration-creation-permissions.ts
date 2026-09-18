@@ -61,42 +61,91 @@ export const integrationCreationPermissions = (admin: Identity, member: Identity
         });
 
         yield* browser.session(member, async ({ page, step }) => {
-          await step("Member sees existing integrations without an Add action", async () => {
-            await visit(page, "/");
-            await page.getByRole("heading", { name: "Integrations", exact: true }).waitFor();
-            await page.getByTestId(`integration-entry-${slug}`).waitFor();
-            expect(
-              await page.getByRole("button", { name: "Browse integrations", exact: true }).count(),
-            ).toBe(0);
-            await page.keyboard.press("ControlOrMeta+k");
-            const palette = page.getByRole("dialog");
-            await palette.getByRole("option", { name: new RegExp(title) }).waitFor();
-            expect(await palette.getByRole("option", { name: /^Add / }).count()).toBe(0);
-            expect(await palette.getByText("Popular integrations", { exact: true }).count()).toBe(
-              0,
-            );
-            await page.keyboard.press("Escape");
-            expect(await page.getByRole("link", { name: /^Add (an? )?integration$/ }).count()).toBe(
-              0,
-            );
-          });
           await step(
-            "Member opens an existing integration and can add a personal connection",
+            "Member sees disabled creation controls with an admin explanation",
             async () => {
-              await page.getByTestId(`integration-entry-${slug}`).click();
-              await page.getByRole("button", { name: "Add connection", exact: true }).waitFor();
-              expect(await page.getByRole("button", { name: /^(Edit|Delete)$/ }).count()).toBe(0);
-              await page.getByRole("button", { name: "Add connection", exact: true }).click();
-              const dialog = page.getByRole("dialog");
-              await dialog.waitFor();
-              expect(await dialog.getByText("Workspace", { exact: true }).count()).toBe(0);
+              await visit(page, "/");
+              await page.getByRole("heading", { name: "Integrations", exact: true }).waitFor();
+              await page.getByTestId(`integration-entry-${slug}`).waitFor();
+              const add = page.getByRole("button", { name: "Add integration", exact: true });
+              await add.waitFor();
+              expect(await add.isDisabled()).toBe(true);
+              expect(
+                await page
+                  .getByRole("button", { name: "Browse integrations", exact: true })
+                  .isDisabled(),
+              ).toBe(true);
+              const hint = page
+                .getByRole("group", { name: "Requires a workspace admin" })
+                .filter({ has: add });
+              await hint.hover();
+              await page.getByRole("tooltip", { name: "Requires a workspace admin" }).waitFor();
+              await hint.focus();
+              const before = page.url();
+              await page.keyboard.press("Enter");
+              expect(page.url()).toBe(before);
             },
           );
-          for (const path of [
-            "/integrations/browse",
-            "/integrations/add/openapi",
-            "/integrations/add/mcp",
-          ]) {
+          await step(
+            "Member sees disabled add commands and can still find existing integrations",
+            async () => {
+              await page.keyboard.press("ControlOrMeta+k");
+              const palette = page.getByRole("dialog");
+              await palette.getByRole("option", { name: new RegExp(title) }).waitFor();
+              const addCommand = palette.getByRole("option", { name: /^Add OpenAPI/ });
+              await addCommand.waitFor();
+              expect(await addCommand.getAttribute("aria-disabled")).toBe("true");
+              expect(await addCommand.textContent()).toContain("Admin only");
+              await page.keyboard.press("Escape");
+            },
+          );
+          await step("Member sees disabled Edit and Delete actions", async () => {
+            await page.getByTestId(`integration-entry-${slug}`).click();
+            await page.getByRole("button", { name: "Add connection", exact: true }).waitFor();
+            for (const name of ["Edit", "Delete"]) {
+              const action = page.getByRole("button", { name, exact: true });
+              await action.waitFor();
+              expect(await action.isDisabled()).toBe(true);
+            }
+          });
+          await step("Member can still add a personal connection", async () => {
+            await page.getByRole("button", { name: "Add connection", exact: true }).click();
+            const dialog = page.getByRole("dialog");
+            await dialog.waitFor();
+            expect(await dialog.getByText("Workspace", { exact: true }).count()).toBe(0);
+          });
+          await step("Member browses the catalog with disabled Add buttons", async () => {
+            await visit(page, "/integrations/browse");
+            await page.getByRole("heading", { name: "Add an integration", exact: true }).waitFor();
+            await page
+              .getByText("Requires a workspace admin to add integrations.", { exact: true })
+              .waitFor();
+            const addButtons = page.getByRole("button", { name: /^Add / });
+            await addButtons.first().waitFor();
+            for (const button of await addButtons.all())
+              expect(await button.isDisabled()).toBe(true);
+            const scratch = page.getByRole("button", {
+              name: "New OpenAPI integration from scratch",
+              exact: true,
+            });
+            expect(await scratch.isDisabled()).toBe(true);
+            const view = page.getByRole("link", { name: `View ${title}`, exact: true });
+            await view.waitFor();
+            expect(await view.isEnabled()).toBe(true);
+          });
+          await step("Member cannot add a URL with the button or Enter key", async () => {
+            const input = page.getByRole("textbox", {
+              name: "Search integrations, or paste a URL",
+            });
+            await input.fill("https://api.example.com/openapi.json");
+            expect(
+              await page.getByRole("button", { name: "Add this URL", exact: true }).isDisabled(),
+            ).toBe(true);
+            const before = page.url();
+            await input.press("Enter");
+            expect(page.url()).toBe(before);
+          });
+          for (const path of ["/integrations/add/openapi", "/integrations/add/mcp"]) {
             await step(`Member follows ${path} and sees the admin explanation`, async () => {
               await visit(page, path);
               await page.getByRole("heading", { name: "An admin must add integrations" }).waitFor();
