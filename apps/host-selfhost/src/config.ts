@@ -323,7 +323,7 @@ const resolveTrustedProxy = (): TrustedProxyConfig | undefined => {
   if (invalid.length > 0) {
     // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: refuse to boot on a malformed operator knob
     throw new Error(
-      `EXECUTOR_TRUSTED_PROXIES contains ${invalid.map((entry) => JSON.stringify(entry)).join(", ")}; each entry must be an IP address or CIDR range (e.g. "10.0.0.0/8")`,
+      `EXECUTOR_TRUSTED_PROXIES contains ${invalid.map((entry) => JSON.stringify(entry)).join(", ")}; each entry must be an IP address or CIDR range (e.g. "172.18.0.2" or "172.18.0.0/24")`,
     );
   }
   return { header, proxies };

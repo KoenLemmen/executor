@@ -1,7 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
 
-import { CLIENT_IP_HEADER, clientIpHeaders, makeClientIpStamper, parseIpRange } from "./client-ip";
+import {
+  CLIENT_IP_HEADER,
+  PROXY_HINT_HEADERS,
+  clientIpAddressOptions,
+  makeClientIpStamper,
+  parseIpRange,
+} from "./client-ip";
 
 const signIn = (headers: Record<string, string> = {}) =>
   new Request("https://host.example/api/auth/sign-in/email", {
@@ -41,21 +47,26 @@ describe("parseIpRange", () => {
   );
 });
 
-describe("clientIpHeaders", () => {
-  it("reads only the stamped header with no proxy configured", () => {
-    expect(clientIpHeaders(undefined)).toEqual([CLIENT_IP_HEADER]);
+describe("clientIpAddressOptions", () => {
+  it("reads only the stamped header, with no trusted proxies, when no proxy is configured", () => {
+    expect(clientIpAddressOptions(undefined)).toStrictEqual({
+      ipAddressHeaders: [CLIENT_IP_HEADER],
+    });
   });
 
-  it("reads the proxy header first, then the stamped header", () => {
-    expect(clientIpHeaders({ header: "cf-connecting-ip", proxies: ["10.0.0.0/8"] })).toEqual([
-      "cf-connecting-ip",
-      CLIENT_IP_HEADER,
-    ]);
+  it("reads the proxy header first, then the stamped header, and trusts the proxy ranges", () => {
+    expect(
+      clientIpAddressOptions({ header: "cf-connecting-ip", proxies: ["10.0.0.0/8", "192.0.2.10"] }),
+    ).toStrictEqual({
+      ipAddressHeaders: ["cf-connecting-ip", CLIENT_IP_HEADER],
+      trustedProxies: ["10.0.0.0/8", "192.0.2.10"],
+    });
   });
 });
 
 describe("makeClientIpStamper without a trusted proxy", () => {
-  const stamp = makeClientIpStamper(undefined);
+  // The warning path has its own suite below; keep it out of this one's output.
+  const stamp = makeClientIpStamper(undefined, { warn: () => {} });
 
   it("overwrites a client-supplied header with the socket peer address", async () => {
     const out = stamp(signIn({ [CLIENT_IP_HEADER]: "203.0.113.9" }), Option.some("198.51.100.4"));
@@ -116,5 +127,55 @@ describe("makeClientIpStamper behind a trusted proxy", () => {
     const out = stamp(signIn({ "x-real-ip": "203.0.113.9" }), Option.none());
     expect(out.headers.has("x-real-ip")).toBe(false);
     expect(out.headers.has(CLIENT_IP_HEADER)).toBe(false);
+  });
+});
+
+describe("unconfigured-proxy warning", () => {
+  const stamperWithWarnings = (trustedProxy?: { header: string; proxies: string[] }) => {
+    const warnings: string[] = [];
+    const stamp = makeClientIpStamper(trustedProxy, {
+      warn: (message) => {
+        warnings.push(message);
+      },
+    });
+    return { stamp, warnings };
+  };
+
+  it.each(PROXY_HINT_HEADERS)(
+    "fires once for %s with no trusted proxy configured, naming both variables",
+    (header) => {
+      const { stamp, warnings } = stamperWithWarnings();
+      stamp(signIn({ [header]: "203.0.113.9" }), Option.some("172.18.0.2"));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(header);
+      expect(warnings[0]).toContain("EXECUTOR_TRUSTED_PROXY_HEADER");
+      expect(warnings[0]).toContain("EXECUTOR_TRUSTED_PROXIES");
+
+      stamp(signIn({ [header]: "203.0.113.9" }), Option.some("172.18.0.2"));
+      stamp(signIn({ "x-forwarded-for": "203.0.113.10" }), Option.some("172.18.0.2"));
+      expect(warnings).toHaveLength(1);
+    },
+  );
+
+  it("does not fire for a request without a proxy-style header", () => {
+    const { stamp, warnings } = stamperWithWarnings();
+    stamp(signIn(), Option.some("198.51.100.4"));
+    stamp(signIn({ [CLIENT_IP_HEADER]: "203.0.113.9" }), Option.some("198.51.100.4"));
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("does not fire when a trusted proxy is configured", () => {
+    const { stamp, warnings } = stamperWithWarnings({
+      header: "x-real-ip",
+      proxies: ["172.18.0.2"],
+    });
+    // From the proxy, with the configured header plus the extras nginx sends.
+    stamp(
+      signIn({ "x-real-ip": "203.0.113.9", "x-forwarded-for": "203.0.113.9" }),
+      Option.some("172.18.0.2"),
+    );
+    // Direct from an untrusted peer asserting a proxy header.
+    stamp(signIn({ "x-forwarded-for": "203.0.113.9" }), Option.some("198.51.100.4"));
+    expect(warnings).toHaveLength(0);
   });
 });

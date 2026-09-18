@@ -20,10 +20,27 @@ import type { TrustedProxyConfig } from "../config";
 //      it connects from (EXECUTOR_TRUSTED_PROXIES). That header is honoured only
 //      on connections from one of those addresses and stripped otherwise, so a
 //      client that reaches the container directly cannot assert a proxy header.
+//
+// Better Auth's own default reads `x-forwarded-for` from anyone. That is not
+// restored here: a client could rotate the header to dodge the limit. Behind
+// an unconfigured proxy every user therefore shares one bucket, so the stamper
+// warns the operator once when it sees a proxy-style header in that state.
 // ---------------------------------------------------------------------------
 
 /** Server-stamped socket peer address. Never trusted from the client. */
 export const CLIENT_IP_HEADER = "x-executor-client-ip";
+
+/**
+ * Headers a reverse proxy commonly sets to the client IP. Seeing one with no
+ * trusted proxy configured is the signature of a proxied deployment that has
+ * not told Executor about its proxy.
+ */
+export const PROXY_HINT_HEADERS = [
+  "x-forwarded-for",
+  "x-real-ip",
+  "cf-connecting-ip",
+  "true-client-ip",
+] as const;
 
 export interface IpRange {
   readonly address: string;
@@ -64,13 +81,39 @@ const isTrustedPeer = (list: BlockList, address: string): boolean => {
   return version !== 0 && list.check(address, version === 6 ? "ipv6" : "ipv4");
 };
 
-/**
- * Header names Better Auth walks, in order, to find the client IP. The proxy's
- * header leads when one is configured; the server-stamped socket address is the
- * fallback for requests that did not come through the proxy.
- */
-export const clientIpHeaders = (trustedProxy: TrustedProxyConfig | undefined): string[] =>
-  trustedProxy ? [trustedProxy.header, CLIENT_IP_HEADER] : [CLIENT_IP_HEADER];
+/** The `advanced.ipAddress` block handed to Better Auth. */
+export interface ClientIpAddressOptions {
+  /**
+   * Header names Better Auth walks, in order, to find the client IP. The
+   * proxy's header leads when one is configured; the server-stamped socket
+   * address is the fallback for requests that did not come through the proxy.
+   */
+  readonly ipAddressHeaders: string[];
+  /**
+   * Hops Better Auth strips from the right of a forwarded chain. Only present
+   * with a configured proxy; when every hop in a header is trusted, Better
+   * Auth finds no client in it and moves to the next header.
+   */
+  readonly trustedProxies?: string[];
+}
+
+export const clientIpAddressOptions = (
+  trustedProxy: TrustedProxyConfig | undefined,
+): ClientIpAddressOptions =>
+  trustedProxy
+    ? {
+        ipAddressHeaders: [trustedProxy.header, CLIENT_IP_HEADER],
+        trustedProxies: [...trustedProxy.proxies],
+      }
+    : { ipAddressHeaders: [CLIENT_IP_HEADER] };
+
+export interface ClientIpStamperOptions {
+  /** Where the one-time unconfigured-proxy warning goes. Defaults to console.warn. */
+  readonly warn?: (message: string) => void;
+}
+
+const unconfiguredProxyWarning = (header: string): string =>
+  `[executor] An auth request carried ${header}, but no trusted proxy is configured, so every user behind that proxy shares one sign-in rate-limit bucket. Set EXECUTOR_TRUSTED_PROXY_HEADER and EXECUTOR_TRUSTED_PROXIES so the limit keys on the real client IP.`;
 
 /**
  * Build the per-request rewrite that stamps the socket peer address onto
@@ -78,13 +121,20 @@ export const clientIpHeaders = (trustedProxy: TrustedProxyConfig | undefined): s
  * drops the trusted-proxy header unless the peer is a configured proxy. The
  * `remoteAddress` is the TCP peer as reported by the HTTP server, not anything
  * read from the request.
+ *
+ * With no trusted proxy configured, the first request that carries one of
+ * PROXY_HINT_HEADERS triggers a single operator warning for the stamper's
+ * lifetime (one stamper per server).
  */
 export const makeClientIpStamper = (
   trustedProxy: TrustedProxyConfig | undefined,
+  options: ClientIpStamperOptions = {},
 ): ((request: Request, remoteAddress: Option.Option<string>) => Request) => {
   const proxies = trustedProxy
     ? blockListOf(trustedProxy.proxies.flatMap((entry) => parseIpRange(entry) ?? []))
     : undefined;
+  const warn = options.warn ?? ((message: string) => console.warn(message));
+  let warnedUnconfiguredProxy = false;
   return (request, remoteAddress) => {
     const headers = new Headers(request.headers);
     const peer = Option.getOrUndefined(remoteAddress);
@@ -95,6 +145,13 @@ export const makeClientIpStamper = (
     }
     if (trustedProxy && proxies && !(peer && isTrustedPeer(proxies, peer))) {
       headers.delete(trustedProxy.header);
+    }
+    if (!trustedProxy && !warnedUnconfiguredProxy) {
+      const hint = PROXY_HINT_HEADERS.find((header) => headers.has(header));
+      if (hint) {
+        warnedUnconfiguredProxy = true;
+        warn(unconfiguredProxyWarning(hint));
+      }
     }
     return new Request(request, { headers });
   };

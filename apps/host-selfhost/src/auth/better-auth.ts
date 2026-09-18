@@ -14,7 +14,7 @@ import { LibsqlDialect, type LibsqlDialectConfig } from "@libsql/kysely-libsql";
 import { Context } from "effect";
 
 import { loadConfig } from "../config";
-import { clientIpHeaders } from "./client-ip";
+import { clientIpAddressOptions } from "./client-ip";
 import { seedOrgAndAdmin } from "./seed";
 import { consumeInviteCode, ensureInviteCodeTable, findRedeemableCode } from "./invites";
 import { isAdmitted, isOAuthCallback, ssoProviderConfig } from "./sso";
@@ -139,10 +139,7 @@ const makeAuthOptions = (client: Client, getOrganizationId: () => string, gate?:
       // `trustedProxies` lets Better Auth strip known hops from a forwarded
       // chain; the stamper has already dropped the proxy header on any
       // connection that did not come from one of those addresses.
-      ipAddress: {
-        ipAddressHeaders: clientIpHeaders(config.trustedProxy),
-        ...(config.trustedProxy ? { trustedProxies: [...config.trustedProxy.proxies] } : {}),
-      },
+      ipAddress: clientIpAddressOptions(config.trustedProxy),
     },
     // Better Auth's own limiter is on in production and off in development.
     // Only an explicit opt-out is passed through, so that environment default
