@@ -621,6 +621,7 @@ describe("exchangeAuthorizationCode", () => {
   it.effect("uses nested granted scopes for Slack-style user token responses", () =>
     withTokenEndpoint(
       tokenResponse({
+        ok: true,
         access_token: "xoxp-user-token",
         token_type: "Bearer",
         scope: "",
@@ -1841,8 +1842,49 @@ describe("OAuth2Error tagging", () => {
 
 // Slack labels bearer credentials by actor type. The same envelope is used
 // during authorization-code exchange and refresh-token rotation.
-describe("Slack token envelopes", () => {
+describe("Provider token envelopes", () => {
   const grants = [
+    {
+      label: "standard bearer response with ok metadata",
+      body: {
+        ok: true,
+        access_token: "provider-token",
+        token_type: "Bearer",
+        scope: "scope,with-comma other.scope",
+      },
+      expected: {
+        access_token: "provider-token",
+        token_type: "bearer",
+        scope: "scope,with-comma other.scope",
+      },
+    },
+    {
+      // https://docs.slack.dev/reference/methods/oauth.v2.access/
+      // A single response can contain two distinct accounts and refresh tokens.
+      label: "Slack bot and user response",
+      body: {
+        ok: true,
+        access_token: "bot-token",
+        token_type: "bot",
+        scope: "commands,incoming-webhook",
+        expires_in: 43200,
+        refresh_token: "bot-refresh",
+        authed_user: {
+          access_token: "user-token",
+          token_type: "user",
+          scope: "chat:write",
+          expires_in: 43200,
+          refresh_token: "user-refresh",
+        },
+      },
+      expected: {
+        access_token: "bot-token",
+        token_type: "bearer",
+        scope: "commands incoming-webhook",
+        expires_in: 43200,
+        refresh_token: "bot-refresh",
+      },
+    },
     {
       label: "bot",
       body: {
@@ -1901,7 +1943,7 @@ describe("Slack token envelopes", () => {
     },
   ];
   for (const grant of grants) {
-    it.effect(`exchanges a Slack ${grant.label} grant`, () =>
+    it.effect(`exchanges a ${grant.label} grant`, () =>
       withTokenEndpoint(tokenResponse(grant.body), ({ tokenUrl }) =>
         Effect.gen(function* () {
           const result = yield* exchangeAuthorizationCode({
@@ -1916,7 +1958,7 @@ describe("Slack token envelopes", () => {
         }),
       ),
     );
-    it.effect(`refreshes a Slack ${grant.label} grant`, () =>
+    it.effect(`refreshes a ${grant.label} grant`, () =>
       withTokenEndpoint(tokenResponse(grant.body), ({ tokenUrl }) =>
         Effect.gen(function* () {
           const result = yield* refreshAccessToken({

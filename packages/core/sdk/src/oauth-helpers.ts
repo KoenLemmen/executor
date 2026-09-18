@@ -1146,7 +1146,14 @@ const normalizeSlackTokenEnvelope = async (response: Response): Promise<Response
     (envelope.access_token === undefined || !envelope.scope?.trim())
       ? user
       : envelope;
-  if (grant.access_token === undefined) return response;
+  // Standard bearer responses may also contain `ok: true`. Preserve their
+  // scopes and provider metadata; only Slack's actor token types need adapting.
+  if (
+    grant.access_token === undefined ||
+    (grant.token_type !== "bot" && grant.token_type !== "user")
+  ) {
+    return response;
+  }
   const scope = grant.scope
     ?.split(/[\s,]+/)
     .filter(Boolean)
@@ -1154,8 +1161,7 @@ const normalizeSlackTokenEnvelope = async (response: Response): Promise<Response
   return new Response(
     JSON.stringify({
       access_token: grant.access_token,
-      token_type:
-        grant.token_type === "bot" || grant.token_type === "user" ? "Bearer" : grant.token_type,
+      token_type: "Bearer",
       refresh_token: grant.refresh_token,
       expires_in: grant.expires_in,
       ...(scope ? { scope } : {}),
