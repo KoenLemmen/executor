@@ -327,6 +327,14 @@ for (const origin of ["integration", "workspace"] as const) {
         });
         yield* Effect.addFinalizer(() =>
           Effect.gen(function* () {
+            const connections = yield* client.connections.list({ query: { integration: slug } });
+            for (const connection of connections) {
+              yield* client.connections
+                .remove({
+                  params: { owner: connection.owner, integration: slug, name: connection.name },
+                })
+                .pipe(Effect.ignore);
+            }
             yield* client.mcp.removeServer({ params: { slug } }).pipe(Effect.ignore);
             yield* client.oauth
               .removeClient({ params: { slug: app }, payload: { owner: "org" } })
@@ -355,17 +363,13 @@ for (const origin of ["integration", "workspace"] as const) {
             ...(origin === "integration" ? { originIntegration: slug } : {}),
           },
         });
-        const savedClients = yield* client.oauth.listClients({});
-        expect(savedClients.find((saved) => saved.slug === app)?.origin).toEqual(
-          origin === "integration"
-            ? { kind: "manual", integration: slug }
-            : { kind: "manual", integration: null },
-        );
         yield* Effect.promise(() => emulator.ledger.clear());
         yield* browser.session(identity, async ({ page, step }) => {
           await step("Open an integration that already has a saved OAuth app", async () => {
             await visit(page, `/integrations/${slug}?addAccount=1`);
             await page.getByRole("tab", { name: "OAuth", exact: true }).waitFor();
+          });
+          await step("Connect once using the saved app", async () => {
             const opened = page.waitForEvent("popup");
             await page.getByRole("button", { name: /^Connect(?: with OAuth)?$/ }).click();
             const popup = await opened;
@@ -374,14 +378,28 @@ for (const origin of ["integration", "workspace"] as const) {
               new URL(popup.url()).searchParams.get("client_id"),
               "the existing app is reused without another registration step",
             ).toBe(registered.client_id);
-            await popup.close();
+          });
+          await step("Approve provider sign-in and save the connection", async () => {
+            const popup = page
+              .context()
+              .pages()
+              .find((candidate) => candidate !== page);
+            if (!popup) throw new Error("Provider sign-in window was not open");
+            await popup.getByRole("button", { name: /admin/ }).click();
             await page
-              .getByRole("dialog")
-              .getByRole("button", { name: "Close", exact: true })
-              .last()
-              .click();
+              .getByRole("heading", { name: /Add connection/ })
+              .waitFor({ state: "hidden", timeout: 30_000 });
           });
         });
+        const connections = yield* client.connections.list({ query: { integration: slug } });
+        expect(connections, "provider consent saves the connection").toHaveLength(1);
+        expect(connections[0]?.owner, "a shared app keeps the connection personal").toBe("user");
+        const savedClients = yield* client.oauth.listClients({});
+        expect(savedClients.find((saved) => saved.slug === app)?.origin).toEqual(
+          origin === "integration"
+            ? { kind: "manual", integration: slug }
+            : { kind: "manual", integration: null },
+        );
         const ledger = yield* Effect.promise(() => emulator.ledger.list());
         expect(
           ledger.filter((entry) => entry.method === "POST" && entry.path === "/register"),
