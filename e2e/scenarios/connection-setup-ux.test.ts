@@ -1,0 +1,137 @@
+import { randomBytes } from "node:crypto";
+import { expect } from "@effect/vitest";
+import { Effect } from "effect";
+import { composePluginApi } from "@executor-js/api/server";
+import { connectEmulator } from "@executor-js/emulate";
+import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
+import { IntegrationSlug, OAuthClientSlug } from "@executor-js/sdk/shared";
+import { variable } from "@executor-js/sdk/http-auth";
+import { createEmulatorInstance } from "../src/emulator-instance";
+import { scenario } from "../src/scenario";
+import { Api, Browser, Target } from "../src/services";
+import { visit } from "../src/surfaces/browser";
+
+const api = composePluginApi([openApiHttpPlugin()] as const);
+// Each journey has its own real provider state, OAuth app, user and integration.
+const fixture = Effect.gen(function* () {
+  const target = yield* Target;
+  const browser = yield* Browser;
+  const { client: makeClient } = yield* Api;
+  const identity = yield* target.newIdentity();
+  const client = yield* makeClient(api, identity);
+  const slug = IntegrationSlug.make(`setup-${randomBytes(4).toString("hex")}`);
+  const app = OAuthClientSlug.make(`${slug}-app`);
+  const baseUrl = yield* createEmulatorInstance("slack", "connection-setup");
+  const emulator = yield* Effect.promise(() => connectEmulator({ baseUrl }));
+  const credential = yield* Effect.promise(() =>
+    emulator.credentials.mint({
+      type: "oauth-authorization-code",
+      redirect_uris: [new URL("/api/oauth/callback", target.baseUrl).toString()],
+    }),
+  );
+  const {
+    client_id: clientId,
+    client_secret: clientSecret,
+    authorization_url: authorizationUrl,
+    token_url: tokenUrl,
+  } = credential;
+  if (!clientId || !clientSecret || !authorizationUrl || !tokenUrl) {
+    return yield* Effect.die("Slack emulator did not mint an OAuth app");
+  }
+  yield* Effect.addFinalizer(() =>
+    Effect.gen(function* () {
+      const connections = yield* client.connections.list({ query: { integration: slug } });
+      for (const connection of connections) {
+        yield* client.connections
+          .remove({
+            params: {
+              owner: connection.owner,
+              integration: slug,
+              name: connection.name,
+            },
+          })
+          .pipe(Effect.ignore);
+      }
+      yield* client.oauth
+        .removeClient({ params: { slug: app }, payload: { owner: "org" } })
+        .pipe(Effect.ignore);
+      yield* client.openapi.removeSpec({ params: { slug } }).pipe(Effect.ignore);
+    }).pipe(Effect.ignore),
+  );
+  yield* client.openapi.addSpec({
+    payload: {
+      slug,
+      name: "Team chat",
+      baseUrl: "https://slack.com",
+      displayDomain: "slack.com",
+      spec: {
+        kind: "blob",
+        value: JSON.stringify({
+          openapi: "3.0.3",
+          info: { title: "Team chat", version: "1" },
+          // No API operations: only the isolated emulator receives OAuth traffic.
+          servers: [{ url: "https://slack.com" }],
+          paths: {},
+        }),
+      },
+      authenticationTemplate: [
+        {
+          slug: "token",
+          type: "apiKey",
+          headers: { Authorization: ["Bearer ", variable("token")] },
+        },
+        { slug: "oauth", kind: "oauth2", authorizationUrl, tokenUrl, scopes: ["users:read"] },
+      ],
+    },
+  });
+  yield* client.oauth.createClient({
+    payload: {
+      slug: app,
+      owner: "org",
+      grant: "authorization_code",
+      clientId,
+      clientSecret,
+      authorizationUrl,
+      tokenUrl,
+      originIntegration: slug,
+    },
+  });
+  return { target, browser, identity, client, slug, emulator };
+});
+
+scenario(
+  "Slack OAuth · provider consent saves a connection",
+  {},
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { browser, identity, slug, client, emulator } = yield* fixture;
+      yield* browser.session(identity, async ({ page, step }) => {
+        await step("Sign in with a provider account without naming the connection", async () => {
+          await visit(page, `/integrations/${slug}?addAccount=1`);
+          await page.getByRole("tab", { name: "OAuth2", exact: true }).click();
+          const opened = page.waitForEvent("popup");
+          await page.getByRole("button", { name: "Connect with OAuth", exact: true }).click();
+          const popup = await opened;
+          await popup.waitForURL(/oauth\/v2\/authorize/);
+          // The hosted emulator renders a root-relative form action. Rebase only
+          // that provider transport onto this run's isolated instance.
+          await popup.route("https://emulators.dev/oauth/v2/authorize/callback", (route) =>
+            route.continue({ url: `${emulator.baseUrl}/oauth/v2/authorize/callback` }),
+          );
+          await popup.getByRole("button", { name: /admin/ }).click();
+          await page
+            .getByRole("heading", { name: /Add connection/ })
+            .waitFor({ state: "hidden", timeout: 30_000 });
+        });
+      });
+      const connections = yield* client.connections.list({ query: { integration: slug } });
+      expect(connections, "the completed callback persists the new account").toHaveLength(1);
+      expect(connections[0]?.name).toBeTruthy();
+      const ledger = yield* Effect.promise(() => emulator.ledger.list());
+      expect(
+        ledger.some((entry) => entry.method === "POST" && entry.path.includes("oauth.v2.access")),
+        "the real provider exchanged an authorization code",
+      ).toBe(true);
+    }),
+  ),
+);
