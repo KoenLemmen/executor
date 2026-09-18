@@ -35,6 +35,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { drizzle } from "drizzle-orm/postgres-js";
+import { Result } from "effect";
 import postgres from "postgres";
 
 import {
@@ -42,6 +43,11 @@ import {
   describeMirrorReadiness,
   readMirrorReadiness,
 } from "../src/auth/mirror-readiness-store";
+import {
+  TOO_MANY_CONNECTIONS_RETRIES,
+  TOO_MANY_CONNECTIONS_RETRY_INTERVAL,
+  retryWhileTooManyConnections,
+} from "../src/db/too-many-connections";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BACKFILL_SCRIPT = resolve(__dirname, "backfill-workos-mirror.ts");
@@ -84,7 +90,17 @@ const runScript = (what: string, script: string) => {
 };
 
 try {
-  let state = await readiness();
+  // The first read is where a full server refuses the connection (SQLSTATE
+  // 53300); wait for a slot rather than fail the deploy — the same guard as
+  // the migration step before this one (src/db/too-many-connections.ts).
+  const firstRead = await retryWhileTooManyConnections(readiness, {
+    onRefused: (_failure, attempt) =>
+      log(
+        `Postgres refused the connection: no free connection slots (attempt ${attempt} of ${TOO_MANY_CONNECTIONS_RETRIES + 1}); retrying in ${TOO_MANY_CONNECTIONS_RETRY_INTERVAL}`,
+      ),
+  });
+  if (Result.isFailure(firstRead)) throw firstRead.failure;
+  let state = firstRead.success;
   log(describeMirrorReadiness(state));
 
   if (MirrorReadinessState.$is("BackfillPending")(state)) {
