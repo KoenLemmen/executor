@@ -135,3 +135,25 @@ scenario(
     }),
   ),
 );
+
+scenario(
+  "Connection setup · a ready OAuth app is the default",
+  {},
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { browser, identity, slug } = yield* fixture;
+      yield* browser.session(identity, async ({ page, step }) => {
+        await step("Add a connection with both a token and a registered sign-in app", async () => {
+          await visit(page, `/integrations/${slug}?addAccount=1`);
+          await page.getByRole("tab", { name: "OAuth2", exact: true }).waitFor();
+          expect(
+            await page
+              .getByRole("tab", { name: "OAuth2", exact: true })
+              .getAttribute("aria-selected"),
+            "sign-in is selected without first switching away from API token",
+          ).toBe("true");
+        });
+      });
+    }),
+  ),
+);

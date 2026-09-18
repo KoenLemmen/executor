@@ -628,13 +628,9 @@ export const connectionExistsMessage = (label: string): string =>
  *  explicit choice. Personal: a connection is most often a personal credential. */
 export const DEFAULT_CONNECTION_OWNER: Owner = "user";
 
-/** The method the modal opens on. OAuth needs a registered app (or a DCR
- *  round-trip) before "Connect" does anything; a key is one paste. When an
- *  integration declares both, starting on OAuth greets most users with
- *  "Register app" — a dead end — while the working method sits one tab over.
- *  Prefer the first non-OAuth method; OAuth stays one click away. */
+/** Prefer browser sign-in when offered; credential methods remain selectable. */
 export const preferredMethodId = (methods: readonly AuthMethod[]): string =>
-  (methods.find((method) => method.kind !== "oauth") ?? methods[0])?.id ?? "";
+  (methods.find((method) => method.kind === "oauth") ?? methods[0])?.id ?? "";
 
 const authMethodKey = (method: AuthMethod): string =>
   method.source === "custom" ? `custom:${String(method.template)}` : `declared:${method.id}`;
@@ -1581,15 +1577,6 @@ function AddAccountModalView(props: AddAccountModalProps) {
     () => allMethods.find((m: AuthMethod) => m.id === methodId) ?? allMethods[0],
     [allMethods, methodId],
   );
-
-  useEffect(() => {
-    if (allMethods.length === 0) {
-      if (methodId !== "") setMethodId("");
-      return;
-    }
-    if (allMethods.some((m: AuthMethod) => m.id === methodId)) return;
-    setMethodId(allMethods[0]!.id);
-  }, [allMethods, methodId]);
 
   // Apply the handoff prefill ONCE per handoff key (tracked by ref). The
   // effect's deps include `allMethods`, which gets a new identity whenever the

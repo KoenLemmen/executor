@@ -19,6 +19,7 @@ import {
   DEFAULT_CONNECTION_OWNER,
   hasDcr,
   mergeCustomMethods,
+  preferredMethodId,
   oauthIdentityLabelFromHealth,
   runAutomaticOAuthConnect,
   runCimdConnect,
@@ -1436,5 +1437,22 @@ describe("runDcrConnect", () => {
     expect(registerArgs).not.toBeNull();
     // Slug comes from the issuer host, independent of any picker state.
     expect(String(registerArgs!.slug)).toBe("dcr-auth-example-com");
+  });
+});
+
+describe("preferredMethodId", () => {
+  it("opens sign-in before a token field and preserves token-only integrations", () => {
+    const token = apiKeyMethod("token", "spec");
+    const oauth: AuthMethod = {
+      id: "oauth",
+      label: "OAuth",
+      kind: "oauth",
+      source: "spec",
+      template: AuthTemplateSlug.make("oauth"),
+      placements: [],
+    };
+    expect(preferredMethodId([token, oauth])).toBe("oauth");
+    expect(preferredMethodId([token])).toBe("token");
+    expect(preferredMethodId([])).toBe("");
   });
 });
