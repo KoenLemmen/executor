@@ -267,6 +267,7 @@ scenario(
         await step("Add a connection with both a token and a registered sign-in app", async () => {
           await visit(page, `/integrations/${slug}?addAccount=1`);
           await page.getByRole("tab", { name: "OAuth2", exact: true }).waitFor();
+          await page.getByRole("tab", { name: "OAuth2", exact: true, selected: true }).waitFor();
           expect(
             await page
               .getByRole("tab", { name: "OAuth2", exact: true })
@@ -339,7 +340,7 @@ for (const origin of ["integration", "workspace"] as const) {
             yield* client.oauth
               .removeClient({ params: { slug: app }, payload: { owner: "org" } })
               .pipe(Effect.ignore);
-          }),
+          }).pipe(Effect.ignore),
         );
         yield* client.mcp.addServer({
           payload: {
@@ -385,6 +386,13 @@ for (const origin of ["integration", "workspace"] as const) {
               .pages()
               .find((candidate) => candidate !== page);
             if (!popup) throw new Error("Provider sign-in window was not open");
+            // The published MCP consent form omits its selected user's login.
+            // Keep the real provider exchange; forward the identity clicked below.
+            await popup.route(`${base}/authorize/approve`, (route) => {
+              const body = new URLSearchParams(route.request().postData() ?? "");
+              body.set("login", "admin");
+              return route.continue({ postData: body.toString() });
+            });
             await popup.getByRole("button", { name: /admin/ }).click();
             await page
               .getByRole("heading", { name: /Add connection/ })
