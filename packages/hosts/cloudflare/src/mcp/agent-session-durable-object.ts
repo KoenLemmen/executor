@@ -1402,9 +1402,13 @@ export abstract class McpAgentSessionDOBase<
    * this RPC) the very next `fetch` for the same session re-enters the gate,
    * finds the instance unstarted, and runs `onStart` again: tearing down the
    * runtime this RPC just built and rebuilding it with the object's input gate
-   * held for the whole build. Under load that rebuild ran into the platform's
-   * `blockConcurrencyWhile` limit and reset the object, turning every
-   * request after a long idle into a ~30s stall ending in a 503.
+   * held for the whole build. That second build is the confirmed defect:
+   * every restore through an RPC on a fresh instance paid for two cold
+   * builds, the second with the object's input gate closed. The CI runs that
+   * surfaced it also showed builds reset at the platform's 30s
+   * `blockConcurrencyWhile` limit; that stall is observed alongside it, not
+   * explained by it — most likely the cloud app's build-semaphore hand-off,
+   * tracked in https://github.com/UsefulSoftwareCo/executor/issues/2063.
    *
    * So a fresh instance is initialized the way the SDK initializes its own
    * RPC entry points — `__unsafe_ensureInitialized`, PartyServer's escape
