@@ -153,6 +153,21 @@ scenario(
             "sign-in is selected without first switching away from API token",
           ).toBe("true");
         });
+        await step("Choose an API key instead of browser sign-in", async () => {
+          const tokenTab = page.getByRole("tab", { name: "API key (Authorization)", exact: true });
+          await tokenTab.click();
+          expect(await tokenTab.getAttribute("aria-selected")).toBe("true");
+          await page.getByRole("button", { name: "Cancel", exact: true }).click();
+          await page.getByRole("heading", { name: /Add connection/ }).waitFor({ state: "hidden" });
+        });
+        await step("Open a new connection on browser sign-in again", async () => {
+          await page.getByRole("button", { name: "Add connection", exact: true }).click();
+          expect(
+            await page
+              .getByRole("tab", { name: "OAuth2", exact: true })
+              .getAttribute("aria-selected"),
+          ).toBe("true");
+        });
       });
     }),
   ),
