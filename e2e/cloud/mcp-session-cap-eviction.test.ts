@@ -25,6 +25,7 @@ import { Effect, Option, Schedule, Schema } from "effect";
 import { scenario } from "../src/scenario";
 import { Mcp, Target, Telemetry } from "../src/services";
 import type { Identity } from "../src/target";
+import { configuredMcpSessionTimeoutMs } from "../setup/mcp-session-timeouts";
 import { E2E_MCP_RESIDENT_RUNTIME_SOFT_CAP } from "../setup/resident-runtime-cap";
 
 const PROTOCOL_VERSION = "2025-03-26";
@@ -34,6 +35,23 @@ const JSON_AND_SSE = "application/json, text/event-stream";
 // are still incidentally resident when this file runs, enough of THESE
 // sessions cross it that at least one eviction targets a session opened here.
 const SESSIONS_TO_OPEN = E2E_MCP_RESIDENT_RUNTIME_SOFT_CAP + 10;
+
+// The cap only trips if the sessions opened here are still RESIDENT when the
+// last of them is admitted. A session that reaches the target's idle timeout
+// first (MCP_SESSION_TIMEOUT_MS, squeezed to a few seconds for e2e) gives its
+// runtime back and leaves the count, and a batch that idles out as fast as it
+// is opened never reaches the cap at all — no eviction, nothing to assert on.
+// Opening one session at a time took ~60ms per session on a quiet runner and
+// ~270ms under CI load, which crosses the e2e idle window well before the
+// 34th session. A few opens in flight at once keep the whole batch inside it.
+//
+// Exactly as many as the isolate builds at once (MAX_CONCURRENT_BUILDS in
+// apps/cloud/src/mcp/session-build-semaphore.ts), no more: an admission that
+// has to wait at that semaphore is handed its slot from the releasing
+// session's request context, and a cold build resumed that way does not
+// complete in workerd — it sits until the queue's 10s timeout, or is reset at
+// the 30s `blockConcurrencyWhile` limit. Four in flight never queue.
+const OPEN_CONCURRENCY = 4;
 
 const emailOf = (identity: Identity): string => identity.credentials?.email ?? identity.label;
 
@@ -230,12 +248,10 @@ scenario(
     const openedSessionIds: string[] = [];
 
     const scenarioBody = Effect.gen(function* () {
-      // Open more sessions than the cap allows. Keep admission sequential:
-      // the cloud e2e database is one serialized PGlite instance, and this
-      // scenario exercises resident eviction rather than concurrent cold
-      // builds. None of the sessions run any work, so every one is immediately
-      // eviction-eligible — crossing the cap must pick at least one and tear it
-      // down through its own stub.
+      // Open more sessions than the cap allows. None of the sessions run any
+      // work, so every one is immediately eviction-eligible — crossing the cap
+      // must pick at least one and tear it down through its own stub.
+      const openStartedAt = Date.now();
       const sessionIds = yield* Effect.forEach(
         Array.from({ length: SESSIONS_TO_OPEN }, (_, index) => index),
         (index) =>
@@ -244,11 +260,20 @@ scenario(
               openedSessionIds.push(sessionId);
             }),
           ),
-        { concurrency: 1 },
+        { concurrency: OPEN_CONCURRENCY },
       );
+      const openTookMs = Date.now() - openStartedAt;
 
       expect(sessionIds.length, "every session opened").toBe(SESSIONS_TO_OPEN);
       expect(new Set(sessionIds).size, "every session got a distinct id").toBe(SESSIONS_TO_OPEN);
+      // Coverage precondition (see OPEN_CONCURRENCY): a batch that outlasted
+      // the idle window may have shed its first sessions before the cap was
+      // crossed, and the span search below would then report "no eviction"
+      // for a reason that has nothing to do with eviction. Say so directly.
+      expect(
+        openTookMs,
+        `opening ${SESSIONS_TO_OPEN} sessions must finish inside the target's ${configuredMcpSessionTimeoutMs()}ms idle window, or the first ones are disposed before the cap is reached`,
+      ).toBeLessThan(configuredMcpSessionTimeoutMs());
 
       // ---- a real cap eviction fired, against a session opened here -------
       // Same span the idle path emits (`mcp.session.idle_runtime_dispose`);
