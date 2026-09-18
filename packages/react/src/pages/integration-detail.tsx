@@ -37,6 +37,7 @@ import { IntegrationEditSheet } from "../components/metadata-edit-sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/tabs";
 import { authMethodsFromDescriptors, type AuthMethod } from "../lib/auth-placements";
 import { usePolicyActions } from "../hooks/use-policy-actions";
+import { WorkspaceAdminHint } from "../components/workspace-admin-hint";
 import { useCanCreateWorkspaceConnections } from "../multiplayer/use-admin-nav";
 import { useIntegrationPlugins, type IntegrationAccountHandoff } from "@executor-js/sdk/client";
 import { Button } from "../components/button";
@@ -139,11 +140,11 @@ export function IntegrationDetailPage(props: {
   const isBuiltInIntegration = namespace === "executor" || integrationData?.kind === "built-in";
   const currentTab = isBuiltInIntegration ? "tools" : activeTab;
   // Integrations are workspace-owned; the server refuses catalog mutations
-  // (update/remove) from non-admin members, so hide the controls for them.
+  // (update/remove) from non-admin members, so disable the controls for them.
   const canMutateIntegration = useCanCreateWorkspaceConnections();
-  const canEdit = canMutateIntegration && !isBuiltInIntegration && integrationData !== null;
+  const canEdit = !isBuiltInIntegration && integrationData !== null;
   const canRefresh = integrationData?.canRefresh ?? false;
-  const canRemove = canMutateIntegration && (integrationData?.canRemove ?? false);
+  const canRemove = integrationData?.canRemove ?? false;
   const urlAccountHandoff = useMemo<IntegrationAccountHandoff | null>(() => {
     const search = new URLSearchParams(locationSearch);
     // The route-validated flag and the raw `addAccount=1` are the same request;
@@ -499,9 +500,16 @@ export function IntegrationDetailPage(props: {
 
         <div className="flex shrink-0 items-center gap-2">
           {!confirmDelete && canEdit && (
-            <Button variant="outline" size="sm" onClick={() => setEditSheetOpen(true)}>
-              Edit
-            </Button>
+            <WorkspaceAdminHint allowed={canMutateIntegration}>
+              <Button
+                disabled={!canMutateIntegration}
+                variant="outline"
+                size="sm"
+                onClick={() => setEditSheetOpen(true)}
+              >
+                Edit
+              </Button>
+            </WorkspaceAdminHint>
           )}
 
           {canRefresh && (
@@ -530,20 +538,23 @@ export function IntegrationDetailPage(props: {
                   variant="destructive"
                   size="sm"
                   onClick={() => void handleDelete()}
-                  disabled={deleting}
+                  disabled={deleting || !canMutateIntegration}
                 >
                   {deleting ? "Deleting..." : "Confirm Delete"}
                 </Button>
               </div>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmDelete(true)}
-                className="border-destructive/30 text-destructive hover:bg-destructive/10"
-              >
-                Delete
-              </Button>
+              <WorkspaceAdminHint allowed={canMutateIntegration}>
+                <Button
+                  disabled={!canMutateIntegration}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConfirmDelete(true)}
+                  className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                >
+                  Delete
+                </Button>
+              </WorkspaceAdminHint>
             ))}
         </div>
       </div>
