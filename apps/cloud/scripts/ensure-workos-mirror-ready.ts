@@ -44,8 +44,7 @@ import {
   readMirrorReadiness,
 } from "../src/auth/mirror-readiness-store";
 import {
-  TOO_MANY_CONNECTIONS_RETRIES,
-  TOO_MANY_CONNECTIONS_RETRY_INTERVAL,
+  describeRefusedAttempt,
   retryWhileTooManyConnections,
 } from "../src/db/too-many-connections";
 
@@ -71,7 +70,19 @@ const db = drizzle(sql);
 
 const log = (line: string) => console.log(`[mirror-ready] ${line}`);
 
-const readiness = () => readMirrorReadiness(db, new Date());
+// A full server refuses the connection with SQLSTATE 53300 before a statement
+// runs — on the first read, or on a later one after postgres.js has reopened a
+// dropped connection — so every read waits for a slot instead of failing the
+// deploy, as the migration step before this one does
+// (src/db/too-many-connections.ts). The backfill and drain scripts below each
+// open their own connection and wait for their own slot.
+const readiness = async () => {
+  const outcome = await retryWhileTooManyConnections(() => readMirrorReadiness(db, new Date()), {
+    onRefused: (_failure, attempt) => log(describeRefusedAttempt(attempt)),
+  });
+  if (Result.isFailure(outcome)) throw outcome.failure;
+  return outcome.success;
+};
 
 // The backfill and drain scripts own their own WorkOS + database wiring;
 // running them as subprocesses (with this process's env) keeps that wiring
@@ -90,17 +101,7 @@ const runScript = (what: string, script: string) => {
 };
 
 try {
-  // The first read is where a full server refuses the connection (SQLSTATE
-  // 53300); wait for a slot rather than fail the deploy — the same guard as
-  // the migration step before this one (src/db/too-many-connections.ts).
-  const firstRead = await retryWhileTooManyConnections(readiness, {
-    onRefused: (_failure, attempt) =>
-      log(
-        `Postgres refused the connection: no free connection slots (attempt ${attempt} of ${TOO_MANY_CONNECTIONS_RETRIES + 1}); retrying in ${TOO_MANY_CONNECTIONS_RETRY_INTERVAL}`,
-      ),
-  });
-  if (Result.isFailure(firstRead)) throw firstRead.failure;
-  let state = firstRead.success;
+  let state = await readiness();
   log(describeMirrorReadiness(state));
 
   if (MirrorReadinessState.$is("BackfillPending")(state)) {
