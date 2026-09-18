@@ -11,16 +11,19 @@ The connection budget is:
 | PostgreSQL max_connections                | 50              |
 | PostgreSQL superuser_reserved_connections | 3               |
 | Local PgBouncer processes                 | 1               |
-| PgBouncer default_pool_size               | 12              |
-| PgBouncer max_db_connections              | 12              |
+| PgBouncer default_pool_size               | 20              |
+| PgBouncer max_db_connections              | 20              |
 | PgBouncer max_client_conn                 | 400             |
 | PgBouncer max_prepared_statements         | 200             |
-| Hyperdrive origin connection limit        | 12 (soft limit) |
+| Hyperdrive origin connection limit        | 20 (soft limit) |
 
 Hyperdrive's origin limit is advisory. PgBouncer's database limit enforces the
 backend budget across users of one database. The cap is per PgBouncer process:
 adding processes, databases, direct clients, or other poolers requires a new
 aggregate budget. Keep capacity for provider sessions, deploys and administration.
+The 20-connection application budget leaves 27 ordinary slots for those clients
+after the three superuser-reserved slots. This is a concurrency ceiling, not a
+target for active queries; check CPU, queue waits and latency before raising it.
 Prepared statements require protocol-level support to remain enabled in PgBouncer.
 
 The migration and membership-readiness scripts retry only the initial `SELECT 1`
