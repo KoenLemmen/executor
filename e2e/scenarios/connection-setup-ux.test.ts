@@ -122,6 +122,11 @@ scenario(
         await step("Sign in with a provider account without naming the connection", async () => {
           await visit(page, `/integrations/${slug}?addAccount=1`);
           await page.getByRole("tab", { name: "OAuth2", exact: true }).click();
+          // Attached previews can contain other compatible apps. Use this
+          // scenario's provider instance for the full callback and token exchange.
+          await page
+            .getByRole("radio", { name: new RegExp(slug.replace("setup-", ""), "i") })
+            .check();
           const opened = page.waitForEvent("popup");
           await page.getByRole("button", { name: "Connect with OAuth", exact: true }).click();
           const popup = await opened;
@@ -299,6 +304,11 @@ scenario(
         await step("Start provider sign-in without entering a name", async () => {
           await visit(page, `/integrations/${slug}?addAccount=1`);
           await page.getByRole("tab", { name: "OAuth2", exact: true }).click();
+          // Attached previews can contain other compatible apps. Use this
+          // scenario's provider instance for the full callback and token exchange.
+          await page
+            .getByRole("radio", { name: new RegExp(slug.replace("setup-", ""), "i") })
+            .check();
           const opened = page.waitForEvent("popup");
           await page.getByRole("button", { name: "Connect with OAuth", exact: true }).click();
           const popup = await opened;
@@ -313,6 +323,11 @@ scenario(
           ).toBe(true);
           expect(await cancel.isEnabled()).toBe(true);
           await page.getByText("Continue in the sign-in window", { exact: true }).waitFor();
+          expect(
+            await page.getByRole("tab", { name: "OAuth2", exact: true }).isVisible(),
+            "the authentication form stays visible during sign-in",
+          ).toBe(true);
+          expect(await page.getByRole("textbox", { name: /Display name/ }).isVisible()).toBe(true);
           expect(
             await page.getByRole("button", { name: "Connecting…", exact: true }).count(),
             "waiting for provider consent must not leave a dead Connecting button",
@@ -371,10 +386,17 @@ scenario(
         try {
           await step("Cancel while the authorization response is still in flight", async () => {
             await visit(page, `/integrations/${slug}?addAccount=1`);
+            await page
+              .getByRole("radio", { name: new RegExp(slug.replace("setup-", ""), "i") })
+              .check();
             const opened = page.waitForEvent("popup");
             await page.getByRole("button", { name: "Connect with OAuth", exact: true }).click();
             const popup = await opened;
             const oldState = await started.promise;
+            expect(
+              await page.getByRole("textbox", { name: /Display name/ }).isVisible(),
+              "the connection form stays visible while sign-in is being prepared",
+            ).toBe(true);
             await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
             await expect.poll(() => popup.isClosed()).toBe(true);
             const cancelled = page.waitForResponse((response) =>

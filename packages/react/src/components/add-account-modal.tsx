@@ -100,15 +100,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./dropdown-menu";
-import {
-  ChevronDown,
-  EyeIcon,
-  EyeOffIcon,
-  LoaderCircleIcon,
-  PanelsTopLeftIcon,
-  PlusIcon,
-  XIcon,
-} from "lucide-react";
+import { ChevronDown, EyeIcon, EyeOffIcon, PlusIcon, XIcon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -2749,49 +2741,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
             : "sm:max-w-xl",
         )}
       >
-        {signInPending ? (
-          <>
-            <DialogHeader>
-              <DialogTitle>Add connection · {integrationName}</DialogTitle>
-            </DialogHeader>
-            <div role="status" className="flex flex-col items-center px-4 py-8 text-center">
-              <div className="mb-5 flex size-12 items-center justify-center rounded-xl border border-border/70 bg-muted/30 text-foreground shadow-sm">
-                {oauthPopup.phase === "authorizing" ? (
-                  <PanelsTopLeftIcon aria-hidden="true" className="size-5" />
-                ) : (
-                  <LoaderCircleIcon
-                    aria-hidden="true"
-                    className="size-5 animate-spin motion-reduce:animate-none"
-                  />
-                )}
-              </div>
-              <p className="text-sm font-medium text-foreground">
-                {oauthPopup.phase === "authorizing"
-                  ? "Continue in the sign-in window"
-                  : oauthPopup.phase === "saving"
-                    ? "Finishing connection"
-                    : "Preparing sign-in"}
-              </p>
-              <DialogDescription className="mt-2 max-w-xs text-sm leading-relaxed">
-                {oauthPopup.phase === "authorizing"
-                  ? "If the window closed or sign-in stalled, cancel and try again."
-                  : oauthPopup.phase === "saving"
-                    ? "Sign-in complete. Updating your connections."
-                    : "The sign-in window will be ready shortly. You can cancel at any time."}
-              </DialogDescription>
-            </div>
-            <DialogFooter className="border-t border-border/60 pt-4 sm:justify-between">
-              <Button type="button" variant="ghost" onClick={close}>
-                Close
-              </Button>
-              {oauthPopup.phase !== "saving" ? (
-                <Button type="button" variant="outline" onClick={cancelSignIn}>
-                  Cancel sign-in
-                </Button>
-              ) : null}
-            </DialogFooter>
-          </>
-        ) : addingMethod && createCustomMethod ? (
+        {addingMethod && createCustomMethod ? (
           <>
             <DialogHeader className="border-b border-border/60 px-5 py-4">
               <DialogTitle className="text-base">Add authentication method</DialogTitle>
@@ -3442,10 +3392,20 @@ function AddAccountModalView(props: AddAccountModalProps) {
               </p>
             ) : null}
             <DialogFooter>
+              {signInPending ? (
+                <p role="status" className="flex-1 self-center text-xs text-muted-foreground">
+                  {oauthPopup.phase === "authorizing"
+                    ? "Continue in the sign-in window"
+                    : oauthPopup.phase === "saving"
+                      ? "Finishing connection…"
+                      : "Preparing sign-in…"}
+                </p>
+              ) : null}
               <Button type="button" variant="ghost" onClick={close} disabled={submitting || ccBusy}>
                 {isOAuth ? "Close" : "Cancel"}
               </Button>
               {/* Footer action, in precedence order:
+              - pending sign-in: cancel, or wait for an authorized connection to save;
               - transparent CIMD (no app registration): create/reuse a public
                 metadata-document client and start OAuth;
               - transparent DCR (no picker): a single Connect that runs
@@ -3453,7 +3413,17 @@ function AddAccountModalView(props: AddAccountModalProps) {
               - registering a BYO app: the form owns its own submit, no footer;
               - picked BYO OAuth app: Connect with OAuth / Connect (client creds);
               - credential/no-auth method: Add connection. */}
-              {cimdActive ? (
+              {signInPending ? (
+                oauthPopup.phase === "saving" ? (
+                  <Button type="button" loading>
+                    Finishing…
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" onClick={cancelSignIn}>
+                    Cancel sign-in
+                  </Button>
+                )
+              ) : cimdActive ? (
                 <Button
                   type="button"
                   onClick={() => void handleCimdConnect()}

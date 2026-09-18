@@ -2,4 +2,4 @@
 "executor": patch
 ---
 
-Show a clear, cancellable sign-in state and prevent cancelled OAuth requests from disrupting a retry.
+Let users cancel sign-in from the connection form and prevent cancelled OAuth requests from disrupting a retry.
