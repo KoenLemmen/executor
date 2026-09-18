@@ -27,6 +27,7 @@ import {
 } from "../components/integration-favicon";
 import { Skeleton } from "../components/skeleton";
 import { useExecutorDocumentTitle } from "../lib/document-title";
+import { IntegrationCreationGate } from "../components/integration-creation-gate";
 import {
   availableCatalogKinds,
   catalogLogoUrl,
@@ -362,8 +363,17 @@ function quickAddCapablePlugins(plugins: readonly IntegrationPlugin[]) {
 // Page
 // ---------------------------------------------------------------------------
 
+/** Render the integration catalog only when the workspace role permits creation. */
 export function IntegrationBrowsePage() {
   useExecutorDocumentTitle("Add an integration");
+  return (
+    <IntegrationCreationGate>
+      <IntegrationBrowseContent />
+    </IntegrationCreationGate>
+  );
+}
+
+function IntegrationBrowseContent() {
   const navigate = useNavigate();
   const integrationPlugins = useIntegrationPlugins();
   const doDetect = useAtomSet(detectIntegration, { mode: "promiseExit" });

@@ -9,6 +9,7 @@ import { IntegrationFavicon, integrationPresetIconUrl } from "./integration-favi
 import { PresetIcon } from "./preset-icon";
 import { integrationsOptimisticAtom } from "../api/atoms";
 import { useIntegrationPlugins } from "@executor-js/sdk/client";
+import { useCanCreateWorkspaceConnections } from "../multiplayer/use-admin-nav";
 import {
   CommandDialog,
   CommandEmpty,
@@ -34,6 +35,7 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (open: bool
   const integrationPlugins = useIntegrationPlugins();
   const navigate = useNavigate();
   const integrationsResult = useAtomValue(integrationsOptimisticAtom);
+  const canCreateIntegration = useCanCreateWorkspaceConnections();
 
   // Toggle with ⌘K / Ctrl+K
   useEffect(() => {
@@ -139,7 +141,11 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (open: bool
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Search integrations or jump to add…" />
+      <CommandInput
+        placeholder={
+          canCreateIntegration ? "Search integrations or jump to add…" : "Search integrations…"
+        }
+      />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
 
@@ -169,9 +175,11 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (open: bool
           </CommandGroup>
         )}
 
-        {connectedIntegrations.length > 0 && integrationPlugins.length > 0 && <CommandSeparator />}
+        {canCreateIntegration &&
+          connectedIntegrations.length > 0 &&
+          integrationPlugins.length > 0 && <CommandSeparator />}
 
-        {integrationPlugins.length > 0 && (
+        {canCreateIntegration && integrationPlugins.length > 0 && (
           <CommandGroup heading="Add integration">
             {integrationPlugins.map((plugin) => (
               <CommandItem
@@ -186,9 +194,9 @@ export function CommandPalette(props: { open: boolean; onOpenChange: (open: bool
           </CommandGroup>
         )}
 
-        {presetEntries.length > 0 && <CommandSeparator />}
+        {canCreateIntegration && presetEntries.length > 0 && <CommandSeparator />}
 
-        {presetEntries.length > 0 && (
+        {canCreateIntegration && presetEntries.length > 0 && (
           <CommandGroup heading="Popular integrations">
             {presetEntries.map((e) => (
               <CommandItem
