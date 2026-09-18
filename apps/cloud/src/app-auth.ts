@@ -21,7 +21,7 @@ import { WorkerTelemetryLive } from "./observability/telemetry";
 // skip TanStack Start — so `servedByAuthPlane` names the session routes and
 // `server.ts` dispatches them here first.
 //
-// Measured on production 2026-08-19 for `/api/*` on the app plane: warm p50
+// Measured on production 2026-09-18 for `/api/*` on the app plane: warm p50
 // ~120ms, cold p50 ~2.2s, ~31% of requests cold. `POST /api/auth/logout` is
 // the user-visible victim — the console posts it as a top-level form
 // navigation, so the cold wait is a blank page.
