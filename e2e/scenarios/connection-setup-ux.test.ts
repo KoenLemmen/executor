@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { composePluginApi } from "@executor-js/api/server";
 import { connectEmulator } from "@executor-js/emulate";
+import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
 import { openApiHttpPlugin } from "@executor-js/plugin-openapi/api";
 import { IntegrationSlug, OAuthClientSlug } from "@executor-js/sdk/shared";
 import { variable } from "@executor-js/sdk/http-auth";
@@ -12,6 +13,10 @@ import { Api, Browser, Target } from "../src/services";
 import { hydrated, visit } from "../src/surfaces/browser";
 
 const api = composePluginApi([openApiHttpPlugin()] as const);
+const decodeRegisteredClient = Schema.decodeUnknownSync(
+  Schema.Struct({ client_id: Schema.String, client_secret: Schema.String }),
+);
+
 // Each journey has its own real provider state, OAuth app, user and integration.
 const connectionFixture = (registerClient: boolean) =>
   Effect.gen(function* () {
@@ -288,3 +293,101 @@ scenario(
     }),
   ),
 );
+for (const origin of ["integration", "workspace"] as const) {
+  scenario(
+    origin === "integration"
+      ? "Connection setup · a saved MCP app opens sign-in on the first click"
+      : "Connection setup · discovery reuses a workspace OAuth app without another click",
+    {},
+    Effect.scoped(
+      Effect.gen(function* () {
+        const target = yield* Target;
+        const browser = yield* Browser;
+        const { client: makeClient } = yield* Api;
+        const identity = yield* target.newIdentity();
+        const client = yield* makeClient(composePluginApi([mcpHttpPlugin()] as const), identity);
+        const base = yield* createEmulatorInstance("mcp", "saved-app");
+        const emulator = yield* Effect.promise(() => connectEmulator({ baseUrl: base }));
+        const slug = IntegrationSlug.make(`saved-app-${randomBytes(4).toString("hex")}`);
+        const app = OAuthClientSlug.make(`${slug}-client`);
+        const registered = yield* Effect.promise(async () => {
+          const response = await fetch(`${base}/register`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              client_name: "Saved app",
+              redirect_uris: [new URL("/api/oauth/callback", target.baseUrl).toString()],
+              grant_types: ["authorization_code", "refresh_token"],
+              response_types: ["code"],
+              token_endpoint_auth_method: "client_secret_post",
+            }),
+          });
+          expect(response.status).toBe(201);
+          return decodeRegisteredClient(await response.json());
+        });
+        yield* Effect.addFinalizer(() =>
+          Effect.gen(function* () {
+            yield* client.mcp.removeServer({ params: { slug } }).pipe(Effect.ignore);
+            yield* client.oauth
+              .removeClient({ params: { slug: app }, payload: { owner: "org" } })
+              .pipe(Effect.ignore);
+          }),
+        );
+        yield* client.mcp.addServer({
+          payload: {
+            transport: "remote",
+            slug,
+            name: "Team MCP",
+            endpoint: `${base}/mcp`,
+            authenticationTemplate: [{ kind: "oauth2" }],
+          },
+        });
+        yield* client.oauth.createClient({
+          payload: {
+            owner: "org",
+            slug: app,
+            grant: "authorization_code",
+            clientId: registered.client_id,
+            clientSecret: registered.client_secret,
+            authorizationUrl: `${base}/authorize`,
+            tokenUrl: `${base}/token`,
+            resource: base,
+            ...(origin === "integration" ? { originIntegration: slug } : {}),
+          },
+        });
+        const savedClients = yield* client.oauth.listClients({});
+        expect(savedClients.find((saved) => saved.slug === app)?.origin).toEqual(
+          origin === "integration"
+            ? { kind: "manual", integration: slug }
+            : { kind: "manual", integration: null },
+        );
+        yield* Effect.promise(() => emulator.ledger.clear());
+        yield* browser.session(identity, async ({ page, step }) => {
+          await step("Open an integration that already has a saved OAuth app", async () => {
+            await visit(page, `/integrations/${slug}?addAccount=1`);
+            await page.getByRole("tab", { name: "OAuth", exact: true }).waitFor();
+            const opened = page.waitForEvent("popup");
+            await page.getByRole("button", { name: /^Connect(?: with OAuth)?$/ }).click();
+            const popup = await opened;
+            await popup.waitForURL(/\/authorize/);
+            expect(
+              new URL(popup.url()).searchParams.get("client_id"),
+              "the existing app is reused without another registration step",
+            ).toBe(registered.client_id);
+            await popup.close();
+            await page
+              .getByRole("dialog")
+              .getByRole("button", { name: "Close", exact: true })
+              .last()
+              .click();
+          });
+        });
+        const ledger = yield* Effect.promise(() => emulator.ledger.list());
+        expect(
+          ledger.filter((entry) => entry.method === "POST" && entry.path === "/register"),
+          "connecting must reuse the saved app",
+        ).toHaveLength(0);
+      }),
+    ),
+  );
+}
