@@ -100,7 +100,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./dropdown-menu";
-import { ChevronDown, EyeIcon, EyeOffIcon, PlusIcon, XIcon } from "lucide-react";
+import {
+  ChevronDown,
+  EyeIcon,
+  EyeOffIcon,
+  LoaderCircleIcon,
+  PanelsTopLeftIcon,
+  PlusIcon,
+  XIcon,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -741,6 +749,7 @@ type CimdCreateClientArgs = {
 };
 
 type RunCimdConnectDeps = {
+  readonly isActive: () => boolean;
   readonly createClient: (args: CimdCreateClientArgs) => Promise<OAuthClientSlug | null>;
   readonly start: (args: CimdStartArgs) => void;
   /** Claim the sign-in window before any await. See `useOAuthPopupFlow.reserve`. */
@@ -767,6 +776,7 @@ type RunCimdConnectInput = {
 
 type CimdOutcome =
   | { readonly kind: "started"; readonly client: OAuthClientSlug; readonly reused: boolean }
+  | { readonly kind: "aborted" }
   | { readonly kind: "popup-blocked" }
   | { readonly kind: "failed"; readonly reason: "missing-endpoints" | "create-failed" };
 
@@ -830,6 +840,10 @@ export async function runCimdConnect(
   if (reservation.kind === "blocked") return { kind: "popup-blocked" };
 
   const resolved = await resolveCimdClient(deps, input);
+  if (!deps.isActive()) {
+    deps.release();
+    return { kind: "aborted" };
+  }
   if (resolved.kind === "failed") {
     deps.release();
     return resolved;
@@ -1866,7 +1880,14 @@ function AddAccountModalView(props: AddAccountModalProps) {
   const oauthBusy = ccBusy || oauthPopup.busy;
   const cimdConnecting = cimdBusy || oauthPopup.busy;
   const dcrConnecting = dcrBusy || oauthPopup.busy;
-  const automaticOAuthConnecting = cimdConnecting || dcrConnecting;
+  const signInPending = cimdBusy || dcrBusy || oauthPopup.busy;
+  const automaticAttemptRef = useRef(0);
+  const cancelSignIn = () => {
+    automaticAttemptRef.current += 1;
+    oauthPopup.cancel();
+    setCimdBusy(false);
+    setDcrBusy(false);
+  };
 
   // "Connection saved to" for a PICKED BYO OAuth app. Cloud: a Workspace (`org`)
   // app can mint Personal or Workspace connections; a Personal (`user`) app can
@@ -2359,11 +2380,16 @@ function AddAccountModalView(props: AddAccountModalProps) {
     const cimdOwner = owner;
     const connectionName = previewConnectionName(label, cimdOwner);
     const identityLabel = typedIdentityLabel(label);
+    const attempt = ++automaticAttemptRef.current;
+    const isActive = () => viewMountedRef.current && attempt === automaticAttemptRef.current;
     setCimdBusy(true);
     const outcome = await runCimdConnect(
       {
         reserve: oauthPopup.reserve,
-        release: oauthPopup.releaseReservation,
+        release: () => {
+          if (attempt === automaticAttemptRef.current) oauthPopup.releaseReservation();
+        },
+        isActive,
         createClient: createCimdClient,
         start: (args: CimdStartArgs): void => {
           void oauthPopup.start({
@@ -2398,6 +2424,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
         existingClients: clientSummaries,
       },
     );
+    if (!isActive()) return;
     setCimdBusy(false);
     trackEvent("connection_oauth_started", {
       integration_slug: String(integration),
@@ -2442,16 +2469,18 @@ function AddAccountModalView(props: AddAccountModalProps) {
         setDcrFailed(true);
         return;
       }
+      const attempt = ++automaticAttemptRef.current;
+      const isActive = () => viewMountedRef.current && attempt === automaticAttemptRef.current;
       setDcrBusy(true);
       const outcome = await runAutomaticOAuthConnect(
         {
           reserve: oauthPopup.reserve,
-          release: oauthPopup.releaseReservation,
-          // Closing the modal genuinely unmounts this view (see
-          // `AddAccountModal`), so "still mounted" is exactly "still open".
-          // The sequence checks it between round trips: a close mid-flight
-          // must not register a client or launch the popup afterwards.
-          isActive: () => viewMountedRef.current,
+          release: () => {
+            if (attempt === automaticAttemptRef.current) oauthPopup.releaseReservation();
+          },
+          // A closed modal or cancelled attempt cannot register a client or
+          // launch sign-in after the next round trip. A retry owns a new attempt.
+          isActive,
           probe: async (url: string): Promise<OAuthProbeResult | null> => {
             const exit = await doProbe({ payload: { url }, reactivityKeys: [] });
             if (Exit.isFailure(exit)) return null;
@@ -2560,7 +2589,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
       // The modal closed mid-flight: this view is unmounted, so no state may
       // be written at all — not the fallback below, and not even the busy
       // flag, which belongs to the surface that is gone.
-      if (outcome.kind === "aborted") return;
+      if (!isActive() || outcome.kind === "aborted") return;
       setDcrBusy(false);
       // `connection_oauth_started` measures the connect funnel; a reconnect
       // reports through `connection_reconnected` on the popup callbacks above,
@@ -2720,7 +2749,49 @@ function AddAccountModalView(props: AddAccountModalProps) {
             : "sm:max-w-xl",
         )}
       >
-        {addingMethod && createCustomMethod ? (
+        {signInPending ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Add connection · {integrationName}</DialogTitle>
+            </DialogHeader>
+            <div role="status" className="flex flex-col items-center px-4 py-8 text-center">
+              <div className="mb-5 flex size-12 items-center justify-center rounded-xl border border-border/70 bg-muted/30 text-foreground shadow-sm">
+                {oauthPopup.phase === "authorizing" ? (
+                  <PanelsTopLeftIcon aria-hidden="true" className="size-5" />
+                ) : (
+                  <LoaderCircleIcon
+                    aria-hidden="true"
+                    className="size-5 animate-spin motion-reduce:animate-none"
+                  />
+                )}
+              </div>
+              <p className="text-sm font-medium text-foreground">
+                {oauthPopup.phase === "authorizing"
+                  ? "Continue in the sign-in window"
+                  : oauthPopup.phase === "saving"
+                    ? "Finishing connection"
+                    : "Preparing sign-in"}
+              </p>
+              <DialogDescription className="mt-2 max-w-xs text-sm leading-relaxed">
+                {oauthPopup.phase === "authorizing"
+                  ? "If the window closed or sign-in stalled, cancel and try again."
+                  : oauthPopup.phase === "saving"
+                    ? "Sign-in complete. Updating your connections."
+                    : "The sign-in window will be ready shortly. You can cancel at any time."}
+              </DialogDescription>
+            </div>
+            <DialogFooter className="border-t border-border/60 pt-4 sm:justify-between">
+              <Button type="button" variant="ghost" onClick={close}>
+                Close
+              </Button>
+              {oauthPopup.phase !== "saving" ? (
+                <Button type="button" variant="outline" onClick={cancelSignIn}>
+                  Cancel sign-in
+                </Button>
+              ) : null}
+            </DialogFooter>
+          </>
+        ) : addingMethod && createCustomMethod ? (
           <>
             <DialogHeader className="border-b border-border/60 px-5 py-4">
               <DialogTitle className="text-base">Add authentication method</DialogTitle>
@@ -3371,12 +3442,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
               </p>
             ) : null}
             <DialogFooter>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={close}
-                disabled={submitting || oauthBusy || automaticOAuthConnecting}
-              >
+              <Button type="button" variant="ghost" onClick={close} disabled={submitting || ccBusy}>
                 {isOAuth ? "Close" : "Cancel"}
               </Button>
               {/* Footer action, in precedence order:
