@@ -9,95 +9,108 @@ import { variable } from "@executor-js/sdk/http-auth";
 import { createEmulatorInstance } from "../src/emulator-instance";
 import { scenario } from "../src/scenario";
 import { Api, Browser, Target } from "../src/services";
-import { visit } from "../src/surfaces/browser";
+import { hydrated, visit } from "../src/surfaces/browser";
 
 const api = composePluginApi([openApiHttpPlugin()] as const);
 // Each journey has its own real provider state, OAuth app, user and integration.
-const fixture = Effect.gen(function* () {
-  const target = yield* Target;
-  const browser = yield* Browser;
-  const { client: makeClient } = yield* Api;
-  const identity = yield* target.newIdentity();
-  const client = yield* makeClient(api, identity);
-  const slug = IntegrationSlug.make(`setup-${randomBytes(4).toString("hex")}`);
-  const app = OAuthClientSlug.make(`${slug}-app`);
-  const baseUrl = yield* createEmulatorInstance("slack", "connection-setup");
-  const emulator = yield* Effect.promise(() => connectEmulator({ baseUrl }));
-  const credential = yield* Effect.promise(() =>
-    emulator.credentials.mint({
-      type: "oauth-authorization-code",
-      redirect_uris: [new URL("/api/oauth/callback", target.baseUrl).toString()],
-    }),
-  );
-  const {
-    client_id: clientId,
-    client_secret: clientSecret,
-    authorization_url: authorizationUrl,
-    token_url: tokenUrl,
-  } = credential;
-  if (!clientId || !clientSecret || !authorizationUrl || !tokenUrl) {
-    return yield* Effect.die("Slack emulator did not mint an OAuth app");
-  }
-  yield* Effect.addFinalizer(() =>
-    Effect.gen(function* () {
-      const connections = yield* client.connections.list({ query: { integration: slug } });
-      for (const connection of connections) {
-        yield* client.connections
-          .remove({
-            params: {
-              owner: connection.owner,
-              integration: slug,
-              name: connection.name,
-            },
-          })
+const connectionFixture = (registerClient: boolean) =>
+  Effect.gen(function* () {
+    const target = yield* Target;
+    const browser = yield* Browser;
+    const { client: makeClient } = yield* Api;
+    const identity = yield* target.newIdentity();
+    const client = yield* makeClient(api, identity);
+    const slug = IntegrationSlug.make(`setup-${randomBytes(4).toString("hex")}`);
+    const app = OAuthClientSlug.make(`${slug}-app`);
+    const baseUrl = yield* createEmulatorInstance("slack", "connection-setup");
+    const emulator = yield* Effect.promise(() => connectEmulator({ baseUrl }));
+    const credential = yield* Effect.promise(() =>
+      emulator.credentials.mint({
+        type: "oauth-authorization-code",
+        redirect_uris: [new URL("/api/oauth/callback", target.baseUrl).toString()],
+      }),
+    );
+    const {
+      client_id: clientId,
+      client_secret: clientSecret,
+      authorization_url: authorizationUrl,
+      token_url: tokenUrl,
+    } = credential;
+    if (!clientId || !clientSecret || !authorizationUrl || !tokenUrl) {
+      return yield* Effect.die("Slack emulator did not mint an OAuth app");
+    }
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        const connections = yield* client.connections.list({ query: { integration: slug } });
+        for (const connection of connections) {
+          yield* client.connections
+            .remove({
+              params: {
+                owner: connection.owner,
+                integration: slug,
+                name: connection.name,
+              },
+            })
+            .pipe(Effect.ignore);
+        }
+        yield* client.oauth
+          .removeClient({ params: { slug: app }, payload: { owner: "org" } })
           .pipe(Effect.ignore);
-      }
-      yield* client.oauth
-        .removeClient({ params: { slug: app }, payload: { owner: "org" } })
-        .pipe(Effect.ignore);
-      yield* client.openapi.removeSpec({ params: { slug } }).pipe(Effect.ignore);
-    }).pipe(Effect.ignore),
-  );
-  yield* client.openapi.addSpec({
-    payload: {
-      slug,
-      name: "Team chat",
-      baseUrl: "https://slack.com",
-      displayDomain: "slack.com",
-      spec: {
-        kind: "blob",
-        value: JSON.stringify({
-          openapi: "3.0.3",
-          info: { title: "Team chat", version: "1" },
-          // No API operations: only the isolated emulator receives OAuth traffic.
-          servers: [{ url: "https://slack.com" }],
-          paths: {},
-        }),
-      },
-      authenticationTemplate: [
-        {
-          slug: "token",
-          type: "apiKey",
-          headers: { Authorization: ["Bearer ", variable("token")] },
+        yield* client.openapi.removeSpec({ params: { slug } }).pipe(Effect.ignore);
+      }).pipe(Effect.ignore),
+    );
+    yield* client.openapi.addSpec({
+      payload: {
+        slug,
+        name: "Team chat",
+        baseUrl: "https://slack.com",
+        displayDomain: "slack.com",
+        spec: {
+          kind: "blob",
+          value: JSON.stringify({
+            openapi: "3.0.3",
+            info: { title: "Team chat", version: "1" },
+            // No API operations: only the isolated emulator receives OAuth traffic.
+            servers: [{ url: "https://slack.com" }],
+            paths: {},
+          }),
         },
-        { slug: "oauth", kind: "oauth2", authorizationUrl, tokenUrl, scopes: ["users:read"] },
-      ],
-    },
+        authenticationTemplate: [
+          {
+            slug: "token",
+            type: "apiKey",
+            headers: { Authorization: ["Bearer ", variable("token")] },
+          },
+          {
+            slug: "oauth",
+            kind: "oauth2",
+            // The unconfigured case tests metadata only, without contacting a
+            // provider. A unique reserved host cannot match another test's app.
+            authorizationUrl: registerClient
+              ? authorizationUrl
+              : `https://${slug}.invalid/authorize`,
+            tokenUrl: registerClient ? tokenUrl : `https://${slug}.invalid/token`,
+            scopes: ["users:read"],
+          },
+        ],
+      },
+    });
+    if (registerClient)
+      yield* client.oauth.createClient({
+        payload: {
+          slug: app,
+          owner: "org",
+          grant: "authorization_code",
+          clientId,
+          clientSecret,
+          authorizationUrl,
+          tokenUrl,
+          originIntegration: slug,
+        },
+      });
+    return { target, browser, identity, client, slug, emulator };
   });
-  yield* client.oauth.createClient({
-    payload: {
-      slug: app,
-      owner: "org",
-      grant: "authorization_code",
-      clientId,
-      clientSecret,
-      authorizationUrl,
-      tokenUrl,
-      originIntegration: slug,
-    },
-  });
-  return { target, browser, identity, client, slug, emulator };
-});
+const fixture = connectionFixture(true);
 
 scenario(
   "Slack OAuth · provider consent saves a connection",
@@ -135,6 +148,109 @@ scenario(
     }),
   ),
 );
+
+scenario(
+  "Connection setup · without a matching client the API key stays the default",
+  {},
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { browser, identity, slug } = yield* connectionFixture(false);
+      yield* browser.session(identity, async ({ page, step }) => {
+        await step("Open an integration whose OAuth app has not been configured", async () => {
+          await visit(page, `/integrations/${slug}?addAccount=1`);
+          expect(
+            await page
+              .getByRole("tab", { name: "API key (Authorization)", exact: true })
+              .getAttribute("aria-selected"),
+            "declaring OAuth without a usable client must not replace the key form",
+          ).toBe("true");
+          await page.getByRole("tab", { name: "OAuth2", exact: true }).click();
+          await page.getByRole("button", { name: "Register app", exact: true }).waitFor();
+        });
+      });
+    }),
+  ),
+);
+
+for (const { interaction, expectedOAuth, expectedKeys } of [
+  { interaction: "untouched", expectedOAuth: "true", expectedKeys: [] },
+  { interaction: "select API key", expectedOAuth: "false", expectedKeys: [""] },
+  {
+    interaction: "enter API key",
+    expectedOAuth: "false",
+    expectedKeys: ["synthetic-key-in-progress"],
+  },
+] as const) {
+  scenario(
+    `Connection setup · client list arrives with the form ${interaction}`,
+    {},
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { browser, identity, slug } = yield* fixture;
+        yield* browser.session(identity, async ({ page, step }) => {
+          const started = Promise.withResolvers<void>();
+          const released = Promise.withResolvers<void>();
+          const completed = Promise.withResolvers<void>();
+          await page.route(/\/api\/oauth\/clients(?:\?|$)/, async (route) => {
+            const response = await route.fetch();
+            started.resolve();
+            await released.promise;
+            await route.fulfill({ response });
+            completed.resolve();
+          });
+          try {
+            await step("Open the dialog while the real OAuth client list is held", async () => {
+              await page.goto(`/integrations/${slug}?addAccount=1`, {
+                waitUntil: "domcontentloaded",
+              });
+              await hydrated(page);
+              await started.promise;
+              const keyTab = page.getByRole("tab", {
+                name: "API key (Authorization)",
+                exact: true,
+              });
+              await keyTab.waitFor();
+              expect(await keyTab.getAttribute("aria-selected")).toBe("true");
+            });
+            await step(
+              "Resolve client availability without replacing a user's choice",
+              async () => {
+                const keyTab = page.getByRole("tab", {
+                  name: "API key (Authorization)",
+                  exact: true,
+                });
+                const keyInput = page.getByRole("textbox", { name: "Authorization", exact: true });
+                if (interaction === "select API key") await keyTab.click();
+                if (interaction === "enter API key")
+                  await keyInput.fill("synthetic-key-in-progress");
+                released.resolve();
+                await completed.promise;
+                await page.waitForLoadState("networkidle");
+                expect(
+                  await page
+                    .getByRole("tab", { name: "OAuth2", exact: true })
+                    .getAttribute("aria-selected"),
+                  "only an untouched form should adopt the available OAuth client",
+                ).toBe(expectedOAuth);
+                expect(
+                  await keyTab.getAttribute("aria-selected"),
+                  "late data must preserve the chosen key form",
+                ).toBe(String(expectedOAuth === "false"));
+                expect(
+                  await Promise.all((await keyInput.all()).map((input) => input.inputValue())),
+                  "any key already entered must remain unchanged",
+                ).toEqual(expectedKeys);
+              },
+            );
+          } finally {
+            released.resolve();
+            await page.unrouteAll({ behavior: "wait" });
+          }
+        });
+      }),
+    ),
+  );
+}
 
 scenario(
   "Connection setup · a ready OAuth app is the default",

@@ -73,6 +73,7 @@ import {
   clientDisplayName,
   clientHost,
   optimisticDcrClientSlug,
+  selectClientsForEndpoints,
   selectDcrClientsForIntegration,
   uniqueClientSlug,
   useOAuthClientsForIntegration,
@@ -628,9 +629,29 @@ export const connectionExistsMessage = (label: string): string =>
  *  explicit choice. Personal: a connection is most often a personal credential. */
 export const DEFAULT_CONNECTION_OWNER: Owner = "user";
 
-/** Prefer browser sign-in when offered; credential methods remain selectable. */
-export const preferredMethodId = (methods: readonly AuthMethod[]): string =>
-  (methods.find((method) => method.kind === "oauth") ?? methods[0])?.id ?? "";
+/** Prefer OAuth only when its picker has a matching, usable client. Otherwise
+ *  prefer a credential method; OAuth-only integrations still expose setup. */
+export const preferredMethodId = (
+  methods: readonly AuthMethod[],
+  clients: readonly OAuthClientOption[],
+  integration: IntegrationSlug,
+): string =>
+  (
+    methods.find(
+      (method) =>
+        method.kind === "oauth" &&
+        selectClientsForEndpoints(clients, {
+          integration,
+          tokenUrl: method.oauth?.tokenUrl,
+          authorizationUrl: method.oauth?.authorizationUrl,
+          scopes: method.oauth?.scopes,
+          discoversScopes: hasDcr(method),
+          requireEndpointMatch: true,
+        }).matched.length > 0,
+    ) ??
+    methods.find((method) => method.kind !== "oauth") ??
+    methods[0]
+  )?.id ?? "";
 
 const authMethodKey = (method: AuthMethod): string =>
   method.source === "custom" ? `custom:${String(method.template)}` : `declared:${method.id}`;
@@ -1439,7 +1460,9 @@ function AddAccountModalView(props: AddAccountModalProps) {
   );
   const [addingMethod, setAddingMethod] = useState(false);
 
-  const [methodId, setMethodId] = useState<string>(preferredMethodId(methods));
+  // An untouched form follows client availability. User interaction or a
+  // handoff pins a method so a late clients response cannot replace their form.
+  const [selectedMethodId, setMethodId] = useState<string | null>(null);
   // One value per distinct credential input (`variable → pasted value`). A
   // single-secret method has just `{ token }`; a method with two distinct inputs
   // (e.g. Datadog's two keys) collects one value per variable.
@@ -1544,6 +1567,23 @@ function AddAccountModalView(props: AddAccountModalProps) {
     () => (AsyncResult.isSuccess(allClientsResult) ? allClientsResult.value : []),
     [allClientsResult],
   );
+  const defaultMethodId = useMemo(
+    () =>
+      preferredMethodId(
+        allMethods,
+        clientSummaries.flatMap((client) =>
+          client.grant === "authorization_code" || client.grant === "client_credentials"
+            ? [{ ...client, grant: client.grant }]
+            : [],
+        ),
+        integration,
+      ),
+    [allMethods, clientSummaries, integration],
+  );
+  const methodId =
+    selectedMethodId !== null && allMethods.some((method) => method.id === selectedMethodId)
+      ? selectedMethodId
+      : defaultMethodId;
   const usage = useMemo(
     () => buildUsageMap(AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : []),
     [connectionsResult],
@@ -1608,18 +1648,6 @@ function AddAccountModalView(props: AddAccountModalProps) {
     setDcrFailed(false);
     setDcrFallbackMessage(null);
   }, [initialState, allMethods, defaultOwner, ownerOptions]);
-
-  useEffect(() => {
-    if (allMethods.length === 0) return;
-    if (allMethods.some((m: AuthMethod) => m.id === methodId)) return;
-    const initialMethod = initialState?.template
-      ? allMethods.find(
-          (m: AuthMethod) =>
-            m.id === initialState.template || String(m.template) === initialState.template,
-        )
-      : undefined;
-    setMethodId(initialMethod?.id ?? preferredMethodId(allMethods));
-  }, [allMethods, initialState?.template, methodId]);
 
   // Non-secret prefill carried by an `oauth.clients.createHandoff` deep link.
   // The agent fills in the endpoints/grant/client id it discovered; the client
@@ -2682,6 +2710,9 @@ function AddAccountModalView(props: AddAccountModalProps) {
     <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
       <DialogContent
         forceOverlay
+        onPointerDownCapture={() => setMethodId(methodId)}
+        onKeyDownCapture={() => setMethodId(methodId)}
+        onInput={() => setMethodId(methodId)}
         className={cn(
           "max-h-[85vh] overflow-x-hidden overflow-y-auto",
           (addingMethod && createCustomMethod) || oauthRegistering || oauthEditing

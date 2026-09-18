@@ -2,4 +2,4 @@
 "executor": patch
 ---
 
-Prefer browser sign-in when an integration offers OAuth.
+Prefer browser sign-in when a matching OAuth client is available, while preserving a user’s chosen method when clients finish loading.
