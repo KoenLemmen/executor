@@ -93,6 +93,38 @@ describe("makeClientIpStamper without a trusted proxy", () => {
     expect(out.headers.get("x-forwarded-for")).toBe("203.0.113.9");
     expect(await out.json()).toEqual({ email: "a@example.com", password: "pw" });
   });
+
+  // The Vite dev middleware builds the request over a stream the runtime did
+  // not create itself (`Readable.toWeb(req)`); the stamped request must still
+  // deliver it in full.
+  it("passes a streamed body through", async () => {
+    const payload = JSON.stringify({ email: "a@example.com", password: "pw" });
+    const init: RequestInit & { duplex?: "half" } = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(payload));
+          controller.close();
+        },
+      }),
+      duplex: "half",
+    };
+    const streamed = new Request("https://host.example/api/auth/sign-in/email", init);
+    const out = stamp(streamed, Option.some("198.51.100.4"));
+    expect(out.headers.get(CLIENT_IP_HEADER)).toBe("198.51.100.4");
+    expect(await out.text()).toBe(payload);
+  });
+
+  it("stamps a bodiless request without inventing a body", () => {
+    const out = stamp(
+      new Request("https://host.example/api/auth/get-session", { method: "GET" }),
+      Option.some("198.51.100.4"),
+    );
+    expect(out.method).toBe("GET");
+    expect(out.body).toBeNull();
+    expect(out.headers.get(CLIENT_IP_HEADER)).toBe("198.51.100.4");
+  });
 });
 
 describe("makeClientIpStamper behind a trusted proxy", () => {

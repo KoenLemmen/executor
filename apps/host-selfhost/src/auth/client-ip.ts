@@ -107,6 +107,30 @@ export const clientIpAddressOptions = (
       }
     : { ipAddressHeaders: [CLIENT_IP_HEADER] };
 
+/**
+ * The request with its headers replaced, everything else passed through.
+ *
+ * Deliberately NOT `new Request(request, { headers })`: Bun's copy constructor
+ * never delivers a body that is not one of its own native streams, and the
+ * Vite dev middleware hands the handler `Readable.toWeb(req)`, so every
+ * sign-in POST hung until the client gave up (the production Bun.serve path
+ * was unaffected). Rebuilding from the parts with the body passed explicitly
+ * behaves the same on both paths; `duplex: "half"` is what the Fetch spec
+ * requires when a request body is a stream.
+ */
+const withHeaders = (request: Request, headers: Headers): Request => {
+  const init: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers,
+    signal: request.signal,
+  };
+  if (request.body) {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+  return new Request(request.url, init);
+};
+
 export interface ClientIpStamperOptions {
   /** Where the one-time unconfigured-proxy warning goes. Defaults to console.warn. */
   readonly warn?: (message: string) => void;
@@ -153,6 +177,6 @@ export const makeClientIpStamper = (
         warn(unconfiguredProxyWarning(hint));
       }
     }
-    return new Request(request, { headers });
+    return withHeaders(request, headers);
   };
 };
