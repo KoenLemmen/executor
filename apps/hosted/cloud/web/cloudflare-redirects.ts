@@ -58,7 +58,9 @@ export const cloudflareRedirects = (): {
           // The Worker selects marketing or dashboard HTML at the root.
           // The dashboard entry is kept separate from the public index.html.
           if (path === "/") continue;
-          const pattern = rewritePath(path);
+          // Organization pages share one SPA entry. A single namespace rewrite
+          // keeps new dashboard pages within Cloudflare's 100 dynamic-rule limit.
+          const pattern = path.startsWith("/org/") ? "/org/*" : rewritePath(path);
           rewrites.add(`${pattern} /dashboard.html 200`);
           if (!pattern.endsWith("*")) rewrites.add(`${pattern}/ /dashboard.html 200`);
         }
