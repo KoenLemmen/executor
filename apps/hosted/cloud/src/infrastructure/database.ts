@@ -38,6 +38,13 @@ const roleUrl = (origin: Planetscale.PostgresOrigin, database: string) =>
       `@${origin.host}:${origin.port}/${encodeURIComponent(database)}?sslmode=verify-full`,
   );
 
+/** Both SQL adapters create schema objects as the stable owner, not the rotating login. */
+const migrationUrl = (origin: Planetscale.PostgresOrigin) => {
+  const url = new URL(Redacted.value(roleUrl(origin, origin.database)));
+  url.searchParams.set("options", "-c role=postgres");
+  return Redacted.make(url.toString());
+};
+
 /**
  * One binding on both paths. Alchemy dev declares only a local Hyperdrive passthrough;
  * deployment declares PlanetScale resources and a real Hyperdrive connection.
@@ -170,9 +177,7 @@ export const DatabaseConnection = Effect.gen(function* () {
       const migrations = yield* Command.Exec("Migrations", {
         command: "node src/migrate.ts",
         env: {
-          DATABASE_URL: migrationRole.origin.pipe(
-            Output.map((origin) => roleUrl(origin, origin.database)),
-          ),
+          DATABASE_URL: migrationRole.origin.pipe(Output.map(migrationUrl)),
           BETTER_AUTH_URL: yield* cloudOrigin,
           BETTER_AUTH_SECRET: yield* Config.Redacted("BETTER_AUTH_SECRET"),
         },
