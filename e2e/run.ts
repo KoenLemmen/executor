@@ -95,6 +95,13 @@ const startServer = (target: typeof Target.Service) =>
             EXECUTOR_DATA_DIR: `${target.directory}/data`,
             BETTER_AUTH_URL: target.metadata.origin,
             BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+            // Exercise named loopback callbacks and explicit private HTTP transport in the real host.
+            ...(target.metadata.target === "self-host"
+              ? {
+                  EXECUTOR_OAUTH_CALLBACK_URL: `http://account-picker.localhost:${port}/api/oauth/callback?tenant=fixture`,
+                  EXECUTOR_URL_ALLOW_HTTP_ORIGINS: '["http://oauth.internal:8080"]',
+                }
+              : {}),
             EXECUTOR_ENVIRONMENT: "e2e",
             EXECUTOR_BUILD_VERSION: target.metadata.commit,
           },

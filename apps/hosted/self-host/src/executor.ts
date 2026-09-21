@@ -1,4 +1,5 @@
 /** Self-host SDK uses the same PGlite connection as Better Auth. */
+import { urlPolicyConfig } from "@executor-js/utils/url-policy";
 import { toEffectRuntime, makeExecutorStorage, type SourceFile } from "@executor-js/sdk/core";
 import {
   HostedExecutor,
@@ -21,6 +22,7 @@ export const selfHostExecutor = (skills: readonly SourceFile[]) =>
       const directory = yield* dataDirectory;
       const key = yield* Config.Redacted("EXECUTOR_ENCRYPTION_KEY");
       const origin = yield* Config.String("BETTER_AUTH_URL");
+      const urlPolicy = yield* urlPolicyConfig;
       const clientMetadataUrl = yield* Config.String("EXECUTOR_OAUTH_CLIENT_METADATA_URL").pipe(
         Config.option,
         Config.map(Option.getOrUndefined),
@@ -37,7 +39,7 @@ export const selfHostExecutor = (skills: readonly SourceFile[]) =>
         key,
         runtime,
         blobs,
-        clientMetadataUrl === undefined ? undefined : { clientMetadataUrl },
+        { urlPolicy, ...(clientMetadataUrl === undefined ? {} : { clientMetadataUrl }) },
         { storage, appStorage, webhookOrigin: origin },
       );
       const initialize = yield* organizationDefaults(executor, origin, storage, skills);

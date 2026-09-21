@@ -26,6 +26,17 @@ const cloudOnboarding = {
 
 /** Scenario names and applicability used by both test declarations and test selection. */
 export const scenarios = {
+  oauthUrlPolicy: {
+    file: "oauth-url-policy.spec.ts",
+    title: "OAuth setup honors host URL policy and named loopback callbacks",
+    targets: {
+      "self-host": scheduled,
+      local: na(
+        "This journey uses hosted account routes and managed self-host URL policy configuration.",
+      ),
+      cloud: na("This journey requires explicit managed self-host HTTP origin exceptions."),
+    },
+  },
   oauthProvisioning: {
     file: "oauth-provisioning.spec.ts",
     title: "OAuth resources are provisioned before client registration",

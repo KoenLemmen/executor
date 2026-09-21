@@ -1,4 +1,5 @@
 /** Trusted OAuth lifecycle. Provider definitions never contain client secrets or saved grants. */
+import { parseEndpoint, httpsOnlyUrlPolicy } from "@executor-js/utils/url-policy";
 import {
   Clock,
   type Crypto,
@@ -45,7 +46,7 @@ import {
 } from "../contracts/shared.ts";
 import type { Credentials, StoredAccount } from "../contracts/storage.ts";
 import { query, transaction, type Query } from "./database.ts";
-import { isOAuthEndpoint, makeOAuthProtocol } from "./oauth-protocol.ts";
+import { makeOAuthProtocol } from "./oauth-protocol.ts";
 import { ownedAccount } from "./accounts.ts";
 
 const decode = <A>(schema: Schema.Decoder<A>, value: unknown) =>
@@ -111,17 +112,13 @@ export const makeOAuth = (
     Effect.gen(function* () {
       if (protocol === undefined || options === undefined)
         return yield* new OAuthClientUnavailable(input);
-      const redirect = new URL(input.redirectUri);
+      const redirect = parseEndpoint(input.redirectUri, options.urlPolicy);
+      // Static callback parameters are legal; response fields must remain provider-owned.
       if (
-        redirect.hash !== "" ||
-        redirect.search !== "" ||
-        redirect.username !== "" ||
-        redirect.password !== "" ||
-        (redirect.protocol !== "https:" &&
-          !(
-            redirect.protocol === "http:" &&
-            ["127.0.0.1", "localhost", "[::1]"].includes(redirect.hostname)
-          ))
+        redirect === undefined ||
+        ["code", "state", "error", "error_description", "error_uri", "iss"].some((key) =>
+          redirect.searchParams.has(key),
+        )
       ) {
         return yield* new OAuthSetupFailed({ reason: "invalid_redirect" });
       }
@@ -144,8 +141,8 @@ export const makeOAuth = (
         discovered.server.token_endpoint,
         discovered.server.registration_endpoint,
       ].filter((address) => address !== undefined)) {
-        const url = new URL(address);
-        if (!isOAuthEndpoint(url)) return yield* new OAuthSetupFailed({ reason: "discovery" });
+        const url = parseEndpoint(address, options.urlPolicy);
+        if (url === undefined) return yield* new OAuthSetupFailed({ reason: "discovery" });
       }
       if (
         discovered.server.code_challenge_methods_supported !== undefined &&
@@ -195,17 +192,8 @@ export const makeOAuth = (
         options.clientMetadataUrl !== undefined
       ) {
         const metadataUrl = options.clientMetadataUrl;
-        const url = yield* Effect.try({
-          try: () => new URL(metadataUrl),
-          catch: () => new OAuthSetupFailed({ reason: "invalid_client" }),
-        });
-        if (
-          url.protocol !== "https:" ||
-          url.username !== "" ||
-          url.password !== "" ||
-          url.hash !== ""
-        )
-          return yield* new OAuthSetupFailed({ reason: "invalid_client" });
+        const url = parseEndpoint(metadataUrl, httpsOnlyUrlPolicy);
+        if (url === undefined) return yield* new OAuthSetupFailed({ reason: "invalid_client" });
         client = { client_id: url.href, token_endpoint_auth_method: "none" };
       }
       if (client === undefined && discovered.server.registration_endpoint !== undefined) {
@@ -334,7 +322,16 @@ export const makeOAuth = (
         callback.origin !== redirect.origin ||
         callback.pathname !== redirect.pathname ||
         callback.username !== "" ||
-        callback.password !== ""
+        callback.password !== "" ||
+        callback.href.includes("#") ||
+        [...redirect.searchParams.keys()].some((key) => {
+          const expected = redirect.searchParams.getAll(key);
+          const actual = callback.searchParams.getAll(key);
+          return (
+            expected.length !== actual.length ||
+            expected.some((value, index) => actual[index] !== value)
+          );
+        })
       )
         return yield* invalid();
       const claim = `claim_${yield* nextId}`;

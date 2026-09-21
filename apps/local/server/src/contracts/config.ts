@@ -1,4 +1,5 @@
 /** Local host configuration. Secrets are supplied explicitly, never generated on startup. */
+import { UrlPolicy, defaultUrlPolicy, urlPolicyConfig } from "@executor-js/utils/url-policy";
 import { Config, Effect, Option, Schema } from "effect";
 import { McpLimits, defaultMcpLimits } from "@executor-js/mcp";
 
@@ -23,6 +24,7 @@ export const ServerConfig = Schema.Struct({
     Schema.String.check(Schema.isPattern(/^[a-fA-F0-9]{64}$/)),
   ),
   mcp: McpLimits.pipe(Schema.withDecodingDefault(Effect.succeed(defaultMcpLimits))),
+  urlPolicy: UrlPolicy.pipe(Schema.withDecodingDefault(Effect.succeed(defaultUrlPolicy))),
   oauthClientMetadataUrl: Schema.optional(Schema.NonEmptyString),
   browserOrigin: Schema.optional(BrowserOrigin),
   webhookOrigin: Schema.optional(BrowserOrigin),
@@ -36,6 +38,7 @@ export const config = Config.all({
   port: Config.Number("EXECUTOR_PORT").pipe(Config.withDefault(4312)),
   apiKey: Config.Redacted("EXECUTOR_API_KEY"),
   encryptionKey: Config.Redacted("EXECUTOR_ENCRYPTION_KEY"),
+  urlPolicy: urlPolicyConfig,
   oauthClientMetadataUrl: Config.String("EXECUTOR_OAUTH_CLIENT_METADATA_URL").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),

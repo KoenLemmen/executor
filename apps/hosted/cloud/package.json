@@ -24,6 +24,7 @@
     "@executor-js/hosted-server": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "@executor-js/telemetry": "workspace:*",
+    "@executor-js/utils": "workspace:*",
     "@sentry/cloudflare": "^10.64.0",
     "@sentry/core": "10.75.0",
     "alchemy": "2.0.0-beta.79",

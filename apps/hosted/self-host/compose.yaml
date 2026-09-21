@@ -13,6 +13,11 @@ services:
       SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET:-}
       SSO_ALLOWED_DOMAINS: ${SSO_ALLOWED_DOMAINS:-}
       EXECUTOR_ENCRYPTION_KEY: ${EXECUTOR_ENCRYPTION_KEY:?Set a stable 32-byte hexadecimal encryption key}
+      # OAuth transport exceptions are explicit and parsed at startup.
+      EXECUTOR_URL_ALLOW_LOOPBACK_HTTP:
+      EXECUTOR_URL_ALLOW_HTTP_ORIGINS:
+      EXECUTOR_OAUTH_CALLBACK_URL:
+      EXECUTOR_OAUTH_CLIENT_METADATA_URL:
       # Optional HTTPS app origin base. Localhost derives it from BETTER_AUTH_URL.
       EXECUTOR_APP_UI_BASE_URL:
       # Unset passthrough entries stay absent; the default is bundled Motel.

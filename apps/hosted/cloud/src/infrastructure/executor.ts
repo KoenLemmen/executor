@@ -1,4 +1,5 @@
 /** Cloud composition: Postgres is authoritative; no organization data is stored in a DO. */
+import { urlPolicyConfig } from "@executor-js/utils/url-policy";
 import { executorSkillFiles } from "@executor-js/app-templates/executor";
 import authoring from "../../.generated/executor-authoring.json" with { type: "json" };
 import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
@@ -38,6 +39,7 @@ export const cloudExecutor = Effect.fn(function* (
   // Resolve during initialization so Alchemy binds every value into the Worker environment.
   const secrets = yield* cloudSecrets.pipe(Effect.orDie);
   const origin = yield* cloudOrigin.pipe(Effect.orDie);
+  const urlPolicy = yield* urlPolicyConfig;
   const clientMetadataUrl = yield* Config.String("EXECUTOR_OAUTH_CLIENT_METADATA_URL").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -60,7 +62,7 @@ export const cloudExecutor = Effect.fn(function* (
         key,
         runtime,
         blobs,
-        clientMetadataUrl === undefined ? undefined : { clientMetadataUrl },
+        { urlPolicy, ...(clientMetadataUrl === undefined ? {} : { clientMetadataUrl }) },
         { storage, webhookOrigin: origin },
       ).pipe(Effect.provideContext(services), Effect.provide(BrowserCrypto.layer));
       const initialize = yield* organizationDefaults(

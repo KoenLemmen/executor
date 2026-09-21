@@ -1,4 +1,5 @@
 /** Synthetic issuer through the production HTTP seam, with real SQLite and credential encryption. */
+import { HttpOrigin, type UrlPolicy } from "@executor-js/utils/url-policy";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -20,7 +21,11 @@ import {
   type AccountId,
   type Executor,
 } from "../src/index.ts";
-import { aesGcmCredentials as credentials, OAuthSetupFailed } from "@executor-js/sdk/core";
+import {
+  aesGcmCredentials as credentials,
+  OAuthSetupFailed,
+  OAuthCompletionFailed,
+} from "@executor-js/sdk/core";
 import { accountSignIn } from "../../../apps/local/server/src/implementation/account-status.ts";
 
 const issuerUrl = "https://issuer.example";
@@ -56,6 +61,7 @@ function issuer(
   mode: "dcr" | "cimd" | "manual",
   discovery: "path" | "challenge" | "origin" = "path",
   offlineAccess = false,
+  urls = { issuer: issuerUrl, resource: resourceUrl, redirect: redirectUri },
 ) {
   let registrations = 0;
   let exchanges = 0;
@@ -78,7 +84,7 @@ function issuer(
   const requestClients: string[] = [];
   const registrationScopes: string[] = [];
   const discoveryRequests: string[] = [];
-  const canonicalResource = discovery === "path" ? resourceUrl : "https://service.example";
+  const canonicalResource = discovery === "path" ? urls.resource : new URL(urls.resource).origin;
   const json = (body: unknown, status = 200) => Response.json(body, { status });
   const httpClient = HttpClient.make((request) =>
     Effect.gen(function* () {
@@ -87,7 +93,7 @@ function issuer(
       const text = yield* Effect.promise(() => web.text());
       let response: Response;
       if (web.method === "GET") discoveryRequests.push(url.href);
-      if (url.href === resourceUrl)
+      if (url.href === urls.resource)
         response =
           discovery === "challenge"
             ? new Response(null, {
@@ -100,31 +106,33 @@ function issuer(
             : json({}, 404);
       else if (
         url.href === "https://metadata.example/resource" ||
-        url.href === "https://service.example/.well-known/oauth-protected-resource"
+        url.href === new URL("/.well-known/oauth-protected-resource", urls.resource).href
       )
         response = json({
           resource: canonicalResource,
-          authorization_servers: [issuerUrl],
+          authorization_servers: [urls.issuer],
           scopes_supported: ["read"],
         });
-      else if (url.href === "https://service.example/.well-known/oauth-protected-resource/mcp")
+      else if (
+        url.href === new URL("/.well-known/oauth-protected-resource/mcp", urls.resource).href
+      )
         response =
           discovery === "origin"
             ? json({}, 404)
             : json({
-                resource: resourceUrl,
-                authorization_servers: [issuerUrl],
+                resource: urls.resource,
+                authorization_servers: [urls.issuer],
                 scopes_supported: ["read"],
               });
-      else if (url.href === `${issuerUrl}/.well-known/oauth-authorization-server`)
+      else if (url.href === `${urls.issuer}/.well-known/oauth-authorization-server`)
         response = json({
-          issuer: issuerUrl,
-          authorization_endpoint: `${issuerUrl}/authorize`,
-          token_endpoint: `${issuerUrl}/token`,
+          issuer: urls.issuer,
+          authorization_endpoint: `${urls.issuer}/authorize`,
+          token_endpoint: `${urls.issuer}/token`,
           code_challenge_methods_supported: ["S256"],
           token_endpoint_auth_methods_supported: ["none", "client_secret_basic"],
           scopes_supported: ["read", "profile", ...(offlineAccess ? ["offline_access"] : [])],
-          ...(mode === "dcr" ? { registration_endpoint: `${issuerUrl}/register` } : {}),
+          ...(mode === "dcr" ? { registration_endpoint: `${urls.issuer}/register` } : {}),
           ...(mode === "cimd" ? { client_id_metadata_document_supported: true } : {}),
         });
       else if (url.pathname === "/register") {
@@ -132,7 +140,7 @@ function issuer(
         const metadata = Schema.decodeUnknownSync(
           Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)),
         )(text);
-        assert.deepEqual(metadata.redirect_uris, [redirectUri]);
+        assert.deepEqual(metadata.redirect_uris, [urls.redirect]);
         assert.equal(metadata.scope, offlineAccess ? "read offline_access" : "read");
         registrationScopes.push(String(metadata.scope));
         response = json({ ...metadata, client_id: `registered-${registrations}` }, 201);
@@ -154,7 +162,7 @@ function issuer(
             Buffer.from(digest).toString("base64url"),
             authorization.searchParams.get("code_challenge"),
           );
-          assert.equal(body.get("redirect_uri"), redirectUri);
+          assert.equal(body.get("redirect_uri"), urls.redirect);
           if (mode === "manual") {
             const authorization = web.headers.get("authorization");
             assert.ok(authorization !== null && authorization.startsWith("Basic "));
@@ -236,7 +244,7 @@ function issuer(
       const authorization = new URL(authorizationUrl);
       const code = crypto.randomUUID();
       codes.set(code, authorization);
-      const callback = new URL(redirectUri);
+      const callback = new URL(urls.redirect);
       const state = authorization.searchParams.get("state");
       assert.ok(state);
       callback.searchParams.set("state", state);
@@ -250,6 +258,7 @@ async function setup(
   mode: "dcr" | "cimd" | "manual",
   discovery: "path" | "challenge" | "origin" = "path",
   offlineAccess = false,
+  settings: { redirect?: string; issuer?: string; resource?: string; urlPolicy?: UrlPolicy } = {},
 ) {
   const scope = Effect.runSync(Scope.make());
   const context = await Effect.runPromise(Layer.buildWithScope(pgliteLayer(), scope));
@@ -264,10 +273,35 @@ async function setup(
   const credentialStore = await Effect.runPromise(
     credentials(Redacted.make("ab".repeat(32)), crypto),
   );
-  const service = issuer(mode, discovery, offlineAccess);
+  const urls = {
+    issuer: settings.issuer ?? issuerUrl,
+    resource: settings.resource ?? resourceUrl,
+    redirect: settings.redirect ?? redirectUri,
+  };
+  const service = issuer(mode, discovery, offlineAccess, urls);
   const seen: unknown[] = [];
   let requirements: BuiltApp["requirements"] = {
-    accounts: { service: { definition, cardinality: "one" } },
+    accounts: {
+      service: {
+        definition: {
+          ...definition,
+          auth: {
+            ...definition.auth,
+            oauth: {
+              type: "oauth2",
+              discover: urls.resource,
+              response: {
+                type: "object",
+                properties: { access_token: { type: "string" } },
+                required: ["access_token"],
+                additionalProperties: false,
+              },
+            },
+          },
+        },
+        cardinality: "one",
+      },
+    },
   };
   const runtime = runtimeAdapter({
     build: () => Effect.succeed({ build: BuildId.make("bld_oauth_test"), requirements }),
@@ -293,6 +327,7 @@ async function setup(
     oauth: {
       httpClient: service.httpClient,
       clientName: "Executor test",
+      ...(settings.urlPolicy === undefined ? {} : { urlPolicy: settings.urlPolicy }),
       ...(mode === "cimd" ? { clientMetadataUrl: "https://client.example/oauth.json" } : {}),
     },
   };
@@ -339,7 +374,7 @@ async function setup(
       provider,
       method: "oauth",
       label: owner,
-      redirectUri,
+      redirectUri: urls.redirect,
       ...(mode === "manual"
         ? {
             client: {
@@ -1293,3 +1328,86 @@ for (const changed of [false, true])
       await f.close();
     }
   });
+
+for (const callback of [
+  "http://account-picker.localhost:55251/api/oauth/callback",
+  "https://host.example/callback?tenant=one&tenant=two",
+]) {
+  test(`OAuth completes with callback ${callback}`, async () => {
+    const f = await setup("dcr", "path", false, { redirect: callback });
+    try {
+      const started = await f.start();
+      const returned = f.service.callback(started.authorizationUrl);
+      const tampered = new URL(returned);
+      tampered.searchParams.set("tenant", "changed");
+      if (new URL(callback).search !== "") {
+        await assert.rejects(
+          f.complete({ callbackUrl: tampered.href }),
+          (error) => Schema.is(OAuthCompletionFailed)(error) && error.reason === "invalid_callback",
+        );
+        assert.equal(f.service.exchanges, 0);
+      }
+      const account = await f.complete({ callbackUrl: returned });
+      assert.equal(account.label, "alice");
+      assert.equal(f.service.exchanges, 1);
+    } finally {
+      await f.close();
+    }
+  });
+}
+
+test("configured HTTP origins cover discovery, registration, callbacks, exchange and refresh", async () => {
+  const f = await setup("dcr", "path", false, {
+    redirect: "http://executor.internal:8080/callback?tenant=one",
+    issuer: "http://auth.internal:9000",
+    resource: "http://service.internal:8081/mcp",
+    urlPolicy: {
+      allowLoopbackHttp: false,
+      allowedHttpOrigins: [
+        "http://executor.internal:8080",
+        "http://auth.internal:9000",
+        "http://service.internal:8081",
+      ].map((value) => HttpOrigin.make(value)),
+    },
+  });
+  try {
+    const started = await f.start();
+    const account = await f.complete({ callbackUrl: f.service.callback(started.authorizationUrl) });
+    assert.equal(f.service.exchanges, 1);
+    await f.executor.apps.update({ app: f.app.id, accounts: { service: account.id } });
+    await f.executor.tools.list({ app: f.app.id });
+    assert.equal(f.service.refreshes, 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test("callback policy rejects unapproved HTTP, fragments, credentials and reserved response parameters before discovery", async () => {
+  const f = await setup("dcr", "path", false, {
+    urlPolicy: { allowLoopbackHttp: false, allowedHttpOrigins: [] },
+  });
+  try {
+    for (const callback of [
+      "http://localhost/callback",
+      "http://account-picker.localhost/callback",
+      "http://host.internal/callback",
+      "https://host.example/callback#",
+      "https://user:pass@host.example/callback",
+      "https://host.example/callback?state=chosen",
+    ]) {
+      await assert.rejects(
+        f.startOAuth({
+          owner: f.app.owner,
+          provider: f.provider,
+          method: "oauth",
+          label: "Default",
+          redirectUri: callback,
+        }),
+        (error) => Schema.is(OAuthSetupFailed)(error) && error.reason === "invalid_redirect",
+      );
+    }
+    assert.equal(f.service.discoveryRequests.length, 0);
+  } finally {
+    await f.close();
+  }
+});

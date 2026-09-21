@@ -1,4 +1,5 @@
 /** OAuth wire protocol. Effect owns transport and cancellation; oauth4webapi validates responses. */
+import { parseEndpoint } from "@executor-js/utils/url-policy";
 import { Effect, Schema } from "effect";
 import { captureTelemetry } from "@executor-js/telemetry";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
@@ -27,14 +28,6 @@ const failure = (error: unknown) =>
         ? "invalid_grant"
         : "request",
   });
-
-/** Remote OAuth endpoints require HTTPS; exact loopback hosts may use local HTTP. */
-export const isOAuthEndpoint = (url: URL): boolean =>
-  !url.username &&
-  !url.password &&
-  !url.hash &&
-  (url.protocol === "https:" ||
-    (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)));
 
 /** Rehydrate mutable protocol arrays from the immutable storage contract. */
 const metadata = (server: OAuthServer): oauth.AuthorizationServer => ({
@@ -78,15 +71,14 @@ export const makeOAuthProtocol = (options: OAuthOptions) => {
     (url: string, init: oauth.CustomFetchOptions<string, BodyInit | undefined>) =>
       Effect.runPromiseWith(telemetry.context)(
         Effect.gen(function* () {
-          // Local hosted APIs use loopback HTTP during development. All remote OAuth
-          // requests still require HTTPS, including endpoints returned by discovery.
-          const destination = new URL(url);
-          if (!isOAuthEndpoint(destination))
+          // Enforce host policy on every request, including discovered endpoints and saved grants.
+          const destination = parseEndpoint(url, options.urlPolicy);
+          if (destination === undefined)
             return yield* new OAuthProtocolFailed({ reason: "request" });
           const request = yield* Effect.try({
             try: () =>
               HttpClientRequest.fromWeb(
-                new Request(url, {
+                new Request(destination, {
                   method: init.method,
                   headers: init.headers,
                   ...(init.body === undefined ? {} : { body: init.body }),
@@ -137,15 +129,12 @@ export const makeOAuthProtocol = (options: OAuthOptions) => {
       return oauth.processDiscoveryResponse(issuer, response);
     }).pipe(Effect.flatMap((server) => decode(OAuthServer, server)));
 
-  const secureUrl = (value: string) =>
-    Effect.try({
-      try: () => {
-        const url = new URL(value);
-        if (!isOAuthEndpoint(url)) throw new Error("Invalid discovery URL");
-        return url;
-      },
-      catch: () => new OAuthProtocolFailed({ reason: "invalid_response" }),
-    });
+  const secureUrl = (value: string) => {
+    const url = parseEndpoint(value, options.urlPolicy);
+    return url === undefined
+      ? Effect.fail(new OAuthProtocolFailed({ reason: "invalid_response" }))
+      : Effect.succeed(url);
+  };
 
   const discoverResource = (endpoint: URL) =>
     Effect.gen(function* () {

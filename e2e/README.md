@@ -368,3 +368,13 @@ as `@kitlangton/terminal-control`, supplies the Claude PTY and terminal recordin
 Its bundled native binary exports MP4 through ffmpeg. [Browser Control](https://github.com/anomalyco/browser-control)
 was reviewed for existing-profile browser adoption and human handoff; browser tests
 currently use isolated Playwright contexts.
+
+### OAuth URL policy regression
+
+`bun run e2e:self-host --test-name 'OAuth setup honors host URL policy'` exercises
+the public hosted account routes. The managed self-host uses a named `.localhost`
+callback with a static query parameter and one explicit HTTP origin exception.
+The scenario checks HTTPS, the permitted HTTP origin and a denied different port.
+It starts authorization with a synthetic manual client; it does not contact a live
+provider. SDK protocol tests separately cover discovery, registration, code exchange,
+refresh and callback parameter tampering through the production transport seam.

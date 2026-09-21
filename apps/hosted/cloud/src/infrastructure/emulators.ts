@@ -1,3 +1,4 @@
+import { isLoopbackHostname } from "@executor-js/utils/url-policy";
 import { Config, Effect, Option, Redacted, Schema } from "effect";
 import { EmulatedServices } from "../contracts/emulators.ts";
 import { cloudOrigin, testStage } from "./stage.ts";
@@ -10,7 +11,7 @@ export const cloudEmulators = Effect.gen(function* () {
   const origin = new URL(yield* cloudOrigin);
   if (
     !(Option.isSome(stage) && stage.value.name.startsWith("test-e2e-")) &&
-    !["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname)
+    !isLoopbackHostname(origin.hostname)
   )
     return yield* Effect.die(
       new Error("Emulators require Cloud dev or a dedicated test-e2e- stage"),

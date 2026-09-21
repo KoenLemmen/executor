@@ -1,4 +1,5 @@
 /** Host-owned OAuth configuration and encrypted protocol records. */
+import type { UrlPolicy } from "@executor-js/utils/url-policy";
 import { AuthMethodName } from "./provider.ts";
 import { AccountConnectionId } from "./shared.ts";
 import { Schema } from "effect";
@@ -60,6 +61,8 @@ export type OAuthClientInput = typeof OAuthClientInput.Type;
 export interface OAuthOptions {
   readonly httpClient: HttpClient.HttpClient;
   readonly clientName: string;
+  /** Host transport policy for callbacks, discovery and every token request. */
+  readonly urlPolicy?: UrlPolicy;
   readonly clientMetadataUrl?: string;
 }
 
@@ -76,7 +79,11 @@ export class OAuthSetupFailed extends Schema.TaggedError<OAuthSetupFailed>()(
     ]),
   },
   { httpApiStatus: 422 },
-) {}
+) {
+  override get message() {
+    return `OAuth setup failed: ${this.reason}`;
+  }
+}
 /** The saved grant cannot supply a fresh token. Its account identity remains available for reconnection. */
 export class OAuthReconnectRequired extends Schema.TaggedError<OAuthReconnectRequired>()(
   "OAuthReconnectRequired",

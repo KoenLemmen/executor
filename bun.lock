@@ -50,6 +50,7 @@
         "@executor-js/hosted-server": "workspace:*",
         "@executor-js/sdk": "workspace:*",
         "@executor-js/telemetry": "workspace:*",
+        "@executor-js/utils": "workspace:*",
         "@sentry/cloudflare": "^10.64.0",
         "@sentry/core": "10.75.0",
         "alchemy": "2.0.0-beta.79",
@@ -115,6 +116,7 @@
         "@executor-js/mcp-auth": "workspace:*",
         "@executor-js/sdk": "workspace:*",
         "@executor-js/telemetry": "workspace:*",
+        "@executor-js/utils": "workspace:*",
         "apps": "workspace:*",
         "better-auth": "1.7.5",
         "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
@@ -159,6 +161,7 @@
         "@executor-js/mcp-auth": "workspace:*",
         "@executor-js/sdk": "workspace:*",
         "@executor-js/telemetry": "workspace:*",
+        "@executor-js/utils": "workspace:*",
         "apps": "workspace:*",
         "better-auth": "1.7.5",
         "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
@@ -242,6 +245,7 @@
         "@executor-js/mcp-auth": "workspace:*",
         "@executor-js/sdk": "workspace:*",
         "@executor-js/telemetry": "workspace:*",
+        "@executor-js/utils": "workspace:*",
         "apps": "workspace:*",
         "better-auth": "1.7.5",
         "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
@@ -389,6 +393,7 @@
       "dependencies": {
         "@effect/atom-react": "https://pkg.pr.new/Effect-TS/effect/@effect/atom-react@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
         "@executor-js/ui": "workspace:*",
+        "@executor-js/utils": "workspace:*",
         "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
         "radix-ui": "^1.4.3",
       },
@@ -466,6 +471,7 @@
         "@executor-js/app-data": "workspace:*",
         "@executor-js/reactivity": "workspace:*",
         "@executor-js/telemetry": "workspace:*",
+        "@executor-js/utils": "workspace:*",
         "ajv": "^8.17.1",
         "apps": "workspace:*",
         "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
@@ -519,6 +525,12 @@
       "peerDependencies": {
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
+      },
+    },
+    "packages/utils": {
+      "name": "@executor-js/utils",
+      "dependencies": {
+        "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
       },
     },
     "playground/catalog": {
@@ -600,9 +612,9 @@
     },
   },
   "patchedDependencies": {
-    "@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d": "patches/@effect%2Fsql-pg@c7d1ffff.patch",
-    "alchemy@2.0.0-beta.79": "patches/alchemy@2.0.0-beta.79.patch",
     "@cloudflare/worker-bundler@0.2.4": "patches/@cloudflare%2Fworker-bundler@0.2.4.patch",
+    "alchemy@2.0.0-beta.79": "patches/alchemy@2.0.0-beta.79.patch",
+    "@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d": "patches/@effect%2Fsql-pg@c7d1ffff.patch",
     "@better-auth/oauth-provider@1.7.5": "patches/@better-auth%2Foauth-provider@1.7.5.patch",
     "@cfworker/json-schema@4.1.1": "patches/@cfworker%2Fjson-schema@4.1.1.patch",
   },
@@ -1103,6 +1115,8 @@
     "@executor-js/test-evidence-viewer": ["@executor-js/test-evidence-viewer@workspace:e2e/viewer"],
 
     "@executor-js/ui": ["@executor-js/ui@workspace:packages/ui"],
+
+    "@executor-js/utils": ["@executor-js/utils@workspace:packages/utils"],
 
     "@executor-playground/hosted": ["@executor-playground/hosted@workspace:playground/hosted"],
 

@@ -43,7 +43,7 @@ export const postgresExecutor = (
   secret: Redacted.Redacted<string>,
   runtime: AppRuntime,
   blobs: BlobStorage,
-  oauth?: Pick<OAuthOptions, "clientMetadataUrl">,
+  oauth?: Pick<OAuthOptions, "clientMetadataUrl" | "urlPolicy">,
   options?: Partial<Pick<ExecutorOptions, "storage" | "appStorage" | "webhookOrigin">>,
 ) =>
   Effect.gen(function* () {
@@ -60,6 +60,7 @@ export const postgresExecutor = (
       oauth: {
         httpClient,
         clientName: "Executor",
+        ...(oauth?.urlPolicy === undefined ? {} : { urlPolicy: oauth.urlPolicy }),
         ...(oauth?.clientMetadataUrl === undefined
           ? {}
           : { clientMetadataUrl: oauth.clientMetadataUrl }),

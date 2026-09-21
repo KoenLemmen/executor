@@ -18,6 +18,7 @@
     "@executor-js/app-data": "workspace:*",
     "@executor-js/reactivity": "workspace:*",
     "@executor-js/telemetry": "workspace:*",
+    "@executor-js/utils": "workspace:*",
     "ajv": "^8.17.1",
     "apps": "workspace:*",
     "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",

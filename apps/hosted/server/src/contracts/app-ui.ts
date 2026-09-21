@@ -1,4 +1,5 @@
 /** Hosted app pages use scoped sessions, independent of dashboard and management API credentials. */
+import { parseEndpoint } from "@executor-js/utils/url-policy";
 import { AppId, HttpUrl, type Runtime } from "@executor-js/sdk/core";
 import { AppReturnPath, AppSignInCode, AppSignInId } from "apps/ui/auth/contracts";
 import { UiFailed, UiForbidden, UiUnauthorized } from "apps/ui/contracts";
@@ -24,15 +25,12 @@ export type AppUiTarget = typeof AppUiTarget.Type;
 /** A wildcard DNS base, separate from the dashboard origin; HTTP is limited to loopback development. */
 export const AppUiBaseUrl = Schema.String.check(
   Schema.makeFilter((value) => {
-    const url = URL.parse(value);
+    const url = parseEndpoint(value);
     return (
-      url !== null &&
+      url !== undefined &&
       url.origin === value &&
       /^[a-z0-9.-]+$/.test(url.hostname) &&
-      !/^[\d.]+$/.test(url.hostname) &&
-      (url.protocol === "https:" ||
-        (url.protocol === "http:" &&
-          (url.hostname === "localhost" || url.hostname.endsWith(".localhost"))))
+      !/^[\d.]+$/.test(url.hostname)
     );
   }),
 ).pipe(Schema.brand("AppUiBaseUrl"));

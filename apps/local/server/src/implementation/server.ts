@@ -76,6 +76,7 @@ export const localApi = (
         oauth: {
           httpClient,
           clientName: "Executor Local",
+          urlPolicy: config.urlPolicy,
           ...(config.oauthClientMetadataUrl === undefined
             ? {}
             : { clientMetadataUrl: config.oauthClientMetadataUrl }),

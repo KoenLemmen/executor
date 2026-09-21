@@ -1,4 +1,5 @@
 /** Local-only dev tools protocol shared by the three product shells. */
+import { isLoopbackHostname } from "@executor-js/utils/url-policy";
 import { Schema } from "effect";
 
 /** Reserved loopback origins are the only eligible hosts for development shortcuts. */
@@ -10,8 +11,7 @@ export const LoopbackOrigin = Schema.String.check(
         return (
           ["http:", "https:"].includes(url.protocol) &&
           url.origin === value &&
-          (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
-            url.hostname.endsWith(".localhost"))
+          isLoopbackHostname(url.hostname)
         );
       } catch {
         return false;
