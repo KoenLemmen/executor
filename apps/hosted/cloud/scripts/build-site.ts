@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Effect, FileSystem, Path, Schema } from "effect";
+import { siteRedirects } from "../src/implementation/site-redirects.ts";
 
 export class SiteAssetCollision extends Schema.TaggedError<SiteAssetCollision>()(
   "SiteAssetCollision",
@@ -133,10 +134,7 @@ const siteBuild = Effect.gen(function* () {
       .map((line) => line.trim())
       .filter(Boolean),
   ]);
-  yield* fs.writeFileString(
-    path.join(output, "_redirects"),
-    [...redirects].sort().join("\n") + "\n",
-  );
+  yield* fs.writeFileString(path.join(output, "_redirects"), yield* siteRedirects(redirects));
 
   // _headers is block-structured, not one rule per line, so the files are
   // concatenated rather than merged into a set. Blume writes its rules already

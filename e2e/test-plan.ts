@@ -26,6 +26,15 @@ const cloudOnboarding = {
 
 /** Scenario names and applicability used by both test declarations and test selection. */
 export const scenarios = {
+  cloudDashboardRoutes: {
+    file: "cloud-dashboard-routes.spec.ts",
+    title: "Cloud dashboard deep links preserve API, docs and asset routing",
+    targets: {
+      cloud: scheduled,
+      "self-host": na("Cloudflare's static asset rewrites are Cloud-only."),
+      local: na("Cloudflare's static asset rewrites are Cloud-only."),
+    },
+  },
   feedback: {
     file: "feedback.spec.ts",
     title: "Cloud feedback enforces its API contract and reports disabled ingestion",

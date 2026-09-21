@@ -22,6 +22,10 @@ host's API contract without making the shared package depend on it.
 The cloud build uses TanStack's route-generation hook to emit its `_redirects`
 asset. The shared Vite configuration accepts route plugins without depending on
 Cloudflare. Self-host continues to serve its SPA through its filesystem adapter.
+Organization pages share one `/org/*` rewrite; TanStack resolves their nested
+routes and not-found views. API, Git, docs and asset paths keep their own handling.
+The combined site build puts fixed redirects first and rejects files over
+Cloudflare's 2,000 static / 100 dynamic rule limits before Worker upload.
 
 Run `bun run hosted:self-host:web:dev` from the repository root for self-host HMR
 on port 4410, proxying to Docker on port 4400. Run `bun run hosted:cloud:web:dev`
