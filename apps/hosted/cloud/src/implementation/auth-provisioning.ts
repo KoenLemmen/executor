@@ -38,12 +38,3 @@ export const cloudAuthSetup = Effect.gen(function* () {
   });
   return { url, options, provision };
 });
-
-/** Insert missing OAuth resources in an already-migrated database, preserving existing policy. */
-export const provisionCloudAuth = Effect.scoped(
-  Effect.gen(function* () {
-    const setup = yield* cloudAuthSetup;
-    yield* setup.provision;
-    yield* Effect.log("Hosted OAuth resources are provisioned");
-  }),
-);

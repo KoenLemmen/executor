@@ -162,21 +162,27 @@ export const DatabaseConnection = Effect.gen(function* () {
         database,
         inheritedRoles: ["pg_read_all_data", "pg_write_all_data"],
       });
-      // Production schema migrations remain an explicit admin operation. This job
-      // only inserts missing auth configuration using the runtime role's DML rights.
-      const resources = yield* Command.Exec("AuthResources", {
-        command: "node src/provision-auth.ts",
+      // Only the deploy job receives this role. Worker bindings retain the runtime role.
+      const migrationRole = yield* Planetscale.PostgresRole("MigrationRole", {
+        database,
+        inheritedRoles: ["postgres"],
+      }).pipe(retain());
+      const migrations = yield* Command.Exec("Migrations", {
+        command: "node src/migrate.ts",
         env: {
-          DATABASE_URL: role.origin.pipe(Output.map((origin) => roleUrl(origin, origin.database))),
+          DATABASE_URL: migrationRole.origin.pipe(
+            Output.map((origin) => roleUrl(origin, origin.database)),
+          ),
           BETTER_AUTH_URL: yield* cloudOrigin,
           BETTER_AUTH_SECRET: yield* Config.Redacted("BETTER_AUTH_SECRET"),
         },
         memo: false,
-        timeout: "2 minutes",
+        timeout: "5 minutes",
       });
       const authority = yield* certificateAuthority;
       return {
-        origin: Output.all(role.origin, resources.hash).pipe(Output.map(([origin]) => origin)),
+        // Every database consumer waits for the migration, including an existing Worker update.
+        origin: Output.all(role.origin, migrations.hash).pipe(Output.map(([origin]) => origin)),
         ...pooling,
         caching: { disabled: true },
         mtls: { sslmode: "verify-full" as const, caCertificateId: authority.mtlsCertificateId },
