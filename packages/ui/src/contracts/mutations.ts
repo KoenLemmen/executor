@@ -20,11 +20,13 @@ export const acknowledgedQuery = <A, E>(source: Atom.Atom<AsyncResult.AsyncResul
       return result;
     },
     (get, update) => {
+      // A view may not have read this query yet. Establish its source dependency before writing.
+      const result = get.get(query);
       if (update === undefined) {
         get.setSelf(AsyncResult.initial(true));
         return;
       }
-      const current = AsyncResult.value(get.get(query));
+      const current = AsyncResult.value(result);
       if (Option.isSome(current)) get.setSelf(AsyncResult.success(update(current.value)));
     },
     (refresh) => refresh(source),

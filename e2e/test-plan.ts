@@ -50,6 +50,15 @@ export const scenarios = {
       cloud: na("This journey checks local storage subscriptions and pairing."),
     },
   },
+  accountConnectionQuery: {
+    file: "account-connection-query.spec.ts",
+    title: "Account connection loads app tools without a page refresh after leaving setup",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("This journey checks hosted account connection and app query invalidation."),
+    },
+  },
   queryRefresh: {
     file: "query-refresh.spec.ts",
     title: "Dashboard refresh preserves drafts through failed reads and recovery",
