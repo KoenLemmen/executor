@@ -7,7 +7,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Path, Redacted, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { LocalAuthApi, DesktopBootstrap, ServerReady, SessionHash } from "../src/contracts/auth.ts";
-import { AppId } from "@executor-js/sdk";
+import { AppId, ExecutorApi, OwnerId, SourceFiles } from "@executor-js/sdk";
 import { appOrigin } from "../src/contracts/app-ui.ts";
 import { pgliteLayer } from "fumadb-effect/pglite";
 import { fumadb } from "fumadb-effect";
@@ -249,6 +249,17 @@ test(
   },
 );
 
+const sdkClient = (url: string, apiKey: Redacted.Redacted<string>) =>
+  HttpApiClient.make(ExecutorApi, {
+    baseUrl: url,
+    transformClient: (client) =>
+      client.pipe(
+        HttpClient.mapRequest(
+          HttpClientRequest.setHeader("authorization", `Bearer ${Redacted.value(apiKey)}`),
+        ),
+      ),
+  }).pipe(Effect.provide(FetchHttpClient.layer));
+
 const serverLink = (server: Effect.Success<ReturnType<typeof startLocalServer>>) =>
   Effect.runPromise(server.issuePairingLink).then((link) => Redacted.value(link.url));
 
@@ -272,13 +283,42 @@ test(
             const cookie = response.headers["set-cookie"]?.split(";")[0];
             assert.ok(cookie);
             const unused = yield* server.issuePairingLink;
-            return { url: server.url, cookie, unused };
+            const sdk = yield* sdkClient(server.url, settings(directory).apiKey);
+            const owner = OwnerId.make("executor-local");
+            const managed = (yield* sdk.apps.list({ query: { owner } }))[0];
+            assert.ok(managed);
+            const source = yield* sdk.apps.workspace({
+              params: { app: managed.id },
+              query: { owner },
+            });
+            const deployed = yield* sdk.apps.deploy({
+              payload: {
+                owner,
+                app: managed.id,
+                expectedDeployment: managed.activeDeployment,
+                expectedSource: source.revision.commit,
+                files: SourceFiles.make([
+                  ...source.files,
+                  { path: "old-bundled-guide.md", content: "Older bundled management source" },
+                ]),
+              },
+            });
+            return { url: server.url, cookie, unused, managed, deployment: deployed.deployment.id };
           }),
         );
         const port = Number(new URL(first.url).port);
         yield* Effect.scoped(
           Effect.gen(function* () {
             const server = yield* startLocalServer(settings(directory, port));
+            const sdk = yield* sdkClient(server.url, settings(directory).apiKey);
+            const managed = yield* sdk.apps.get({ params: { app: first.managed.id }, query: {} });
+            assert.notEqual(managed.activeDeployment, first.deployment);
+            assert.deepEqual(managed.accounts, first.managed.accounts);
+            const source = yield* sdk.apps.workspace({ params: { app: managed.id }, query: {} });
+            assert.equal(
+              source.files.some((file) => file.path === "old-bundled-guide.md"),
+              false,
+            );
             assert.equal(server.url, first.url);
             const browser = yield* Effect.promise(() =>
               client(server.url, { cookie: first.cookie, origin: server.url }),

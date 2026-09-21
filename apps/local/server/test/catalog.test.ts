@@ -1,4 +1,5 @@
 import { localScheduleHandlers } from "../src/implementation/schedules.ts";
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Generated apps run through real product HTTP contracts, storage, and the local Node runtime. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -151,6 +152,7 @@ async function withServer(
           const store = yield* credentials(config.encryptionKey, crypto);
           executor = yield* createExecutor({
             blobs: memoryBlobStore(),
+            sources: memorySourceStorage(),
             storage,
             credentials: store,
             runtime: nodeRuntime({ workDirectory: path.join(directory, "builds") }),
@@ -199,7 +201,7 @@ const reader = (
     }).pipe(Effect.provide(FetchHttpClient.layer)),
   );
 
-test("deleting an app removes only its configured copy and keeps accounts and shared code", async () => {
+test("deleting an app keeps reusable accounts and independent copies", async () => {
   await withServer(spec("https://api.example.test"), async (executor, client) => {
     const first = await Effect.runPromise(
       client.dashboard.importApp({ payload: { entry: entry.id, name: "Delete fixture" } }),
@@ -220,7 +222,7 @@ test("deleting an app removes only its configured copy and keeps accounts and sh
       executor.apps.update({ app: first.id, accounts: { service: account.id } }),
     );
     const second = await Effect.runPromise(
-      executor.apps.add({ from: first.id, owner: OwnerId.make("local"), name: "Kept copy" }),
+      executor.apps.copy({ from: first.id, owner: OwnerId.make("local"), name: "Kept copy" }),
     );
     await Effect.runPromise(
       executor.apps.update({ app: second.id, accounts: { service: account.id } }),
@@ -259,11 +261,13 @@ test("deleting an app removes only its configured copy and keeps accounts and sh
       account.id,
     );
     assert.ok((await Effect.runPromise(executor.tools.list({ app: second.id }))).items.length > 0);
+    assert.ok(second.activeDeployment);
+    assert.notEqual(second.activeDeployment, first.activeDeployment);
     assert.ok(
       (
         await Effect.runPromise(
           client.dashboard.source({
-            params: { app: second.id, deployment: first.activeDeployment },
+            params: { app: second.id, deployment: second.activeDeployment },
           }),
         )
       ).files.length > 0,
@@ -291,7 +295,7 @@ test("account management preserves shared identity, updates live tools, and sepa
           client.dashboard.importApp({ payload: { entry: remote.id, name: "Shared first" } }),
         );
         const second = await Effect.runPromise(
-          executor.apps.add({
+          executor.apps.copy({
             from: first.id,
             owner: OwnerId.make("local"),
             name: "Shared second",
@@ -1053,7 +1057,11 @@ test("custom GraphQL introspects with selected accounts and calls queries and mu
       const provider = first.requirements.accounts.service?.provider;
       assert.ok(provider);
       const second = await Effect.runPromise(
-        executor.apps.add({ from: first.id, owner: OwnerId.make("local"), name: "Second GraphQL" }),
+        executor.apps.copy({
+          from: first.id,
+          owner: OwnerId.make("local"),
+          name: "Second GraphQL",
+        }),
       );
       for (const [app, token] of [
         [first, "alpha"],
@@ -1274,7 +1282,10 @@ test(
                   });
                   const deployed = yield* executor.apps.deploy({
                     owner: first.owner,
-                    name: first.name,
+                    app: first.id,
+                    expectedDeployment: first.activeDeployment,
+                    expectedSource: (yield* executor.apps.workspace({ app: first.id })).revision
+                      .commit,
                     files: retained.files,
                   });
                   assert.equal(
@@ -1325,7 +1336,7 @@ test(
               const next = yield* observe(yield* browser.dashboard.liveOverview());
               assert.equal((yield* next()).apps.length, 1);
               yield* auth.revoke(Redacted.value(session));
-              yield* executor.apps.add({
+              yield* executor.apps.copy({
                 from: first.id,
                 owner: first.owner,
                 name: "After revoke",
@@ -1391,7 +1402,7 @@ test("the local dashboard renames apps without changing URLs, accounts or deploy
     const renamed = await Effect.runPromise(
       client.dashboard.renameApp({ params: { app: app.id }, payload: { name: "Renamed locally" } }),
     );
-    assert.deepEqual(renamed, { ...app, name: "Renamed locally" });
+    assert.deepEqual(renamed, { ...app, name: "Renamed locally", slug: "renamed-locally" });
     assert.equal(
       (await Effect.runPromise(client.dashboard.app({ params: { app: app.id } }))).app.name,
       "Renamed locally",

@@ -29,7 +29,7 @@ export const addAccountAtom = DashboardClient.runtime.fn(
       Effect.tap((saved) => Effect.sync(() => accountCredentialsChanged(get, saved))),
     ),
 );
-/** Delete one configured copy without deleting its reusable accounts or shared deployment. */
+/** Delete one configured copy without deleting its reusable accounts or other apps. */
 export const deleteAppAtom = Atom.family((app: AppId) =>
   DashboardClient.runtime.fn((_: void, get) =>
     Effect.flatMap(DashboardClient, (client) =>

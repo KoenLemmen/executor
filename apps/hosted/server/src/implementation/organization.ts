@@ -70,68 +70,83 @@ export const lookupOrganizationSlug = (call: () => Promise<unknown>) =>
   );
 
 /** Access resolves only the explicit route ID or slug. Shared session preferences never participate. */
+export const withOrganizationRequest = <E, R>(
+  response: (
+    namespace: Effect.Effect<string, AuthenticationUnavailable | OrganizationForbidden>,
+  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+  action?: import("@executor-js/authorization").Action,
+) =>
+  Effect.gen(function* () {
+    const auth = yield* Authentication;
+    const api = yield* ApiAuthentication;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const headers = new Headers(request.headers);
+    const params = yield* HttpRouter.params;
+    const reference = yield* Schema.decodeUnknownEffect(OrganizationReference)(
+      params.organization,
+    ).pipe(Effect.mapError(() => new OrganizationForbidden()));
+    if (headers.has("authorization")) {
+      if (request.headers.origin !== undefined && request.headers.origin !== auth.origin)
+        return yield* new Forbidden();
+      const grant = yield* api.authenticate(headers, reference);
+      if (!permitsAction(grant.policy, action)) return yield* new OrganizationForbidden();
+      if (params.app !== undefined) {
+        const app = yield* Schema.decodeUnknownEffect(AppId)(params.app).pipe(
+          Effect.mapError(() => new OrganizationForbidden()),
+        );
+        if (!permitsApp(grant.policy, app)) return yield* new OrganizationForbidden();
+      }
+      if (grant.key !== undefined)
+        yield* Effect.annotateCurrentSpan({
+          "executor.api_key.id": grant.key.id,
+          "executor.user.id": grant.userId,
+        });
+      return (yield* response(Effect.succeed(grant.organizationSlug)).pipe(
+        Effect.provideService(CurrentAuthorization, grant.policy),
+        Effect.provideService(CurrentOrganization, grant.access),
+        Effect.provideService(CurrentUserId, grant.userId),
+      )).pipe(HttpServerResponse.setHeader("cache-control", "no-store"));
+    }
+    if (
+      request.method !== "GET" &&
+      request.method !== "HEAD" &&
+      request.headers.origin !== auth.origin
+    )
+      return yield* new Forbidden();
+    const principal = yield* auth.current(headers);
+    if (principal === null) return yield* new Unauthorized();
+    const organization = yield* auth.organization(reference);
+    const membership = yield* auth.membership(headers, organization);
+    const access = {
+      organization,
+      owner: organizationOwner(organization),
+      role: membership.role,
+    };
+    return (yield* response(auth.organizationSlug(headers, organization)).pipe(
+      Effect.provideService(CurrentOrganization, access),
+      Effect.provideService(CurrentUserId, principal.userId),
+      Effect.provideService(CurrentPrincipal, principal),
+      Effect.provideService(CurrentAuthorization, fullAuthority),
+    )).pipe(
+      HttpServerResponse.mergeCookies(Cookies.fromSetCookie(membership.headers.getSetCookie())),
+      HttpServerResponse.setHeader("cache-control", "no-store"),
+    );
+  });
+
+/** Apply the current organization checks without translating away product failures. */
 export const requireOrganizationLive = Layer.effect(
   RequireOrganization,
   Effect.gen(function* () {
     const auth = yield* Authentication;
     const api = yield* ApiAuthentication;
     return (response, { endpoint }) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const headers = new Headers(request.headers);
-        const params = yield* HttpRouter.params;
-        const reference = yield* Schema.decodeUnknownEffect(OrganizationReference)(
-          params.organization,
-        ).pipe(Effect.mapError(() => new OrganizationForbidden()));
-        if (headers.has("authorization")) {
-          if (request.headers.origin !== undefined && request.headers.origin !== auth.origin)
-            return yield* new Forbidden();
-          const grant = yield* api.authenticate(headers, reference);
-          const action = Context.getOrUndefined(endpoint.annotations, RequiredAction);
-          if (!permitsAction(grant.policy, action)) return yield* new OrganizationForbidden();
-          if (params.app !== undefined) {
-            const app = yield* Schema.decodeUnknownEffect(AppId)(params.app).pipe(
-              Effect.mapError(() => new OrganizationForbidden()),
-            );
-            if (!permitsApp(grant.policy, app)) return yield* new OrganizationForbidden();
-          }
-          if (grant.key !== undefined) {
-            yield* Effect.annotateCurrentSpan({
-              "executor.api_key.id": grant.key.id,
-              "executor.user.id": grant.userId,
-            });
-          }
-          return (yield* response.pipe(
-            Effect.provideService(CurrentOrganization, grant.access),
-            Effect.provideService(CurrentUserId, grant.userId),
-            Effect.provideService(CurrentAuthorization, grant.policy),
-          )).pipe(HttpServerResponse.setHeader("cache-control", "no-store"));
-        }
-        if (
-          request.method !== "GET" &&
-          request.method !== "HEAD" &&
-          request.headers.origin !== auth.origin
-        )
-          return yield* new Forbidden();
-        const principal = yield* auth.current(headers);
-        if (principal === null) return yield* new Unauthorized();
-        const organization = yield* auth.organization(reference);
-        const membership = yield* auth.membership(headers, organization);
-        const access = {
-          organization,
-          owner: organizationOwner(organization),
-          role: membership.role,
-        };
-        return (yield* response.pipe(
-          Effect.provideService(CurrentOrganization, access),
-          Effect.provideService(CurrentUserId, principal.userId),
-          Effect.provideService(CurrentAuthorization, fullAuthority),
-          Effect.provideService(CurrentPrincipal, principal),
-        )).pipe(
-          HttpServerResponse.mergeCookies(Cookies.fromSetCookie(membership.headers.getSetCookie())),
-          HttpServerResponse.setHeader("cache-control", "no-store"),
-        );
-      });
+      withOrganizationRequest(
+        () => response,
+        Context.getOrUndefined(endpoint.annotations, RequiredAction),
+      ).pipe(
+        Effect.provideService(Authentication, auth),
+        Effect.provideService(ApiAuthentication, api),
+      );
   }),
 );
 

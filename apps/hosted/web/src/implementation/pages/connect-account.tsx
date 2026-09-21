@@ -99,6 +99,7 @@ function ConnectionForm({ connection }: { readonly connection: HostedAccountConn
               ? {
                   to: "/org/$organizationSlug/apps/$appId",
                   params: { organizationSlug, appId: target.app },
+                  search: { view: "tools" },
                 }
               : {
                   to: "/org/$organizationSlug/accounts/$accountId",

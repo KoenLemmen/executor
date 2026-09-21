@@ -1,11 +1,30 @@
 import { Skeleton } from "@executor-js/ui/components/skeleton";
-import { useLocation } from "@tanstack/react-router";
+import { AppDetailPending } from "@executor-js/ui/dashboard/app-loading";
+import { parseAppSearch } from "../../contracts/navigation.ts";
+import { Link, useLocation } from "@tanstack/react-router";
 import { InventoryPageSkeleton, PageSkeleton } from "@executor-js/ui/dashboard/loading";
 
 /** Lazy pages load inside the existing organization layout with the destination's content shape. */
 export function PagePending({ pathname: destination }: { readonly pathname?: string } = {}) {
   const location = useLocation();
   const pathname = destination ?? location.pathname;
+  const search = location.search;
+  const app = /^\/org\/([^/]+)\/apps\/app_[^/]+\/?$/.exec(pathname);
+  const organizationSlug = app?.[1];
+  if (organizationSlug !== undefined) {
+    const selected = parseAppSearch(search);
+    return (
+      <AppDetailPending
+        view={selected.view ?? (selected.tool === undefined ? "overview" : "tools")}
+        selectedTool={selected.tool}
+        back={
+          <Link to="/org/$organizationSlug/apps" params={{ organizationSlug }}>
+            Apps
+          </Link>
+        }
+      />
+    );
+  }
   if (/\/apps\/?$/.test(pathname))
     return (
       <InventoryPageSkeleton

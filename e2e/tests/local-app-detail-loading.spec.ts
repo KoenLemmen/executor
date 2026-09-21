@@ -6,7 +6,7 @@ import { Browser } from "../support/browser.ts";
 import { TestLive, withCase } from "../support/case.ts";
 import { Resource } from "../support/contracts.ts";
 import { Target } from "../support/platform.ts";
-import { holdQuery } from "../support/query-transition.ts";
+import { checkAppLoading } from "../support/app-loading.ts";
 import { scenarios } from "../test-plan.ts";
 
 layer(TestLive, { excludeTestServices: true })("Local app navigation", (it) => {
@@ -41,7 +41,10 @@ export default defineApp({ accounts: {} }, async () => ({
           headers,
         );
         expect(deployed.status).toBe(200);
-        const { app } = yield* body(Schema.Struct({ app: Resource }), deployed);
+        const { app, deployment } = yield* body(
+          Schema.Struct({ app: Resource, deployment: Resource }),
+          deployed,
+        );
         yield* Effect.addFinalizer(() =>
           session.send("DELETE", `/v1/apps/${app.id}`, undefined, headers).pipe(
             Effect.tap((response) => Effect.sync(() => expect(response.status).toBe(200))),
@@ -52,54 +55,16 @@ export default defineApp({ accounts: {} }, async () => ({
         expect(pairing.status).toBe(200);
         const { url } = yield* body(Schema.Struct({ url: Schema.String }), pairing);
         yield* browser.use("Pair the local browser", (page) => page.goto(url));
-        for (const viewport of [
-          { width: 1440, height: 900 },
-          { width: 390, height: 844 },
-        ]) {
-          yield* browser.use("Set the viewport", (page) => page.setViewportSize(viewport));
-          yield* browser.use("Open apps", (page) => page.goto("/apps"));
-          yield* browser.use("The app card is available", (page) =>
-            page.getByRole("link", { name: `Open ${name}`, exact: true }).waitFor(),
-          );
-          const metadata = yield* holdQuery([`/dashboard/api/live/apps/${app.id}`], "continue");
-          const tools = yield* holdQuery([`/dashboard/api/live/apps/${app.id}/tools`], "continue");
-          yield* browser.checkpoint("Local apps before opening details");
-          yield* browser.use("Click the installed app", (page) =>
-            page.getByRole("link", { name: `Open ${name}`, exact: true }).click(),
-          );
-          yield* metadata.requested;
-          yield* browser.use("The app name stays visible", (page) =>
-            page.getByRole("heading", { name, exact: true }).waitFor(),
-          );
-          yield* browser.use("App loading has its own panel", (page) =>
-            page.getByRole("status", { name: "Loading app", exact: true }).waitFor(),
-          );
-          expect(
-            yield* browser.use("No unrelated list skeleton", (page) =>
-              page.locator(".loading-rows").count(),
-            ),
-          ).toBe(0);
-          yield* browser.checkpoint("Local details with metadata held");
-          yield* metadata.release;
-          yield* tools.requested;
-          yield* browser.use("Tool loading keeps the content panel", (page) =>
-            page.getByRole("status", { name: "Loading tools", exact: true }).waitFor(),
-          );
-          yield* browser.use("Search works during loading", (page) =>
-            page.getByPlaceholder("Search tools…").fill("hello"),
-          );
-          yield* browser.checkpoint("Local details with tools held");
-          yield* tools.release;
-          yield* browser.use("The real tool appears", (page) =>
-            page.getByRole("button", { name: "hello A simple greeting" }).waitFor(),
-          );
-          expect(
-            yield* browser.use("Search is retained", (page) =>
-              page.getByPlaceholder("Search tools…").inputValue(),
-            ),
-          ).toBe("hello");
-          yield* browser.checkpoint("Local loaded app details");
-        }
+        yield* checkAppLoading({
+          url: `/apps/${app.id}`,
+          name,
+          metadata: [`/dashboard/api/live/apps/${app.id}`],
+          coldInventory: ["/dashboard/api/live/overview"],
+          tools: [`/dashboard/api/live/apps/${app.id}/tools`],
+          workspace: [`/api/apps/${app.id}/workspace`],
+          history: [`/api/apps/${app.id}/history`],
+          source: [`/dashboard/api/apps/${app.id}/deployments/${deployment.id}`],
+        });
       }),
     ),
   );

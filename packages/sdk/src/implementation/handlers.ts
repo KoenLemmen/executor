@@ -65,8 +65,13 @@ export const executorHandlers = (executor: Executor) =>
     ),
     HttpApiBuilder.group(ExecutorApi, "apps", (handlers) =>
       handlers
+        .handle("create", ({ payload }) => executor.apps.create(payload))
+        .handle("workspace", ({ params, query }) =>
+          executor.apps.workspace({ ...params, ...query }),
+        )
+        .handle("commit", ({ params, payload }) => executor.apps.commit({ ...params, ...payload }))
+        .handle("copy", ({ payload }) => executor.apps.copy(payload))
         .handle("deploy", ({ payload }) => executor.apps.deploy(payload))
-        .handle("add", ({ payload }) => executor.apps.add(payload))
         .handle("get", ({ params, query }) => executor.apps.get({ ...params, ...query }))
         .handle("list", ({ query }) => executor.apps.list(query))
         .handle("remove", ({ params, query }) => executor.apps.remove({ ...params, ...query }))

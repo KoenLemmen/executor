@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Manual setup uses real retained app code and persistence, without provider registration callbacks. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -30,6 +31,7 @@ for (const signingSecret of ["executor", "provider"] as const) {
           yield* storage.migrate;
           const executor = yield* createExecutor({
             storage,
+            sources: memorySourceStorage(),
             runtime: nodeRuntime({ workDirectory: directory }),
             blobs: memoryBlobStore(),
             credentials: yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto),

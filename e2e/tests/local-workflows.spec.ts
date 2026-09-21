@@ -191,6 +191,10 @@ layer(TestLive, { excludeTestServices: true })("Local workflows", (it) => {
           owner,
           app: app.id,
           expectedDeployment: app.activeDeployment,
+          expectedSource: (yield* body(
+            Schema.Struct({ revision: Schema.Struct({ commit: Schema.String }) }),
+            yield* api.request(agent, "GET", `${path}/workspace`),
+          )).revision.commit,
           files: workflowFiles("v2"),
         });
         expect(updated.status).toBe(200);

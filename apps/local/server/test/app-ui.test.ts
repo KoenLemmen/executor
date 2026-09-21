@@ -91,10 +91,10 @@ test(
               files: Schema.decodeUnknownSync(SourceFiles)(files),
             },
           });
-          const second = yield* client.apps.add({
+          const second = yield* client.apps.copy({
             payload: { from: first.app.id, owner: OwnerId.make("local"), name: "Other copy" },
           });
-          const foreign = yield* client.apps.add({
+          const foreign = yield* client.apps.copy({
             payload: { from: first.app.id, owner: OwnerId.make("other"), name: "Foreign copy" },
           });
           const link = yield* server.issuePairingLink;
@@ -453,7 +453,13 @@ test(
               client.apps.deploy({
                 payload: {
                   owner: first.app.owner,
-                  name: first.app.name,
+                  app: first.app.id,
+                  expectedDeployment: first.app.activeDeployment,
+                  expectedSource: (
+                    await Effect.runPromise(
+                      client.apps.workspace({ params: { app: first.app.id }, query: {} }),
+                    )
+                  ).revision.commit,
                   files: Schema.decodeUnknownSync(SourceFiles)(
                     files.map((file) =>
                       file.path === "ui/index.html"

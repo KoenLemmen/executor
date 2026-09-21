@@ -8,6 +8,7 @@ import {
   CredentialsError,
   AccountSelectionInvalid,
   AppNotFound,
+  AppNotDeployed,
   AppDeploymentChanged,
   DeploymentBuildFailed,
   DeploymentNotFound,
@@ -15,6 +16,7 @@ import {
   AppSlugTaken,
   SkillDefinitionInvalid,
   StorageError,
+  SourceError,
 } from "@executor-js/sdk/core";
 import { TemplateError } from "@executor-js/app-templates";
 import type { OrganizationId } from "./organization.ts";
@@ -25,6 +27,7 @@ export const OrganizationDefaultsError = Schema.Union([
   AuthenticationUnavailable,
   Forbidden,
   StorageError,
+  SourceError,
   TemplateError.annotate({ httpApiStatus: 422 }),
   DeploymentBuildFailed,
   DeploymentNotFound,
@@ -32,6 +35,7 @@ export const OrganizationDefaultsError = Schema.Union([
   AppSlugTaken,
   SkillDefinitionInvalid,
   AppNotFound,
+  AppNotDeployed,
   AppDeploymentChanged,
   AccountNotFound,
   AccountFieldsInvalid,

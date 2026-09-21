@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { appsCommand, appCommandFailure } from "@executor-js/app-management/cli";
 /** CLI composition root. Platform dependencies and raw process arguments stop here. */
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -12,6 +13,7 @@ const cli = executorCommand.pipe(
     launch(Option.isSome(bootstrapFd) ? "desktop" : "browser", process.platform),
   ),
   Command.withSubcommands([
+    appsCommand(process.platform),
     serveCommand.pipe(Command.withHandler(() => launch("headless", process.platform))),
     pairCommand.pipe(Command.withHandler(() => launch("pair", process.platform))),
   ]),
@@ -27,7 +29,8 @@ NodeRuntime.runMain(
       CliError.isCliError(error)
         ? Effect.fail(error)
         : Console.error(
-            "Executor could not start. Check the configured keys and whether the port is already in use.",
+            appCommandFailure(error) ??
+              "Executor could not start. Check the configured keys and whether the port is already in use.",
           ).pipe(
             Effect.andThen(
               Effect.sync(() => {

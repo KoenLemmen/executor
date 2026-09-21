@@ -1,4 +1,6 @@
 import { HostedSchedules } from "./schedules.ts";
+import { HostedAppAccess, HostedAppManagementApi } from "./app-management.ts";
+export { HostedAppManagementApi } from "./app-management.ts";
 /** Common hosted contracts. Product reads require a hosted session. */
 import { CatalogEntry, CatalogUnavailable } from "@executor-js/catalog/contracts";
 import { Context, Schema } from "effect";
@@ -64,7 +66,10 @@ export const hostedApiDocument = <Id extends string, Groups extends HttpApiGroup
         id,
         [...middleware].some((service) => service.key === RequireUser.key)
           ? [{ browserSession: [] }]
-          : [...middleware].some((service) => service.key === RequireOrganization.key)
+          : [...middleware].some(
+                (service) =>
+                  service.key === RequireOrganization.key || service.key === HostedAppAccess.key,
+              )
             ? [{ oauth: ["executor"] }, { browserSession: [] }]
             : [],
       );
@@ -170,4 +175,5 @@ export const HostedApi = HttpApi.make("executor-hosted")
         }),
       )
       .middleware(RequireUser),
-  );
+  )
+  .addHttpApi(HostedAppManagementApi);

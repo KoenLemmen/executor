@@ -92,6 +92,7 @@ export const appAuthentication = (
       }).pipe(
         Effect.catchTags({
           AppNotFound: () => Effect.fail(new UiForbidden()),
+          AppNotDeployed: () => Effect.fail(unavailable()),
           DeploymentNotFound: () => Effect.fail(unavailable()),
           StorageError: () => Effect.fail(unavailable()),
         }),

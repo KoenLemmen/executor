@@ -1,6 +1,8 @@
+import { AppManagementHost } from "@executor-js/app-management";
 import { GroupDatabase } from "@executor-js/hosted-server/groups";
 import { executorSelfHostApiDocument } from "../src/contracts/api.ts";
 import { OrganizationId as ReferenceOrganizationId } from "@executor-js/hosted-server";
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -40,7 +42,12 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HostedApi } from "@executor-js/hosted-server/contracts";
 
 // This legacy fixture exercises shared handlers; full product composition is verified in e2e.
-const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(Layer.provide(hostedHandlers));
+const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(
+  Layer.provide(hostedHandlers),
+  HttpRouter.provideRequest(
+    Layer.succeed(AppManagementHost, Effect.die("App authoring is outside this fixture")),
+  ),
+);
 
 import { nodeRuntime } from "@executor-js/sdk/node";
 
@@ -58,6 +65,7 @@ test("default setup preserves source, build and storage failures through HTTP an
         const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
         const executor = yield* createExecutor({
           blobs: memoryBlobStore(),
+          sources: memorySourceStorage(),
           storage,
           credentials,
           runtime: runtimeAdapter({
@@ -191,6 +199,7 @@ test(
           const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
           const executor = yield* createExecutor({
             blobs: memoryBlobStore(),
+            sources: memorySourceStorage(),
             storage,
             credentials,
             runtime: nodeRuntime({ workDirectory: directory }),
@@ -218,7 +227,7 @@ test(
           assert.ok(app);
           const account = app.accounts.service;
           assert.equal(typeof account, "string");
-          yield* storage.orm("1.9.1").transaction(
+          yield* storage.orm("1.12.0").transaction(
             Effect.gen(function* () {
               yield* sql`set transaction read only`;
               for (let i = 0; i < 3; i++) {

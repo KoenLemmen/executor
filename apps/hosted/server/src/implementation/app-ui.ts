@@ -89,7 +89,7 @@ export const hostedAppUi = (addresses: ReturnType<typeof appAddresses>) => {
       const version = yield* executor.apps.source({
         owner,
         app: app.id,
-        deployment: deployment ?? app.activeDeployment,
+        ...(deployment === undefined ? {} : { deployment }),
       });
       if (version.owner !== owner) return yield* new UiForbidden();
       return { app, version };

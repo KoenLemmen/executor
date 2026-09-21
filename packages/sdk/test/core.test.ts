@@ -1,4 +1,5 @@
 import { SqlClient } from "effect/unstable/sql";
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Public package entry points over real storage and an injected native runtime. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -70,6 +71,7 @@ const fixture = (nativeRuntime = runtime) =>
     const credentialStore = yield* credentials(Redacted.make("ab".repeat(32)), crypto);
     return {
       blobs: memoryBlobStore(),
+      sources: memorySourceStorage(),
       storage,
       credentials: credentialStore,
       runtime: runtimeAdapter(nativeRuntime),
@@ -129,12 +131,11 @@ test(
             ),
           );
 
-          // The facade must not silently drop the contract's createOnly option.
+          // Creation by name must not overwrite an existing app.
           yield* Effect.promise(() =>
-            assert.rejects(
-              promise.apps.deploy({ owner, name: "Example", files, createOnly: true }),
-              { _tag: "AppNameTaken" },
-            ),
+            assert.rejects(promise.apps.deploy({ owner, name: "Example", files }), {
+              _tag: "AppNameTaken",
+            }),
           );
           assert.equal(
             (yield* executor.apps.get({ app: app.id })).activeDeployment,
@@ -169,7 +170,7 @@ test(
             label: "Example",
             fields: Redacted.make({ token: "synthetic-token" }),
           });
-          const db = options.storage.orm("1.9.1");
+          const db = options.storage.orm("1.12.0");
           yield* db
             .transaction(add.pipe(Effect.andThen(Effect.fail("rollback"))))
             .pipe(Effect.result);
@@ -280,14 +281,14 @@ test(
               ),
             ),
           );
-          const other = yield* executor.apps.add({ from: app.id, owner, name: "Other" });
+          const other = yield* executor.apps.copy({ from: app.id, owner, name: "Other" });
           assert.ok(
             Schema.is(AppNameTaken)(
               yield* Effect.flip(executor.apps.rename({ owner, app: app.id, name: "Other" })),
             ),
           );
           assert.deepEqual(yield* executor.apps.get({ app: app.id }), renamed);
-          yield* executor.apps.add({ from: app.id, owner: OwnerId.make("bob"), name: "Renamed" });
+          yield* executor.apps.copy({ from: app.id, owner: OwnerId.make("bob"), name: "Renamed" });
           const competition = yield* Effect.all(
             [
               executor.apps.rename({ owner, app: app.id, name: "Contended" }).pipe(Effect.result),
@@ -316,8 +317,7 @@ test("app names determine slugs; normalized collisions fail without allocating s
         );
         const results = yield* Effect.forEach(
           ["Axiom", "AXIOM", "Axiom!", "Axiom?"],
-          (name) =>
-            executor.apps.deploy({ owner, name, files, createOnly: true }).pipe(Effect.result),
+          (name) => executor.apps.deploy({ owner, name, files }).pipe(Effect.result),
           { concurrency: 4 },
         );
         const successful = results.filter(Result.isSuccess);
@@ -328,7 +328,7 @@ test("app names determine slugs; normalized collisions fail without allocating s
         for (const result of results)
           if (Result.isFailure(result)) assert.ok(Schema.is(AppSlugTaken)(result.failure));
         assert.equal((yield* executor.apps.list({ owner })).length, 1);
-        const second = yield* executor.apps.add({ from: first.id, owner, name: "Other" });
+        const second = yield* executor.apps.copy({ from: first.id, owner, name: "Other" });
         const renamed = yield* executor.apps.rename({
           app: first.id,
           name: "Friendly display name",
@@ -342,6 +342,7 @@ test("app names determine slugs; normalized collisions fail without allocating s
           owner,
           app: first.id,
           expectedDeployment: renamed.activeDeployment,
+          expectedSource: (yield* executor.apps.workspace({ app: first.id })).revision.commit,
           files,
         });
         assert.equal(deployed.app.slug, renamed.slug);
@@ -358,16 +359,16 @@ test("app names determine slugs; normalized collisions fail without allocating s
         });
         const derivedRename = yield* executor.apps.rename(parsedRename);
         assert.equal(derivedRename.slug, "fresh-name");
-        const copy = yield* executor.apps.add({ from: first.id, owner, name: "Work Axiom" });
+        const copy = yield* executor.apps.copy({ from: first.id, owner, name: "Work Axiom" });
         assert.equal(copy.slug, "work-axiom");
         assert.ok(
           Schema.is(AppSlugTaken)(
             yield* executor.apps
-              .add({ from: first.id, owner, name: "Work-Axiom" })
+              .copy({ from: first.id, owner, name: "Work-Axiom" })
               .pipe(Effect.flip),
           ),
         );
-        const other = yield* executor.apps.add({
+        const other = yield* executor.apps.copy({
           from: first.id,
           owner: OwnerId.make("other"),
           name: "Work Axiom",

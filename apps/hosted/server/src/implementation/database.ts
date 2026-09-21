@@ -5,6 +5,7 @@ import {
   makeExecutorStorage,
   type AppRuntime,
   type BlobStorage,
+  type AppSourceStorage,
   type OAuthOptions,
   type ExecutorOptions,
 } from "@executor-js/sdk/core";
@@ -43,6 +44,7 @@ export const postgresExecutor = (
   secret: Redacted.Redacted<string>,
   runtime: AppRuntime,
   blobs: BlobStorage,
+  sources: AppSourceStorage,
   oauth?: Pick<OAuthOptions, "clientMetadataUrl" | "urlPolicy">,
   options?: Partial<
     Pick<ExecutorOptions, "storage" | "appStorage" | "webhookOrigin" | "workflows">
@@ -58,6 +60,7 @@ export const postgresExecutor = (
       ...(options?.webhookOrigin === undefined ? {} : { webhookOrigin: options.webhookOrigin }),
       ...(options?.appStorage === undefined ? {} : { appStorage: options.appStorage }),
       blobs,
+      sources,
       credentials,
       runtime,
       oauth: {

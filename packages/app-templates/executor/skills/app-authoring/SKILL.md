@@ -181,12 +181,35 @@ return await tools.executor.mutations.apps_deploy({
 });
 ```
 
+For an app you will edit, use the draft workflow. Local and hosted management
+apps generate `mutations.appManagement_create`, `queries.appManagement_source`,
+`mutations.appManagement_commit`, `mutations.appManagement_deploy`, and
+`mutations.appManagement_copy` from the serving OpenAPI contracts. Discover
+their exact signatures first. They use ordinary app IDs, with route parameters
+under `path` and request payloads under `body`.
+
+Create the draft, read its working source, and save the complete file list with
+that source's expected Git commit. Deploy with both the expected source commit
+and current active deployment; use null for a draft's first deployment. Commits
+and Git pushes do not change the running version. A copy is another normal app with fresh Git history and no accounts or app data.
+Running apps copy their deployed source and deploy the copy. Unfinished apps copy
+their working files and remain undeployed.
+
+Publishing reads a scoped `name` and optional `description` from `package.json`.
+The public listing points to the selected Git commit. Normal npm `dependencies`
+are supported; `version` is optional author metadata and does not select an
+Executor release. Executor app dependencies are deferred. Include the app source
+it needs directly; do not add `executor.dependencies` or an Executor lockfile.
+
+Copy a public app with `appManagement_copy`, using `from: { package, commit }`
+and a new `name`. Owned apps use the same operation with `from: { app }`. This creates an independent app and Git repository with empty
+account selections. Republishing or unpublishing the original does not change
+installed copies. A changed listing must be reviewed again before installation.
+Local and self-host consume the public registry; publish on the cloud host after
+pushing the source there. Agents edit their owned copy through normal app tools.
+
 Hosted deployment currently creates a new named app and returns the app directly.
-It rejects an existing name. To update an app, read `apps_source`, edit its files,
-then call `apps_update` with the complete `files` array and `expectedDeployment`
-set to the source response's `id`. A deployment conflict requires re-reading the
-source before retrying. `apps_activate` selects a retained deployment with the
-same expected-current-deployment check. Updates keep the app ID and stored data.
+It rejects an existing name. Use source commits and deployment by app ID for edits.
 After deployment, start a new execute to discover and call its tools.
 Other hosted operations include `organization_inventory`, `organization_catalog`,
 `apps_install`, `apps_importCustom`, `apps_get`, `appUi_location`, `apps_selectAccounts`, and
@@ -350,8 +373,8 @@ To use the same app with a second account, call:
 
 ```js
 const executor = tools.executor;
-const second = await executor.mutations.apps_add({
-  body: { from: "<vercel-app-id>", owner: "my-project", name: "Personal Vercel" },
+const second = await executor.mutations.appManagement_copy({
+  body: { from: { app: "<vercel-app-id>" }, name: "Personal Vercel" },
 });
 return await executor.mutations.apps_update({
   path: { app: second.id },
@@ -359,8 +382,7 @@ return await executor.mutations.apps_update({
 });
 ```
 
-The new configured copy shares code and its starting deployment, but has its own
-account selections. It starts with no accounts selected. Each copy has an app ID
+The new copy has its own code, deployment, Git history, and app data. It starts with no accounts selected. Each copy has an app ID
 and exposes tools under its name-derived slug. In a new execute, use `Promise.all` to call both.
 
 For an app that needs several accounts together, declare a collection slot:

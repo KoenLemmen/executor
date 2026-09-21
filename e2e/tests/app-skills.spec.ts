@@ -1,3 +1,4 @@
+import { saveAndDeploy } from "../support/app-authoring.ts";
 /** Static skills are tested through the real hosted API, with no app implementation imports. */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
@@ -124,7 +125,7 @@ layer(HostedLive, { excludeTestServices: true })("App skills", (it) => {
           { path: "skills/search-messages/reference.md", content: "Missing SKILL.md" },
           { path: "skills/Bad-Name/SKILL.md", content: document("v1") },
         ]) {
-          const rejected = yield* api.request(actors.owner, "POST", `${path}/deployments`, {
+          const rejected = yield* saveAndDeploy(actors.owner, path, {
             expectedDeployment: app.activeDeployment,
             files: [{ path: "index.ts", content: "!invalid javascript" }, invalid],
           });
@@ -134,12 +135,12 @@ layer(HostedLive, { excludeTestServices: true })("App skills", (it) => {
             (yield* body(Document, yield* api.request(actors.member, "GET", read))).deployment,
           ).toBe(app.activeDeployment);
         }
-        const changed = yield* api.request(actors.owner, "POST", `${path}/deployments`, {
+        const changed = yield* saveAndDeploy(actors.owner, path, {
           expectedDeployment: app.activeDeployment,
           files: files("v2"),
         });
         expect(changed.status).toBe(200);
-        const updated = yield* body(Deployed, changed);
+        const { app: updated } = yield* body(Schema.Struct({ app: Deployed }), changed);
         expect(
           (yield* body(Document, yield* api.request(actors.member, "GET", read))).content,
         ).toBe(document("v2"));

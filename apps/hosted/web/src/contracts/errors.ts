@@ -1,3 +1,4 @@
+import { registryErrorMessage } from "@executor-js/ui/contracts/registry-error";
 import type { HostedApi } from "@executor-js/hosted-server/contracts";
 import { Cause, Match, Option, type Schema } from "effect";
 import type { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
@@ -25,6 +26,8 @@ const errorMessage = Match.type<HostedError>().pipe(
         members_changed:
           "Organization membership changed. Your changes were not saved. Close this form and select the current members.",
       })[reason],
+    RegistryError: registryErrorMessage,
+    AppAccessDenied: () => "You do not have permission to change this app.",
     ExecutionLimitReached: () =>
       "Your organization has reached its execution limit. The tool did not run. Ask an organization admin to review the limit.",
     ExecutionAdmissionUnavailable: () =>
@@ -35,6 +38,11 @@ const errorMessage = Match.type<HostedError>().pipe(
       "This app changed while you were editing. Reload its source and try again.",
     AppDataNotFound: () => "This data operation is no longer available. Reload the app.",
     AppDataFailed: () => "The app could not complete this data operation.",
+    AppNotDeployed: () => "Deploy this app before running its tools or configuring accounts.",
+    SourceError: (error) =>
+      error.reason === "conflict"
+        ? "The source changed elsewhere. Reload it before saving again."
+        : "The app source could not be saved or loaded. Check its files and try again.",
     AppNotFound: () => "This app is no longer available in this organization.",
     AppSkillNotFound: () => "This skill file is no longer available. Reload the app's skills.",
     DeploymentNotFound: () =>

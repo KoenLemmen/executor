@@ -22,7 +22,7 @@ import {
   ToolName,
 } from "./shared.ts";
 import { AccountNotFound } from "./account.ts";
-import { AccountRequired, AccountSelectionInvalid, AppNotFound } from "./apps.ts";
+import { AccountRequired, AccountSelectionInvalid, AppNotFound, AppNotDeployed } from "./apps.ts";
 import { DeploymentNotFound } from "./deployment.ts";
 import { OAuthReconnectRequired } from "./oauth.ts";
 
@@ -236,6 +236,7 @@ export const ToolsGroup = HttpApiGroup.make("tools")
         StorageError,
         CredentialsError,
         AppNotFound,
+        AppNotDeployed,
         DeploymentNotFound,
         AppEvaluationFailed,
         AccountNotFound,
@@ -256,6 +257,7 @@ export const ToolsGroup = HttpApiGroup.make("tools")
         StorageError,
         CredentialsError,
         AppNotFound,
+        AppNotDeployed,
         DeploymentNotFound,
         AppEvaluationFailed,
         AccountNotFound,

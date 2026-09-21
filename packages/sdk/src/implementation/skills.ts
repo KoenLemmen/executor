@@ -1,3 +1,4 @@
+import { AppNotDeployed } from "../contracts/apps.ts";
 /** Static resources follow the existing source reader, independent of the execution runtime and credentials. */
 import { Effect, Schema } from "effect";
 import type { Executor } from "../contracts/executor.ts";
@@ -10,9 +11,11 @@ export const makeSkills = (apps: Pick<Executor["apps"], "get" | "source">) => {
   const snapshot = (input: typeof AppSkillInputs.list.Type) =>
     Effect.gen(function* () {
       const app = yield* apps.get(input);
+      const deployment = input.deployment ?? app.activeDeployment;
+      if (deployment === null) return yield* new AppNotDeployed({ app: app.id });
       const source = yield* apps.source({
         ...input,
-        deployment: input.deployment ?? app.activeDeployment,
+        deployment,
       });
       const skills = yield* prepareAppSkills(source.files);
       return { app: { id: app.id, name: app.name, slug: app.slug }, deployment: source.id, skills };

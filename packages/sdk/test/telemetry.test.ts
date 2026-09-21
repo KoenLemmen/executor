@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Real SDK, PGlite, retained app bundle, provider socket and OTLP receiver. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -106,6 +107,7 @@ test(
             const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
             const executor = yield* createExecutor({
               blobs: memoryBlobStore(),
+              sources: memorySourceStorage(),
               storage,
               credentials,
               runtime: nodeRuntime({ workDirectory: directory }),

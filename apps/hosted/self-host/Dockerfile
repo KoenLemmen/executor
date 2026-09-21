@@ -11,6 +11,7 @@ RUN bun run --cwd packages/telemetry build:motel
 RUN bun run --cwd apps/hosted/self-host/web build
 RUN bun run --cwd apps/hosted/self-host build
 FROM node:24.14.0-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production EXECUTOR_ENVIRONMENT=self-host HOST=0.0.0.0 PORT=4400 DASHBOARD_DIR=/app/web EXECUTOR_DATA_DIR=/app/data
 WORKDIR /app
 # Keep workspace packages and the compiler available for app deployment at runtime.

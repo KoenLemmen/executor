@@ -1,4 +1,5 @@
 import { DashboardRuntime } from "./telemetry.ts";
+import { LocalAppManagementApi } from "@executor-js/local-server/app-management";
 import { DashboardApi } from "@executor-js/local-server/contracts";
 import type { AppId, DeploymentId } from "@executor-js/sdk";
 import { Cause, Clock, Effect, Option, Schedule, Schema, Stream } from "effect";
@@ -9,7 +10,7 @@ import { acknowledgedQuery, currentQuery } from "@executor-js/ui/contracts/mutat
 
 /** The browser uses the same schemas and route definitions as the local product server. */
 export class DashboardClient extends AtomHttpApi.Service<DashboardClient>()("DashboardClient", {
-  api: DashboardApi,
+  api: DashboardApi.addHttpApi(LocalAppManagementApi),
   httpClient: FetchHttpClient.layer,
   runtime: DashboardRuntime,
   transformClient: (client) => client.pipe(HttpClient.transformResponse(Effect.withSpan("ui.api"))),

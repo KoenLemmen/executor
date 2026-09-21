@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Real Node app builds, SQL persistence and HTTP callback transport against a synthetic provider. */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -152,6 +153,7 @@ test(
             yield* storage.migrate;
             const options = {
               storage,
+              sources: memorySourceStorage(),
               blobs: memoryBlobStore(),
               runtime: nodeRuntime({ workDirectory: directory }),
               credentials: yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto),
@@ -210,7 +212,7 @@ test(
             const registration = remote.registrations.get(subscription.id);
             assert.ok(registration);
             const stored = yield* storage
-              .orm("1.9.1")
+              .orm("1.12.0")
               .findFirst("webhooks", { where: (b) => b("id", "=", subscription.id) });
             assert.ok(stored);
             assert.ok(!new TextDecoder().decode(stored.encrypted).includes(registration.secret));
@@ -253,7 +255,7 @@ test(
                   }),
                 ),
               );
-            const foreign = yield* executor.apps.add({
+            const foreign = yield* executor.apps.copy({
               from: app.id,
               owner: OwnerId.make("other-owner"),
               name: app.name,
@@ -326,6 +328,7 @@ test(
               owner,
               app: app.id,
               expectedDeployment: app.activeDeployment,
+              expectedSource: (yield* executor.apps.workspace({ app: app.id })).revision.commit,
               files: source(remote.url, 2),
             });
             const response = yield* deliver();

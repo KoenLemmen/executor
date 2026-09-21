@@ -11,7 +11,7 @@ import {
   WorkflowValue,
 } from "apps/contracts";
 import { AppId, StorageError, CredentialsError, RequestInvalid } from "./shared.ts";
-import { AppNotFound, AccountRequired, AccountSelectionInvalid } from "./apps.ts";
+import { AppNotDeployed, AppNotFound, AccountRequired, AccountSelectionInvalid } from "./apps.ts";
 import { AccountNotFound } from "./account.ts";
 import { DeploymentNotFound } from "./deployment.ts";
 import { OAuthReconnectRequired } from "./oauth.ts";
@@ -42,6 +42,7 @@ export const WorkflowErrors = [
   CredentialsError,
   RequestInvalid,
   AppNotFound,
+  AppNotDeployed,
   AccountNotFound,
   AccountRequired,
   AccountSelectionInvalid,

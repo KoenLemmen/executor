@@ -29,8 +29,8 @@ export async function program() {
     files: [{ path: "index.ts", content: source }],
   });
 
-  const aliceApp = await executor.apps.add({ from: published.id, owner: alice, name: "Vercel" });
-  const bobApp = await executor.apps.add({ from: published.id, owner: bob, name: "Vercel" });
+  const aliceApp = await executor.apps.copy({ from: published.id, owner: alice, name: "Vercel" });
+  const bobApp = await executor.apps.copy({ from: published.id, owner: bob, name: "Vercel" });
   const vercel = published.requirements.accounts.vercel;
   if (vercel === undefined) throw new Error("This app must declare a vercel account");
 

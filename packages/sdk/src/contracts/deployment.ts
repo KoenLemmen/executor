@@ -1,56 +1,12 @@
 /** Immutable deployments, source files and expected build errors. */
 import { Schema } from "effect";
 import { AppCodeId, AppId, BuildId, DeploymentId, OwnerId } from "./shared.ts";
+import { SourceCommit, SourceFiles } from "./source.ts";
+
+export { SourceFiles, SourceFile, SourceFilePath } from "./source.ts";
 
 /**
- * Canonical relative POSIX path inside a deployment: no absolute paths,
- * backslashes, NUL bytes, or empty/`.`/`..` segments. Plain refined
- * strings — callers need not brand every path.
- */
-export const SourceFilePath = Schema.String.pipe(
-  Schema.check(
-    Schema.makeFilter((path: string) => {
-      if (path.includes("\0")) return "expected no NUL bytes";
-      if (path.includes("\\")) return "expected POSIX separators";
-      if (path.startsWith("/")) return "expected a relative path";
-      return path.length > 0 && path.split("/").every((s) => s !== "" && s !== "." && s !== "..")
-        ? true
-        : "expected canonical segments (non-empty, no `.` or `..`)";
-    }),
-  ),
-);
-
-export type SourceFilePath = typeof SourceFilePath.Type;
-
-/** One UTF-8 text file of a deployment. Content may be empty. */
-export const SourceFile = Schema.Struct({ path: SourceFilePath, content: Schema.String });
-
-export type SourceFile = typeof SourceFile.Type;
-
-/**
- * A deployment's complete source: at least one file, unique paths, and a
- * root `index.ts` entrypoint. `package.json` is optional — the host
- * supplies `apps`, and extra dependencies may come from an
- * optional `package.json`. MCP/OpenAPI/GraphQL importers
- * emit ordinary files like these (their remote discovery still runs live at
- * evaluation); they are not special execution paths.
- */
-export const SourceFiles = Schema.NonEmptyArray(SourceFile).pipe(
-  Schema.check(
-    Schema.makeFilter((files: ReadonlyArray<SourceFile>) =>
-      new Set(files.map((f) => f.path)).size === files.length ? true : "expected unique paths",
-    ),
-    Schema.makeFilter((files: ReadonlyArray<SourceFile>) =>
-      files.some((f) => f.path === "index.ts") ? true : "expected a root index.ts",
-    ),
-  ),
-);
-
-export type SourceFiles = typeof SourceFiles.Type;
-
-/**
- * One immutable source version shared by configured apps of the same code
- * lineage. The deploying app supplies the deployment owner. `build` points at
+ * One immutable source version belonging to a single app code lineage. The deploying app supplies the deployment owner. `build` points at
  * retained compiled output, so activating any retained deployment —
  * including rollback — only moves the app's pointer: nothing is rebuilt
  * and no app data or external operations are reversed. The manifest is
@@ -60,6 +16,8 @@ export const Deployment = Schema.Struct({
   id: DeploymentId,
   code: AppCodeId,
   owner: OwnerId,
+  sourceCommit: SourceCommit,
+  // Hydrated for callers; source bytes are never a deployment SQL column.
   files: SourceFiles,
   build: BuildId,
   createdAt: Schema.Date,
@@ -91,7 +49,7 @@ export class DeploymentNotFound extends Schema.TaggedError<DeploymentNotFound>()
 /** The app changed since the caller read it; retry against the current pointer. */
 export class AppDeploymentChanged extends Schema.TaggedError<AppDeploymentChanged>()(
   "AppDeploymentChanged",
-  { app: AppId, expected: DeploymentId, current: DeploymentId },
+  { app: AppId, expected: Schema.NullOr(DeploymentId), current: Schema.NullOr(DeploymentId) },
   {
     httpApiStatus: 409,
     description:

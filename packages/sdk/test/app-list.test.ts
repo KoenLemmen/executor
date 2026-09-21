@@ -1,3 +1,5 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
+import { database } from "../src/implementation/database.ts";
 /** Lists run against real Postgres storage; SQL spans expose redundant database reads. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -38,14 +40,15 @@ const fixture = (count: number) =>
   Effect.gen(function* () {
     const storage = yield* makeExecutorStorage({ provider: "postgresql" });
     yield* storage.migrate;
-    const db = storage.orm("1.9.1");
+    const db = database(storage);
     const deployments = Array.from({ length: count + 1 }, (_, index) => ({
       id: DeploymentId.make(`dpl_list_${index}`),
       code: AppCodeId.make(`code_list_${index}`),
       // Configured copies can retain deployments owned by somebody else.
       owner: otherOwner,
       // Listing must not parse or fetch retained source content.
-      files: "intentionally not a source-file array",
+      sourceCommit: "a".repeat(40),
+      fileCount: 1,
       build: BuildId.make(`bld_list_${index}`),
       requirements: requirements(index),
       createdAt: new Date(0),
@@ -53,6 +56,7 @@ const fixture = (count: number) =>
     const apps = deployments.map((deployment, index) => ({
       id: AppId.make(`app_list_${String(index).padStart(3, "0")}`),
       code: deployment.code,
+      copiedFrom: null,
       owner: index === count ? otherOwner : owner,
       name: `app-${index}`,
       slug: AppSlug.make(`app-${index}`),
@@ -77,6 +81,7 @@ const fixture = (count: number) =>
     yield* db.createMany("apps", [...apps].reverse());
     const executor = yield* createExecutor({
       storage,
+      sources: memorySourceStorage(),
       blobs: memoryBlobStore(),
       credentials: yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto),
       runtime: runtimeAdapter({

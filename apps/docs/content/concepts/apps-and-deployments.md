@@ -1,61 +1,67 @@
 ---
 title: Apps and deployments
-description: "An app is one configured copy of deployed code, with its own account selections. A deployment is one immutable, retained version of that code."
+description: "An app owns its source, account selections and data. A deployment is an immutable, retained version of its code."
 ---
 
 ## App
 
-An **app** is one configured use of some code. It has a name, an owner, the
-deployment it currently runs, and the accounts it has selected.
+An **app** has a name, an owner, Git source, and its selected accounts. It can
+have source before it is deployed. Once deployed, it also points to the version
+it currently runs.
 
-The configuration is the point. The same code, configured twice, is two apps:
+You can make independent copies for different accounts:
 
 - "Work Vercel", selecting your work Vercel account.
 - "Personal Vercel", selecting your personal one.
 
-They share code and share a deployment lineage. They do not share a selection.
-Adding a second copy of an app copies its configuration but deliberately does
-not copy its account selections, so you cannot create a second app that quietly
-uses the first one's credentials.
+**Make a copy** creates a new app with its own source and fresh Git history.
+It does not copy connected accounts or app data. A running app is copied from
+its deployed source, even when its working files have newer changes. The copy
+deploys automatically. An unfinished app copies its working files and stays
+undeployed.
+
+Each copy records the original app or public package and source commit. That
+record does not connect their updates. Changing or deleting the original does
+not change the copy.
 
 Each app has a slug. That slug is the namespace an agent uses:
 `tools.<app-slug>.queries.<name>`.
 
 ## Deployment
 
-A **deployment** is one immutable version of the source and its build. Deploying
-uploads files, builds them, and activates the result only if the build succeeds.
-A failed build leaves the running app alone.
+A **deployment** is one immutable version of an app's source and build. A build
+must succeed before it becomes the running version. Earlier deployments remain
+available for rollback. Rollback changes the running code; it does not rewind
+app data or external actions.
 
-Earlier deployments are retained, and an app can be pointed back at one. Apps in
-the same code lineage can select the same deployment. The deployment record also
-holds who deployed it.
+Source edits and Git pushes do not deploy automatically. An agent reads working
+source, commits changes against that revision, then deploys the saved commit.
+The deployment checks both the source revision and current running version.
 
-Configured copies of the same code are grouped internally so their deployments
-can be shared. That grouping is bookkeeping; it is not a separate thing you
-manage.
+## Public apps
+
+**Publish** shares a chosen source snapshot independently of the running app.
+`package.json` supplies the public name and description. Publication shares
+source files, not private Git history, connected accounts, credentials, or app
+data.
+
+A public package has one current published revision. Republishing replaces that
+listing; there is no public version catalog. Making a copy uses the exact
+published revision you reviewed and creates a normal, independently owned app.
+Republishing or unpublishing the original does not update or revoke your copy.
 
 ## Getting an app
 
-- **From the catalog.** Install a prepared app and select its accounts.
-- **From a URL.** Import an MCP server, an OpenAPI document or a GraphQL
-  endpoint as a custom app. Executor reads the operations and exposes them.
-- **From source.** Write TypeScript and deploy it. See
-  [Author an app](/build/author-an-app).
+- **From a public listing.** Make your own copy, then select its accounts.
+- **From the catalog.** Generate an app from a prepared integration.
+- **From a URL.** Import a supported API or MCP server as a custom app.
+- **From source.** Write TypeScript and deploy it. See [Author an app](/build/author-an-app).
 
-## The lifecycle
-
-1. Deploy, or install from the catalog. The build produces a deployment.
-2. Select an account for each requirement.
-3. Use the tools, from the dashboard or through MCP.
-4. Update the source to change the code. Hosted apps use `apps_source` followed
-   by `apps_update` with the current deployment ID. Configuration and selections stay.
-
-An agent that discovered an app's tools before a change holds a stale view.
-Discover again in a new `execute` call after deploying or reconfiguring.
+After deploying or changing account selections, discover tools again in a new
+`execute` call.
 
 ## What is coming later
 
-- Rolling a new deployment out automatically to every configured copy.
-- Stored data and schema migration between deployments.
-- Scheduled work, and calls from one app to another.
+- Automatic updates from another app or public package.
+- Imports between Executor app packages.
+- Stored-data schema migration between deployments.

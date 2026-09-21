@@ -1,4 +1,6 @@
 import { executorCloudApiDocument } from "../contracts/api.ts";
+import { AppManagementHost } from "@executor-js/app-management";
+import { createAppRegistry, makeRegistryStorage, storedRegistry } from "@executor-js/app-registry";
 /** Cloud composition: Postgres is authoritative; no organization data is stored in a DO. */
 import { urlPolicyConfig } from "@executor-js/utils/url-policy";
 import { executorSkillFiles } from "@executor-js/app-templates/executor";
@@ -23,6 +25,7 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import { Config, Effect, Layer, Option } from "effect";
 import { cloudBuildAsset } from "../implementation/build-storage.ts";
 import { withExecutorAnalytics } from "../implementation/product-analytics.ts";
+import { cloudAppSources } from "./source.ts";
 import { cloudBlobs } from "./blobs.ts";
 import { cloudWorkflows } from "./workflows.ts";
 import { cloudRuntime } from "./runtime.ts";
@@ -52,6 +55,7 @@ export const cloudExecutor = Effect.fn(function* (
   const makeRuntime = yield* cloudRuntime(databases);
   const workflows = yield* cloudWorkflows;
   const blobs = yield* cloudBlobs;
+  const { sources, repositories } = yield* cloudAppSources;
   const executor = yield* makeExecutionMemo(
     Effect.gen(function* () {
       const url = yield* connection.connectionString;
@@ -59,14 +63,17 @@ export const cloudExecutor = Effect.fn(function* (
       const services = yield* Layer.build(
         PgClient.layer({ url, maxConnections: 1, prepare: false }),
       );
-      const runtime = yield* makeRuntime;
       const storage = yield* makeExecutorStorage({ provider: "postgresql" }).pipe(
         Effect.provideContext(services),
       );
+      const registryStorage = yield* makeRegistryStorage.pipe(Effect.provideContext(services));
+      const registry = storedRegistry(registryStorage, sources, origin);
+      const runtime = yield* makeRuntime;
       const executor = yield* postgresExecutor(
         key,
         runtime,
         blobs,
+        sources,
         { urlPolicy, ...(clientMetadataUrl === undefined ? {} : { clientMetadataUrl }) },
         { storage, webhookOrigin: origin, workflows },
       ).pipe(Effect.provideContext(services), Effect.provide(BrowserCrypto.layer));
@@ -80,7 +87,19 @@ export const cloudExecutor = Effect.fn(function* (
         executorSkillFiles(authoring),
         executorCloudApiDocument(origin),
       ).pipe(Effect.provideContext(services));
-      return { executor, initialize, scheduleAuthority };
+      return {
+        executor,
+        scheduleAuthority,
+        initialize,
+        management: {
+          executor,
+          sources,
+          repositories,
+          registry,
+          blobs,
+          publisher: createAppRegistry({ storage: registryStorage, executor, sources }),
+        },
+      };
     }).pipe(Effect.mapError(() => new StorageError())),
   );
   // Alchemy's runtime requirement marks event-only operations; it is not a
@@ -97,6 +116,16 @@ export const cloudExecutor = Effect.fn(function* (
       asset: ({ build, path }) =>
         cloudBuildAsset(build, path).pipe(Effect.provideService(BlobStore, blobs)),
     }),
+    Layer.succeed(
+      AppManagementHost,
+      executor.pipe(
+        Effect.map((resources) => ({
+          ...resources.management,
+          executor: withExecutorAnalytics(resources.management.executor),
+        })),
+        Effect.provide(RuntimeContext.phantom),
+      ),
+    ),
     Layer.succeed(
       HostedExecutor,
       executor.pipe(

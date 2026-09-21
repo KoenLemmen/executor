@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Code } from "@executor-js/ui/dashboard/code";
 import { ToolBrowser } from "@executor-js/ui/dashboard/tools";
-import { accountSelectionIssues, type AccountSummary } from "@executor-js/ui/contracts/dashboard";
+import { appToolReadiness, type AccountSummary } from "@executor-js/ui/contracts/dashboard";
 import { Button } from "@executor-js/ui/components/button";
 import { Textarea } from "@executor-js/ui/components/textarea";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -27,7 +27,7 @@ export function AppTools({
   const atoms = useDashboardAtoms();
   const { role, slug: organizationSlug } = useOrganizationRoute();
   const navigate = useNavigate();
-  if (accountSelectionIssues(app, accounts).length > 0)
+  if (appToolReadiness(app, accounts).state !== "ready")
     return (
       <div className="app-account-setup flex items-center gap-3.5 p-[22px] border border-border rounded-[8px] [&_>_svg]:text-muted-foreground [&_>_svg]:shrink-0 [&_>_div]:flex-1 [&_>_div]:min-w-0 [&_h2]:text-[14px] [&_h2]:font-medium [&_p]:text-[13px] [&_p]:text-muted-foreground [&_p]:mt-1 [&_>_[data-slot='button']]:shrink-0 max-[740px]:flex-wrap max-[740px]:p-[18px] max-[740px]:[&_>_div]:basis-[calc(100%_-_32px)] max-[740px]:[&_>_[data-slot='button']]:ml-8">
         <HugeiconsIcon icon={Key01Icon} size={18} />
@@ -62,7 +62,7 @@ export function AppTools({
       }}
       back={
         <Link
-          className="back-link inline-flex gap-1.5 items-center text-[12px] text-muted-foreground mb-4.25 hover:text-foreground max-[740px]:min-h-11 max-[740px]:inline-flex max-[740px]:items-center max-[740px]:-mt-2 max-[740px]:mb-3"
+          className="inline-flex min-h-11 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           to="/org/$organizationSlug/apps/$appId"
           params={{ organizationSlug, appId: app.id }}
           search={{ view: "tools" }}

@@ -85,13 +85,13 @@ export function Code({
   );
 }
 
-/** Copy the raw value with local feedback; clipboard contents never enter logs. */
+/** Copy the raw value with local feedback; unknown values keep the control disabled. Clipboard contents never enter logs. */
 export function CopyButton({
   code,
   label,
   inline = false,
 }: {
-  readonly code: string;
+  readonly code: string | undefined;
   readonly label: string;
   readonly inline?: boolean;
 }) {
@@ -105,6 +105,7 @@ export function CopyButton({
     };
   }, [code]);
   const copy = async () => {
+    if (code === undefined) return;
     try {
       await navigator.clipboard.writeText(code);
       setState("copied");
@@ -124,6 +125,7 @@ export function CopyButton({
     >
       <Button
         type="button"
+        disabled={code === undefined}
         variant="ghost"
         size="xs"
         onClick={() => void copy()}

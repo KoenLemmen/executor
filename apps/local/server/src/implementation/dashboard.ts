@@ -37,6 +37,20 @@ import {
   ToolCatalogChanged,
 } from "../contracts/dashboard.ts";
 
+/** Authenticate local browser and bearer requests using the same session boundary. */
+export const dashboardAccess = (config: ServerConfig, auth: LocalAuth) =>
+  Layer.succeed(DashboardAccess, (response) =>
+    Effect.gen(function* () {
+      const request = yield* localRequest(config.port, config.browserOrigin).pipe(
+        Effect.mapError(() => new DashboardForbidden()),
+      );
+      const bearer = request.headers.authorization === `Bearer ${Redacted.value(config.apiKey)}`;
+      const session = yield* auth.valid(request.cookies[sessionCookie(config.port)]);
+      if (!bearer && !session) return yield* Effect.fail(new DashboardUnauthorized());
+      return (yield* response).pipe(HttpServerResponse.setHeader("cache-control", "no-store"));
+    }),
+  );
+
 /** Serve authenticated read endpoints without granting browser access to SDK mutations. */
 export const dashboard = (
   executor: Executor,
@@ -56,23 +70,13 @@ export const dashboard = (
 ) => {
   const owner = OwnerId.make("local");
   const appCatalog = createCatalog(catalog);
-  const db = storage.orm("1.9.1");
+  const db = storage.orm("1.12.0");
   const signIn = accountSignIn(storage, credentials);
   const query = <A, E>(work: () => Effect.Effect<A, E>) =>
     Effect.suspend(work).pipe(Effect.mapError(() => new StorageError()));
   const manage = <A, E, R>(account: AccountId, operation: Effect.Effect<A, E, R>) =>
     account === managedAccount ? Effect.fail(new AccountManagementBlocked({ account })) : operation;
-  const access = Layer.succeed(DashboardAccess, (response) =>
-    Effect.gen(function* () {
-      const request = yield* localRequest(config.port, config.browserOrigin).pipe(
-        Effect.mapError(() => new DashboardForbidden()),
-      );
-      const bearer = request.headers.authorization === `Bearer ${Redacted.value(config.apiKey)}`;
-      const session = yield* auth.valid(request.cookies[sessionCookie(config.port)]);
-      if (!bearer && !session) return yield* Effect.fail(new DashboardUnauthorized());
-      return (yield* response).pipe(HttpServerResponse.setHeader("cache-control", "no-store"));
-    }),
-  );
+  const access = dashboardAccess(config, auth);
   // Database reads infer dependencies in the shared storage service, including reads in SDK calls.
   const overview = Effect.gen(function* () {
     const { apps, accounts, providers } = yield* Effect.all(
@@ -104,14 +108,21 @@ export const dashboard = (
     Effect.gen(function* () {
       const app = yield* executor.apps.get({ app: appId });
       const deployments = yield* executor.apps.deployments({ app: appId });
-      const source = yield* executor.apps
-        .source({ app: appId, deployment: app.activeDeployment })
-        .pipe(Effect.catchTag("DeploymentNotFound", () => new StorageError()));
+      const source =
+        app.activeDeployment === null
+          ? null
+          : yield* executor.apps.source({ app: appId }).pipe(
+              Effect.catchTags({
+                DeploymentNotFound: () => new StorageError(),
+                AppNotDeployed: () => new StorageError(),
+              }),
+            );
       return {
         app,
-        uiUrl: source.files.some((file) => file.path === "ui/index.html")
-          ? HttpUrl.make(appOrigin(app.id, config.port))
-          : null,
+        uiUrl:
+          source !== null && source.files.some((file) => file.path === "ui/index.html")
+            ? HttpUrl.make(appOrigin(app.id, config.port))
+            : null,
         canDelete: app.id !== managedApp,
         deployments,
       };
@@ -310,7 +321,6 @@ export const dashboard = (
             owner,
             name: payload.name,
             files: generated.files,
-            createOnly: true,
           })).app;
         }),
       )
@@ -359,7 +369,6 @@ export const dashboard = (
             owner,
             name: input.name,
             files: generated.files,
-            createOnly: true,
           })).app;
         }),
       )

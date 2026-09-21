@@ -1,6 +1,15 @@
+import {
+  fullAuthority,
+  selectedAuthority,
+  type AuthorizationPolicy,
+} from "@executor-js/authorization";
 import { SqlClient } from "effect/unstable/sql";
 import { GroupDatabase } from "@executor-js/hosted-server/groups";
 import { OrganizationId as ReferenceOrganizationId } from "@executor-js/hosted-server";
+import { gitSourceStorage } from "@executor-js/app-source";
+import { nativeRepositories } from "@executor-js/app-source/node";
+import { remoteRegistry } from "@executor-js/app-registry";
+import { AppManagementHost } from "@executor-js/app-management";
 /** Hosted source/update/activation through real HTTP contracts, PGlite and Node-built apps. */
 import { WebhookSubscription, WebhookSetupView } from "@executor-js/sdk/core";
 import { OpenApi } from "effect/unstable/httpapi";
@@ -14,6 +23,8 @@ import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { pgliteLayer } from "fumadb-effect/pglite";
 import {
   AppNotFound,
+  SourceFiles,
+  SourceSnapshot,
   AppDeploymentChanged,
   DeploymentBuildFailed,
   DeploymentNotFound,
@@ -76,15 +87,20 @@ test(
           const storage = yield* makeExecutorStorage({ provider: "postgresql" });
           yield* storage.migrate;
           const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
+          const repositories = nativeRepositories(`${directory}/repositories`);
+          const sources = gitSourceStorage(repositories);
+          const blobs = memoryBlobStore();
           const executor = yield* createExecutor({
             webhookOrigin: origin,
-            blobs: memoryBlobStore(),
+            blobs,
+            sources,
             storage,
             credentials,
             runtime: nodeRuntime({ workDirectory: directory }),
           });
           const role = yield* Ref.make<"admin" | "member">("admin");
           const signedIn = yield* Ref.make(true);
+          const authority = yield* Ref.make<AuthorizationPolicy>(fullAuthority);
           const principal = Schema.decodeUnknownSync(Principal)({
             userId: "fixture",
             sessionId: "fixture",
@@ -102,6 +118,19 @@ test(
           });
           const routes = selfHostApi.pipe(
             HttpRouter.provideRequest(
+              Layer.succeed(
+                AppManagementHost,
+                Effect.succeed({
+                  executor,
+                  sources,
+                  repositories,
+                  blobs,
+                  registry: remoteRegistry(origin),
+                  publisher: undefined,
+                }),
+              ),
+            ),
+            HttpRouter.provideRequest(
               Layer.succeed(GroupDatabase, Effect.succeed(yield* SqlClient.SqlClient)),
             ),
             HttpRouter.provideRequest(Layer.succeed(HostedExecutor, Effect.succeed(executor))),
@@ -118,7 +147,19 @@ test(
             Layer.provide(
               Layer.succeed(ApiAuthentication, {
                 origin,
-                authenticate: () => Effect.die("No bearer in this fixture"),
+                authenticate: () =>
+                  Effect.gen(function* () {
+                    return {
+                      userId: principal.userId,
+                      organizationSlug: "alpha",
+                      access: {
+                        organization: ReferenceOrganizationId.make("alpha"),
+                        owner: OwnerId.make("organization:alpha"),
+                        role: yield* Ref.get(role),
+                      },
+                      policy: yield* Ref.get(authority),
+                    };
+                  }),
               }),
             ),
             HttpRouter.provideRequest(
@@ -158,10 +199,87 @@ test(
                 Effect.flatMap(Schema.decodeUnknownEffect(schema)),
               );
             });
+          const updateSource = (
+            path: string,
+            input: {
+              expectedDeployment: typeof App.Type.activeDeployment;
+              files: typeof SourceFiles.Type;
+            },
+          ) =>
+            Effect.gen(function* () {
+              const response = yield* request(`${path}/workspace`);
+              if (!response.ok) return response;
+              const workspace = yield* read(response, SourceSnapshot);
+              const saved = yield* request(`${path}/commits`, {
+                expected: workspace.revision.commit,
+                files: input.files,
+                message: "Update through HTTP",
+              });
+              if (!saved.ok) return saved;
+              const commit = yield* read(saved, SourceSnapshot);
+              return yield* request(`${path}/deploy`, {
+                expectedSource: commit.revision.commit,
+                expectedDeployment: input.expectedDeployment,
+              });
+            });
           const first = yield* read(
             yield* request("/apps/deploy", { name: "Fixture", files: source("one") }),
             Schema.toCodecJson(App),
           );
+          const bearerRequest = (path: string, body?: unknown) =>
+            Effect.promise(() =>
+              web.handler(
+                new Request(`${origin}/api/organizations/alpha${path}`, {
+                  method: body === undefined ? "GET" : "POST",
+                  headers: {
+                    authorization: "Bearer synthetic",
+                    "content-type": "application/json",
+                  },
+                  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+                }),
+              ),
+            );
+          yield* Ref.set(
+            authority,
+            selectedAuthority(["discover", "read"], {
+              kind: "tools",
+              apps: [{ app: first.id, tools: { kind: "all" } }],
+            }),
+          );
+          const visible = yield* read(
+            yield* bearerRequest("/apps"),
+            Schema.Array(Schema.toCodecJson(App)),
+          );
+          assert.deepEqual(
+            visible.map((app) => app.id),
+            [first.id],
+          );
+          assert.equal((yield* bearerRequest(`/apps/${first.id}/workspace`)).status, 200);
+          assert.equal(
+            (yield* bearerRequest("/apps/drafts", { name: "Denied", files: source("denied") }))
+              .status,
+            403,
+          );
+          yield* Ref.set(
+            authority,
+            selectedAuthority(["discover", "read", "manage"], { kind: "tools", apps: [] }),
+          );
+          assert.deepEqual(
+            yield* read(yield* bearerRequest("/apps"), Schema.Array(Schema.toCodecJson(App))),
+            [],
+          );
+          assert.equal((yield* bearerRequest(`/apps/${first.id}/workspace`)).status, 403);
+          assert.equal(
+            (yield* bearerRequest("/apps/copies", { from: { app: first.id }, name: "Denied copy" }))
+              .status,
+            403,
+          );
+          assert.equal(
+            (yield* bearerRequest("/app-publications/unpublish", { package: "@alpha/test" }))
+              .status,
+            403,
+          );
+          yield* Ref.set(authority, fullAuthority);
           const provider = first.requirements.accounts.service?.provider;
           assert.ok(provider);
           const account = yield* executor.accounts.add({
@@ -178,13 +296,13 @@ test(
             Schema.toCodecJson(Deployment),
           );
           assert.deepEqual(before.files, source("one"));
-          const updated = yield* read(
-            yield* request(`${appPath}/deployments`, {
+          const updated = (yield* read(
+            yield* updateSource(appPath, {
               expectedDeployment: before.id,
               files: source("two"),
             }),
-            Schema.toCodecJson(App),
-          );
+            Schema.toCodecJson(Schema.Struct({ app: App })),
+          )).app;
           assert.equal(updated.id, first.id);
           assert.equal(updated.code, first.code);
           assert.deepEqual(updated.accounts, { service: account.id });
@@ -210,7 +328,7 @@ test(
             { version: "two", account: account.id },
           );
           yield* rejected(
-            yield* request(`${appPath}/deployments`, {
+            yield* updateSource(appPath, {
               expectedDeployment: before.id,
               files: source("stale"),
             }),
@@ -218,7 +336,7 @@ test(
             409,
           );
           yield* rejected(
-            yield* request(`${appPath}/deployments`, {
+            yield* updateSource(appPath, {
               expectedDeployment: updated.activeDeployment,
               files: [{ path: "index.ts", content: "export default !!!" }],
             }),
@@ -255,7 +373,7 @@ test(
             { version: "one", account: account.id },
           );
           // Same code lineage alone does not authorize another organization's deployment.
-          const copy = yield* executor.apps.add({
+          const copy = yield* executor.apps.copy({
             from: first.id,
             owner: OwnerId.make("organization:beta"),
             name: "Other owner",
@@ -264,6 +382,7 @@ test(
             owner: copy.owner,
             app: copy.id,
             expectedDeployment: copy.activeDeployment,
+            expectedSource: (yield* executor.apps.workspace({ app: copy.id })).revision.commit,
             files: source("foreign"),
           });
           yield* rejected(
@@ -346,7 +465,7 @@ test(
           for (const path of ["/source", "/deployments"])
             assert.equal((yield* request(appPath + path)).status, 403);
           assert.equal(
-            (yield* request(`${appPath}/deployments`, {
+            (yield* updateSource(appPath, {
               expectedDeployment: rolled.activeDeployment,
               files: source("denied"),
             })).status,

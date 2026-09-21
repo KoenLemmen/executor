@@ -1,3 +1,4 @@
+import { saveAndDeploy } from "../support/app-authoring.ts";
 /** Real HTTP coverage for durable app workflows, pinned execution, and product permissions. */
 import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, Schema } from "effect";
@@ -163,7 +164,7 @@ layer(HostedLive, { excludeTestServices: true })("App workflows", (it) => {
         ).toBe(200);
         const second = yield* connect();
         expect(second).not.toBe(account);
-        const updated = yield* api.request(actors.owner, "POST", `${path}/deployments`, {
+        const updated = yield* saveAndDeploy(actors.owner, path, {
           files: files("v2"),
           expectedDeployment: app.activeDeployment,
         });

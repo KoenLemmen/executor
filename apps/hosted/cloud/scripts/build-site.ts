@@ -116,9 +116,17 @@ const siteBuild = Effect.gen(function* () {
   // "/docs" and "/docs/" both reach the documentation index.
   const docsRedirects = pageRedirects(docsAssets, `${docsPrefix}/`);
 
+  const customMarketingRedirectsPath = path.join(marketing, "_redirects");
+  const customMarketingRedirects = (yield* fs.exists(customMarketingRedirectsPath))
+    ? (yield* fs.readFileString(customMarketingRedirectsPath))
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    : [];
   const dashboardRedirects = yield* fs.readFileString(path.join(dashboard, "_redirects"));
   const redirects = new Set([
     ...marketingRedirects,
+    ...customMarketingRedirects,
     ...docsRedirects,
     ...dashboardRedirects
       .split(/\r?\n/)

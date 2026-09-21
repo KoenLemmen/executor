@@ -15,7 +15,7 @@ export async function startAxiomSignIns(executor: Executor, owner: OwnerId) {
     name: "Work Axiom",
     files: [{ path: "index.ts", content: source }],
   });
-  const personal = await executor.apps.add({ from: work.id, owner, name: "Personal Axiom" });
+  const personal = await executor.apps.copy({ from: work.id, owner, name: "Personal Axiom" });
   const workConnection = await executor.accountConnections.create({
     owner,
     target: { app: work.id, requirement: "axiom" },

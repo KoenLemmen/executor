@@ -7,6 +7,8 @@ import { HostedExecutor } from "@executor-js/hosted-server";
 import { BillingMeter } from "./contracts/billing-meter.ts";
 import { ExecutionAdmission } from "@executor-js/hosted-server";
 import { billingBindings } from "./infrastructure/billing.ts";
+import { registryRoutes, gitRoutes } from "@executor-js/app-management";
+import { hostedAppGitAccess } from "@executor-js/hosted-server/app-management";
 /** Cloudflare composition edge. Alchemy owns the Effect runtime and request scopes. */
 import { executorSkillFiles } from "@executor-js/app-templates/executor";
 import authoring from "../.generated/executor-authoring.json" with { type: "json" };
@@ -80,6 +82,7 @@ export default Api.make(
       env: {
         ...(yield* telemetryBindings),
         ...analytics.env,
+        CLOUDFLARE_ACCOUNT_ID: yield* Config.String("CLOUDFLARE_ACCOUNT_ID"),
         ...sentry.env,
         ...(yield* billingBindings),
       },
@@ -122,6 +125,7 @@ export default Api.make(
           "/health",
           "/openapi.json",
           "/mcp",
+          "/git/*",
           "/.well-known/*",
         ],
         // Vite emits _redirects from the TanStack route tree; Alchemy reads it.
@@ -194,7 +198,14 @@ export default Api.make(
         mcpAuthorizationServer,
       ),
     ).pipe(HttpRouter.provideRequest(auth.mcpIdentity));
+    const authoringRoutes = Layer.mergeAll(registryRoutes, gitRoutes).pipe(
+      HttpRouter.provideRequest(hostedAppGitAccess),
+      HttpRouter.provideRequest(executor),
+      Layer.provide(auth.identity),
+      Layer.provide(auth.apiIdentity),
+    );
     const routes = Layer.mergeAll(
+      authoringRoutes,
       api,
       HttpRouter.add("*", "/api/:channel/*", analytics.proxy),
       HttpRouter.add("POST", "/api/:channel/submit", errorTunnel),

@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Live tool input through both SDK boundaries and real retained Node builds. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -47,6 +48,7 @@ test(
           const options = {
             storage,
             blobs: memoryBlobStore(),
+            sources: memorySourceStorage(),
             credentials: yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto),
             runtime: nodeRuntime({ workDirectory: directory }),
           };

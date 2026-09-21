@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Synthetic issuer through the production HTTP seam, with real SQLite and credential encryption. */
 import { HttpOrigin, type UrlPolicy } from "@executor-js/utils/url-policy";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
@@ -322,6 +323,7 @@ async function setup(
   });
   const options = {
     blobs: memoryBlobStore(),
+    sources: memorySourceStorage(),
     storage,
     credentials: credentialStore,
     runtime,
@@ -461,7 +463,9 @@ test("remote HTTP discovery and token endpoints are rejected before OAuth networ
       f.setRequirements({ accounts: { service: { definition, cardinality: "one" } } });
       const { app } = await f.executor.apps.deploy({
         owner: f.app.owner,
-        name: f.app.name,
+        app: f.app.id,
+        expectedDeployment: (await f.executor.apps.get({ app: f.app.id })).activeDeployment,
+        expectedSource: (await f.executor.apps.workspace({ app: f.app.id })).revision.commit,
         files: [{ path: "index.ts", content: "// Invalid OAuth endpoint fixture" }],
       });
       const provider = app.requirements.accounts.service?.provider;
@@ -495,7 +499,7 @@ test("dashboard reports expired sign-ins before tool discovery without refreshin
       state: "saved",
       reconnectAt: null,
     });
-    const db = f.storage.orm("1.9.1");
+    const db = f.storage.orm("1.12.0");
     const row = await Effect.runPromise(
       db.findFirst("oauthGrants", { where: (b) => b("id", "=", account.id) }),
     );
@@ -621,7 +625,7 @@ test("DCR, one-time callback, two owners, and coordinated refresh preserve reusa
     });
     const accounts = await f.executor.accounts.list();
     assert.ok(!JSON.stringify(accounts).includes("refresh-"));
-    for (const row of await Effect.runPromise(f.storage.orm("1.9.1").findMany("oauthGrants", {})))
+    for (const row of await Effect.runPromise(f.storage.orm("1.12.0").findMany("oauthGrants", {})))
       assert.ok(!new TextDecoder().decode(row.encrypted).includes("refresh-"));
   } finally {
     await f.close();
@@ -695,7 +699,7 @@ test("denied, expired and modified callbacks never create an account", async () 
     });
     const expiring = f.service.callback((await f.start()).authorizationUrl);
     await Effect.runPromise(
-      f.storage.orm("1.9.1").updateMany("oauthAttempts", { set: { expiresAt: new Date(0) } }),
+      f.storage.orm("1.12.0").updateMany("oauthAttempts", { set: { expiresAt: new Date(0) } }),
     );
     await assert.rejects(f.complete({ callbackUrl: expiring }), {
       _tag: "OAuthCompletionFailed",
@@ -752,7 +756,7 @@ test("OAuth reconnect keeps identity, current name and all app selections; denia
     const account = await f.complete({
       callbackUrl: f.service.callback((await f.start()).authorizationUrl),
     });
-    const second = await f.executor.apps.add({
+    const second = await f.executor.apps.copy({
       from: f.app.id,
       owner: OwnerId.make("project"),
       name: "Second",
@@ -771,7 +775,7 @@ test("OAuth reconnect keeps identity, current name and all app selections; denia
       { _tag: "AuthMethodInvalid" },
     );
     const before = await Effect.runPromise(
-      f.storage.orm("1.9.1").findFirst("accounts", { where: (b) => b("id", "=", account.id) }),
+      f.storage.orm("1.12.0").findFirst("accounts", { where: (b) => b("id", "=", account.id) }),
     );
     const denied = new URL(
       f.service.callback(
@@ -786,7 +790,7 @@ test("OAuth reconnect keeps identity, current name and all app selections; denia
     });
     assert.deepEqual(
       await Effect.runPromise(
-        f.storage.orm("1.9.1").findFirst("accounts", { where: (b) => b("id", "=", account.id) }),
+        f.storage.orm("1.12.0").findFirst("accounts", { where: (b) => b("id", "=", account.id) }),
       ),
       before,
     );
@@ -843,7 +847,7 @@ for (const phase of ["consent", "exchange"] as const)
         await f.executor.accounts.remove({ account: account.id });
         assert.deepEqual(await f.executor.accounts.list(), []);
         assert.deepEqual(
-          await Effect.runPromise(f.storage.orm("1.9.1").findMany("oauthGrants", {})),
+          await Effect.runPromise(f.storage.orm("1.12.0").findMany("oauthGrants", {})),
           [],
         );
         assert.equal((await f.executor.apps.get({ app: f.app.id })).accounts.service, account.id);
@@ -908,7 +912,7 @@ test(
       await listing;
       assert.deepEqual(await f.executor.accounts.list(), []);
       assert.deepEqual(
-        await Effect.runPromise(f.storage.orm("1.9.1").findMany("oauthGrants", {})),
+        await Effect.runPromise(f.storage.orm("1.12.0").findMany("oauthGrants", {})),
         [],
       );
       assert.deepEqual(f.seen, []);
@@ -987,7 +991,7 @@ test("connection requests save secrets once, survive a new SDK instance, and exp
       provider: f.provider,
     });
     await Effect.runPromise(
-      f.storage.orm("1.9.1").updateMany("accountConnections", {
+      f.storage.orm("1.12.0").updateMany("accountConnections", {
         where: (b) => b("id", "=", expired.id),
         set: { expiresAt: new Date(0) },
       }),
@@ -1043,7 +1047,9 @@ test("targeted secrets replace an unchanged deleted selection, preserve other sl
     });
     await f.executor.apps.deploy({
       owner: f.app.owner,
-      name: f.app.name,
+      app: f.app.id,
+      expectedDeployment: (await f.executor.apps.get({ app: f.app.id })).activeDeployment,
+      expectedSource: (await f.executor.apps.workspace({ app: f.app.id })).revision.commit,
       files: [{ path: "index.ts", content: "// Two slots" }],
     });
     const previous = await f.executor.accounts.add({
@@ -1120,7 +1126,7 @@ test("a changed single selection rolls back a targeted reconnect's credential wr
       account: original.id,
       target: { app: f.app.id, requirement: "service" },
     });
-    const db = f.storage.orm("1.9.1");
+    const db = f.storage.orm("1.12.0");
     const before = await Effect.runPromise(db.findMany("accounts", {}));
     await f.executor.apps.update({ app: f.app.id, accounts: { service: original.id } });
     await assert.rejects(
@@ -1154,7 +1160,9 @@ test("many targets append to current selections across concurrent requests witho
     });
     await f.executor.apps.deploy({
       owner: f.app.owner,
-      name: f.app.name,
+      app: f.app.id,
+      expectedDeployment: (await f.executor.apps.get({ app: f.app.id })).activeDeployment,
+      expectedSource: (await f.executor.apps.workspace({ app: f.app.id })).revision.commit,
       files: [{ path: "index.ts", content: "// Many accounts" }],
     });
     const existing = await f.executor.accounts.add({
@@ -1240,7 +1248,9 @@ for (const change of ["removed", "slot", "provider", "cardinality"] as const)
         });
         await f.executor.apps.deploy({
           owner: f.app.owner,
-          name: f.app.name,
+          app: f.app.id,
+          expectedDeployment: (await f.executor.apps.get({ app: f.app.id })).activeDeployment,
+          expectedSource: (await f.executor.apps.workspace({ app: f.app.id })).revision.commit,
           files: [{ path: "index.ts", content: "// Changed requirement" }],
         });
       }
@@ -1297,7 +1307,7 @@ for (const changed of [false, true])
         await completion;
         assert.deepEqual(await f.executor.accounts.list(), [other]);
         assert.deepEqual(
-          await Effect.runPromise(f.storage.orm("1.9.1").findMany("oauthGrants", {})),
+          await Effect.runPromise(f.storage.orm("1.12.0").findMany("oauthGrants", {})),
           [],
         );
         assert.equal((await f.executor.apps.get({ app: f.app.id })).accounts.service, other.id);

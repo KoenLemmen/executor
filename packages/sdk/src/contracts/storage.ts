@@ -34,7 +34,8 @@ export type StoredAccount = typeof StoredAccount.Type;
  * account slots, not the account-dependent tool catalog.
  */
 export const StoredDeployment = Schema.Struct({
-  ...Deployment.fields,
+  ...Deployment.mapFields(Struct.omit(["files"])).fields,
+  fileCount: Schema.Int.check(Schema.isGreaterThan(0)),
   requirements: AppRequirements,
 });
 /** Parsed deployment storage record with its declared account requirements. */

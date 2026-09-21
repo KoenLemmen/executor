@@ -2,7 +2,7 @@
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { AppId, DeploymentId, OwnerId, RequestInvalid, StorageError } from "./shared.ts";
-import { AppNotFound } from "./apps.ts";
+import { AppNotFound, AppNotDeployed } from "./apps.ts";
 import { AppSlug } from "./app-slug.ts";
 import { DeploymentNotFound, SourceFilePath } from "./deployment.ts";
 import { AppSkillMetadata, AppSkillName, SkillDefinitionInvalid } from "./skill-source.ts";
@@ -47,6 +47,7 @@ export const AppSkillInputs = {
 /** Typed source and lookup failures shared by SDK and product adapters. */
 export const AppSkillErrors = [
   AppNotFound,
+  AppNotDeployed,
   DeploymentNotFound,
   StorageError,
   RequestInvalid,

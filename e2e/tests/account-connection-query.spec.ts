@@ -57,7 +57,7 @@ export default defineApp({ accounts: { service } }, async ({ accounts }) => ({
         );
         yield* browser.login(actors.owner);
         yield* browser.use("Open the new app before connecting its account", (page) =>
-          page.goto(`/org/${actors.organization.slug}/apps/${app.id}`),
+          page.goto(`/org/${actors.organization.slug}/apps/${app.id}?view=tools`),
         );
         yield* browser.use("Open account setup from the app", (page) =>
           page.getByRole("link", { name: "Choose accounts", exact: true }).click(),
@@ -117,21 +117,26 @@ export default defineApp({ accounts: { service } }, async ({ accounts }) => ({
         );
         yield* browser.use("The pending app read has a loading state", (page) =>
           page
-            .getByRole("status", { name: "Loading app", exact: true })
+            .getByRole("status", { name: "Loading tools", exact: true })
             .waitFor({ state: "visible" }),
         );
         yield* read.release;
         yield* browser.use("The connected app's tools load without refreshing", (page) =>
           page
             .getByRole("button", {
-              name: "mutations.echo Echo with the connected account",
+              name: "mutations.echo",
               exact: true,
             })
             .waitFor({ state: "visible" }),
         );
+        yield* browser.use("The connected tool description is visible", (page) =>
+          page
+            .getByText("Echo with the connected account", { exact: true })
+            .waitFor({ state: "visible" }),
+        );
         yield* browser.use("App loading clears after the read finishes", (page) =>
           page
-            .getByRole("status", { name: "Loading app", exact: true })
+            .getByRole("status", { name: "Loading tools", exact: true })
             .waitFor({ state: "hidden" }),
         );
         expect(

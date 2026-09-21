@@ -167,7 +167,7 @@ Startup restores its bundled source and updates its local account's port/key
 while retaining the account identity. Leave that connection under host control.
 
 All configured apps get an app-ID namespace. Copies with different accounts
-remain distinct even when they share a deployment. The catalog is evaluated at
+have independent source and deployments. The catalog is evaluated at
 the start of each execute, and tool calls resolve the saved selection again.
 Run a new execute to discover apps added or configured during a previous one.
 Incomplete or failing apps appear in `unavailableApps` with a safe error tag.

@@ -1,7 +1,11 @@
+import { AppManagementHost } from "@executor-js/app-management";
 import { GroupDatabase } from "@executor-js/hosted-server/groups";
 import { executorSelfHostApiDocument } from "../src/contracts/api.ts";
 import type { GrantPolicy } from "@executor-js/mcp-auth/grants";
 import { BrowserExecutionResult } from "@executor-js/mcp";
+import { gitSourceStorage } from "@executor-js/app-source";
+import { nativeRepositories } from "@executor-js/app-source/node";
+import { remoteRegistry } from "@executor-js/app-registry";
 /** Real Better Auth grants, PGlite, Effect HTTP transport, and the official MCP client. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -141,8 +145,12 @@ export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Fixtu
             return "hello";
         }) } }));
 `;
+            const repositories = nativeRepositories(`${directory}/repositories`);
+            const sources = gitSourceStorage(repositories);
+            const blobs = memoryBlobStore();
             const executor = yield* createExecutor({
-              blobs: memoryBlobStore(),
+              blobs,
+              sources,
               storage,
               credentials,
               runtime: nodeRuntime({ workDirectory: `${directory}/builds` }),
@@ -208,6 +216,19 @@ export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Fixtu
             });
             const routes = Layer.mergeAll(
               selfHostApi.pipe(
+                HttpRouter.provideRequest(
+                  Layer.succeed(
+                    AppManagementHost,
+                    Effect.succeed({
+                      executor,
+                      sources,
+                      repositories,
+                      blobs,
+                      registry: remoteRegistry(origin),
+                      publisher: undefined,
+                    }),
+                  ),
+                ),
                 HttpRouter.provideRequest(
                   Layer.succeed(GroupDatabase, Effect.succeed(yield* SqlClient.SqlClient)),
                 ),
@@ -728,7 +749,7 @@ export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Fixtu
             const appPath = JSON.stringify({ organization: a.id, app: configured.id });
             const updatedSource = source + "\n// Updated through MCP\n";
             const edited = yield* execute(
-              `const path = ${appPath}; const before = await tools[${JSON.stringify(executorA.slug)}].queries.apps_source({path}); return await tools[${JSON.stringify(executorA.slug)}].mutations.apps_update({path, body: {expectedDeployment: before.id, files: [{path: "index.ts", content: ${JSON.stringify(updatedSource)}}]}})`,
+              `const path = ${appPath}; const api = tools[${JSON.stringify(executorA.slug)}]; const before = await api.queries.appManagement_source({path}); const saved = await api.mutations.appManagement_commit({path, body: {expected: before.revision.commit, message: "MCP edit", files: [{path: "index.ts", content: ${JSON.stringify(updatedSource)}}]}}); return (await api.mutations.appManagement_deploy({path, body: {expectedDeployment: ${JSON.stringify(configured.activeDeployment)}, expectedSource: saved.revision.commit}})).app`,
             );
             assert.equal(edited.execution.ok, true, JSON.stringify(edited));
             if (!edited.execution.ok) throw new Error("MCP update failed");

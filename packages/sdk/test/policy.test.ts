@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Authored policies survive retained builds and return typed outcomes through both SDK surfaces. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -47,6 +48,7 @@ test(
           const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
           const options = {
             blobs: memoryBlobStore(),
+            sources: memorySourceStorage(),
             storage,
             credentials,
             runtime: nodeRuntime({ workDirectory: directory }),

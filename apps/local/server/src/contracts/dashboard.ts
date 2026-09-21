@@ -13,6 +13,8 @@ import {
   AccountRequired,
   AccountSelectionInvalid,
   App,
+  DeployedApp,
+  AppNotDeployed,
   AppEvaluationFailed,
   AppId,
   AppName,
@@ -26,6 +28,7 @@ import {
   OwnerId,
   PageLimit,
   StorageError,
+  sourceErrors,
   ToolPage,
   AccountFieldsInput,
   ProviderId,
@@ -231,6 +234,7 @@ const toolErrors = [
   StorageError,
   CredentialsError,
   AppNotFound,
+  AppNotDeployed,
   DeploymentNotFound,
   AppEvaluationFailed,
   AccountNotFound,
@@ -307,7 +311,7 @@ export const DashboardApi = HttpApi.make("local-dashboard").add(
       HttpApiEndpoint.get("source", "/dashboard/api/apps/:app/deployments/:deployment", {
         params: { app: AppId, deployment: DeploymentId },
         success: Deployment,
-        error: [StorageError, AppNotFound, DeploymentNotFound],
+        error: [StorageError, AppNotFound, AppNotDeployed, DeploymentNotFound],
       }),
     )
     .add(
@@ -323,6 +327,7 @@ export const DashboardApi = HttpApi.make("local-dashboard").add(
           StorageError,
           CredentialsError,
           AppNotFound,
+          AppNotDeployed,
           DeploymentNotFound,
           AppEvaluationFailed,
           AccountNotFound,
@@ -342,11 +347,12 @@ export const DashboardApi = HttpApi.make("local-dashboard").add(
     .add(
       HttpApiEndpoint.post("importApp", "/dashboard/api/catalog/import", {
         payload: Schema.Struct({ ...CatalogImport.fields, name: Schema.NonEmptyString }),
-        success: App,
+        success: DeployedApp,
         error: [
           CatalogUnavailable,
           CatalogImportFailed,
           StorageError,
+          ...sourceErrors,
           DeploymentBuildFailed,
           SkillDefinitionInvalid,
           AppNameTaken,
@@ -361,10 +367,11 @@ export const DashboardApi = HttpApi.make("local-dashboard").add(
     .add(
       HttpApiEndpoint.post("importCustomApp", "/dashboard/api/apps/import", {
         payload: Schema.Struct({ source: CustomAppInput }),
-        success: App,
+        success: DeployedApp,
         error: [
           CatalogImportFailed,
           StorageError,
+          ...sourceErrors,
           DeploymentBuildFailed,
           SkillDefinitionInvalid,
           AppNameTaken,
@@ -520,7 +527,13 @@ export const DashboardApi = HttpApi.make("local-dashboard").add(
         params: { app: AppId },
         payload: Schema.Struct({ accounts: SelectedAccounts }),
         success: App,
-        error: [StorageError, AppNotFound, AccountNotFound, AccountSelectionInvalid],
+        error: [
+          StorageError,
+          AppNotFound,
+          AppNotDeployed,
+          AccountNotFound,
+          AccountSelectionInvalid,
+        ],
       }),
     )
     .middleware(DashboardAccess),

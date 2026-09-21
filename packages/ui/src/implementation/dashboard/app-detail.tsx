@@ -1,25 +1,57 @@
 import type { App } from "@executor-js/sdk";
 import type { ReactNode } from "react";
-import { Tabs, TabsList, TabsTrigger } from "../components/tabs.tsx";
-import { ProviderIcon } from "./common.tsx";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  GridViewIcon,
+  Calendar03Icon,
+  Key01Icon,
+  SourceCodeIcon,
+  ToolsIcon,
+  PackageIcon,
+  Settings05Icon,
+} from "@hugeicons/core-free-icons";
+import { Skeleton } from "../components/skeleton.tsx";
+import type { AppLinkProps } from "../../contracts/dashboard.ts";
+import type { AppView } from "../../contracts/dashboard.ts";
 import { providerDisplayUrl } from "../../contracts/dashboard.ts";
-import { cn } from "../lib/utils.ts";
+import { ProviderIcon } from "./common.tsx";
+import { useDashboard } from "./context.tsx";
 import { productTitle, useDocumentTitle } from "../hooks/document-title.ts";
+import { cn } from "../lib/utils.ts";
 
-/** Shared detail frame. Tabs and actions are composed by each product. */
-export function AppDetailLayout<Tab extends string>({
+const sections = [
+  { view: "overview", label: "Overview", icon: GridViewIcon },
+  { view: "accounts", label: "Accounts", icon: Key01Icon },
+  { view: "tools", label: "Tools", icon: ToolsIcon },
+  { view: "schedules", label: "Schedules", icon: Calendar03Icon },
+  { view: "source", label: "Source", icon: SourceCodeIcon },
+  { view: "deployments", label: "Deployments", icon: PackageIcon },
+  { view: "settings", label: "Settings", icon: Settings05Icon },
+] as const;
+const contentClasses = {
+  schedules: "min-h-0 min-w-0 flex-1 overflow-auto",
+  settings: "min-h-0 min-w-0 flex-1 overflow-auto",
+  overview: "min-h-0 min-w-0 flex-1 overflow-auto",
+  tools:
+    "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden [&>.app-account-setup]:m-5 [&>.accounts-section]:m-5",
+  accounts: "min-h-0 min-w-0 flex-1 overflow-auto",
+  source: "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+  history: "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+  deployments: "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+} as const;
+
+/** A stable app heading and linked section tabs frame each product's app details. */
+export function AppDetailLayout({
   app,
-  tab,
-  tabs,
-  onTabChange,
+  view,
+  canInspectSource,
   back,
   actions,
   children,
 }: {
   readonly app: App | undefined;
-  readonly tab: Tab;
-  readonly tabs: readonly { readonly id: Tab; readonly label: string }[];
-  readonly onTabChange: (tab: Tab) => void;
+  readonly view: AppView;
+  readonly canInspectSource: boolean;
   readonly back: ReactNode;
   readonly actions?: ReactNode;
   readonly children: ReactNode;
@@ -27,44 +59,100 @@ export function AppDetailLayout<Tab extends string>({
   const provider = app && Object.values(app.requirements.accounts)[0]?.definition;
   useDocumentTitle(productTitle(app?.name ?? "App"));
   return (
-    <div
-      className={cn(
-        "page detail-page w-full shrink-0 max-w-315 [padding:24px_24px_48px] my-0 mx-auto max-[1000px]:[padding:20px_20px_40px] max-[740px]:[padding:18px_max(16px,_env(safe-area-inset-right))_max(32px,_env(safe-area-inset-bottom))_max(16px,_env(safe-area-inset-left))]",
-        tab !== "accounts" &&
-          "app-browser-page [.page&]:flex [.page&]:flex-col [.page&]:flex-1 [.page&]:min-h-0 [.page&]:pb-[max(16px,_env(safe-area-inset-bottom))] [&_>_:not(.tools-section):not(.source-section)]:shrink-0",
-      )}
-    >
-      {back}
-      <div className="detail-heading wrap-anywhere flex items-center gap-3.25 min-h-12.25 [&_>_div]:min-w-0 [&_>_div]:wrap-anywhere max-[740px]:gap-2.75 max-[740px]:[&_h1]:text-[21px]">
-        <ProviderIcon
-          name={provider?.name ?? app?.name ?? "App"}
-          url={providerDisplayUrl(provider)}
-          large
-        />
-        <div className="grow">
-          <h1 className="text-[22px] font-semibold tracking-[-0.035em] leading-[1.35] [&>span]:text-muted-foreground [&>span]:text-[13px] [&>span]:font-mono [&>span]:font-normal [&>span]:ml-[8px] [&>span]:align-middle">
-            {app?.name ?? "App"}
-          </h1>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="shrink-0 px-7 pb-7 pt-5 max-[740px]:px-4 max-[740px]:pb-5 max-[740px]:pt-2">
+        <div className="mb-5 w-fit text-xs text-muted-foreground [&_a]:inline-flex [&_a]:min-h-7 [&_a]:items-center [&_a]:gap-2 [&_a:hover]:text-foreground max-[740px]:mb-2 max-[740px]:[&_a]:min-h-11">
+          {back}
         </div>
-        {actions}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
+          <div className="flex min-w-0 flex-1 items-center gap-4">
+            <ProviderIcon
+              name={provider?.name ?? app?.name ?? "App"}
+              url={providerDisplayUrl(provider)}
+              large
+            />
+            <h1
+              className="min-w-0 truncate text-2xl font-semibold tracking-tight max-[740px]:text-xl"
+              title={app?.name}
+            >
+              {app ? (
+                <BoundAppLink
+                  app={app.id}
+                  aria-label={`${app.name} overview`}
+                  className="hover:underline"
+                >
+                  {app.name}
+                </BoundAppLink>
+              ) : (
+                <>
+                  <Skeleton className="h-7 w-40" />
+                  <span className="sr-only">Loading app</span>
+                </>
+              )}
+            </h1>
+          </div>
+          {(actions || (app === undefined && canInspectSource)) && (
+            <div className="ml-auto flex flex-wrap items-center gap-2 empty:hidden max-[640px]:w-full max-[640px]:ml-0">
+              {app === undefined && canInspectSource ? (
+                <Skeleton className="h-9 w-28 max-[740px]:h-11" />
+              ) : (
+                actions
+              )}
+            </div>
+          )}
+        </div>
+      </header>
+      <div className="shrink-0 border-b">
+        <nav
+          aria-label="App navigation"
+          className="-mb-px flex gap-1 overflow-x-auto px-7 max-[740px]:px-4"
+        >
+          {sections
+            .filter(
+              (section) =>
+                (section.view !== "source" && section.view !== "deployments") || canInspectSource,
+            )
+            .map((section) => {
+              const classes = cn(
+                "relative flex min-h-11 shrink-0 items-center gap-2 rounded-t-lg border border-transparent px-4 text-[13px] text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground focus-visible:outline-ring focus-visible:-outline-offset-4 max-[740px]:px-3",
+                (view === section.view || (view === "history" && section.view === "source")) &&
+                  "border-border border-b-background bg-background font-medium text-foreground hover:bg-background",
+              );
+              const content = (
+                <>
+                  <HugeiconsIcon icon={section.icon} size={16} strokeWidth={1.7} aria-hidden />
+                  {section.label}
+                </>
+              );
+              return app ? (
+                <BoundAppLink
+                  key={section.view}
+                  app={app.id}
+                  view={section.view}
+                  className={classes}
+                  aria-current={
+                    view === section.view || (view === "history" && section.view === "source")
+                      ? "page"
+                      : undefined
+                  }
+                >
+                  {content}
+                </BoundAppLink>
+              ) : (
+                <span key={section.view} className={classes}>
+                  {content}
+                </span>
+              );
+            })}
+        </nav>
       </div>
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          const selected = tabs.find((tab) => tab.id === value);
-          if (selected) onTabChange(selected.id);
-        }}
-        className="detail-tabs mt-6 border-b border-b-border mb-5.25 [&_[data-slot='tabs-list']]:[padding:0_0_5px] [&_[data-slot='tabs-list']]:gap-4.25 [&_[data-slot='tabs-list']]:h-8.5 [&_[data-slot='tabs-trigger']]:text-[13px] [&_[data-slot='tabs-trigger']]:pl-0.25 [&_[data-slot='tabs-trigger']]:pr-0.25 max-[740px]:mt-5 max-[740px]:mb-4.5 max-[740px]:[&_[data-slot='tabs-list']]:h-auto max-[740px]:[&_[data-slot='tabs-list']]:gap-5 max-[740px]:[&_[data-slot='tabs-trigger']]:min-h-11"
-      >
-        <TabsList variant="line">
-          {tabs.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-      {children}
+      <div className={contentClasses[view]}>{children}</div>
     </div>
   );
+}
+
+/** Unknown app metadata can render its frame before product navigation bindings are ready. */
+function BoundAppLink(props: AppLinkProps) {
+  const { AppLink } = useDashboard();
+  return <AppLink {...props} />;
 }

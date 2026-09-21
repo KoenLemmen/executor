@@ -1,3 +1,4 @@
+import { makeRegistryStorage } from "@executor-js/app-registry";
 /** The same explicit Postgres migration operation is used locally and in deployment jobs. */
 import { PgClient } from "@effect/sql-pg";
 import {
@@ -92,6 +93,7 @@ export const migrateCloudDatabase = Effect.scoped(
   Effect.gen(function* () {
     const setup = yield* cloudAuthSetup;
     yield* migrateHostedDatabase(setup.options).pipe(
+      Effect.andThen(Effect.flatMap(makeRegistryStorage, (storage) => storage.migrate)),
       Effect.andThen(migrateOnboarding),
       Effect.andThen(migrateWelcomeEmails),
       Effect.provide(PgClient.layer({ url: setup.url, maxConnections: 1 })),

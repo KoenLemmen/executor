@@ -199,7 +199,7 @@ test(
                 const alpha = await account("alpha");
                 const beta = await account("beta");
                 const second = await Effect.runPromise(
-                  sdk.apps.add({
+                  sdk.apps.copy({
                     payload: { from: app.id, owner: OwnerId.make("local"), name: "Second process" },
                   }),
                 );

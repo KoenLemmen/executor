@@ -14,7 +14,13 @@ import {
   CredentialsError,
   RequestInvalid,
 } from "./shared.ts";
-import { SelectedAccounts, AppNotFound, AccountRequired, AccountSelectionInvalid } from "./apps.ts";
+import {
+  SelectedAccounts,
+  AppNotFound,
+  AppNotDeployed,
+  AccountRequired,
+  AccountSelectionInvalid,
+} from "./apps.ts";
 import { AccountNotFound } from "./account.ts";
 import { DeploymentNotFound } from "./deployment.ts";
 import { OAuthReconnectRequired } from "./oauth.ts";
@@ -81,6 +87,7 @@ export const WebhookErrors = [
   CredentialsError,
   RequestInvalid,
   AppNotFound,
+  AppNotDeployed,
   AccountNotFound,
   DeploymentNotFound,
   AccountRequired,

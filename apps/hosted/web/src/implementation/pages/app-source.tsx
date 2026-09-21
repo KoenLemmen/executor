@@ -1,6 +1,10 @@
+import { AppDeploymentsLoading } from "@executor-js/ui/dashboard/app-loading";
+import { AppWorkspace } from "@executor-js/ui/dashboard/app-workspace";
+import { appManagement } from "../../contracts/app-management.ts";
+import { acknowledgeApp, toolsAtom } from "../../contracts/apps.ts";
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { App, DeploymentId } from "@executor-js/sdk";
-import { AppSource as SharedAppSource } from "@executor-js/ui/dashboard/app-source";
+import { AppDeployments as SharedAppDeployments } from "@executor-js/ui/dashboard/app-deployments";
 import { QueryView } from "@executor-js/ui/dashboard/context";
 import { Button } from "@executor-js/ui/components/button";
 import {
@@ -19,18 +23,27 @@ import { HostedFailure } from "../components/dashboard-bindings.tsx";
 import { useOrganizationRoute } from "../components/organization.tsx";
 
 /** Hosts own reads and activation authority; source browsing shares the local presentation. */
-export function AppSource({ app }: { readonly app: App }) {
+export function AppDeployments({ app }: { readonly app: App }) {
   const { organization } = useOrganizationRoute();
   const [selected, setSelected] = useState<DeploymentId>();
   const deployment = selected ?? app.activeDeployment;
+  if (deployment === null)
+    return (
+      <p className="p-7 text-sm text-muted-foreground">
+        No deployments yet. Deploy from Source when you’re ready.
+      </p>
+    );
   return (
-    <QueryView query={deploymentsAtom({ organization, app: app.id })} Failure={HostedFailure}>
+    <QueryView
+      query={deploymentsAtom({ organization, app: app.id })}
+      Failure={HostedFailure}
+      pending={<AppDeploymentsLoading />}
+    >
       {(deployments) => (
-        <SharedAppSource
+        <SharedAppDeployments
           app={app}
           deployments={deployments}
           deployment={deployment}
-          selectedDeployment={selected}
           onDeploymentChange={setSelected}
           query={sourceAtom({ organization, app: app.id, deployment })}
           Failure={HostedFailure}
@@ -58,7 +71,7 @@ function ActivateDeployment({
   const activate = useAtomSet(activateAppAtom({ organization, app: app.id }), {
     mode: "promiseExit",
   });
-  const [expected, setExpected] = useState<DeploymentId>();
+  const [expected, setExpected] = useState<DeploymentId | null>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<Cause.Cause<HostedError>>();
   const refresh = () => {
@@ -128,5 +141,30 @@ function ActivateDeployment({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** Source inspection, publication, and deployment history belong to this app's detail page. */
+export function AppSource({
+  app,
+  view,
+}: {
+  readonly app: App;
+  readonly view: "source" | "history";
+}) {
+  const { organization } = useOrganizationRoute();
+  const atoms = appManagement(organization);
+  return (
+    <AppWorkspace
+      Failure={HostedFailure}
+      app={app}
+      atoms={atoms}
+      onApp={(get, saved) => {
+        acknowledgeApp(get, organization, saved);
+        get.refresh(deploymentsAtom({ organization, app: saved.id }));
+        get.refresh(toolsAtom({ organization, app: saved.id }));
+      }}
+      view={view}
+    />
   );
 }

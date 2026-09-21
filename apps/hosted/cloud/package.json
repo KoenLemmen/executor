@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
+  "exports": {},
   "scripts": {
     "dev": "bun run framework:build && node scripts/dev.ts",
     "deploy": "bun run framework:build && alchemy deploy",
@@ -19,6 +20,9 @@
     "@effect/platform-browser": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
     "@effect/sql-pg": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
     "@executor-js/app-data": "workspace:*",
+    "@executor-js/app-management": "workspace:*",
+    "@executor-js/app-registry": "workspace:*",
+    "@executor-js/app-source": "workspace:*",
     "@executor-js/app-templates": "workspace:*",
     "@executor-js/devtools": "workspace:*",
     "@executor-js/hosted-server": "workspace:*",

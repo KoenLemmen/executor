@@ -12,6 +12,8 @@ import {
   AccountNotFound,
   AccountSelectionInvalid,
   App,
+  DeployedApp,
+  AppNotDeployed,
   AppId,
   AppName,
   Deployment,
@@ -26,6 +28,7 @@ import {
   SkillDefinitionInvalid,
   SelectedAccounts,
   SourceFiles,
+  sourceErrors,
   StorageError,
 } from "@executor-js/sdk/core";
 import { Schema } from "effect";
@@ -40,8 +43,6 @@ import {
 export const InstallApp = Schema.Struct({ ...CatalogImport.fields, name: Schema.NonEmptyString });
 /** Direct source deployment uses the same runtime as generated catalog apps. */
 export const DeployApp = Schema.Struct({ name: Schema.NonEmptyString, files: SourceFiles });
-/** Existing-app writes identify the source version the caller edited. */
-export const UpdateApp = Schema.Struct({ files: SourceFiles, expectedDeployment: DeploymentId });
 const params = { organization: OrganizationReference };
 const app = { ...params, app: AppId };
 const deployErrors = [
@@ -50,6 +51,7 @@ const deployErrors = [
   StorageError,
   DeploymentBuildFailed,
   SkillDefinitionInvalid,
+  ...sourceErrors,
   AppNameTaken,
   AppSlugTaken,
   AccountNotFound,
@@ -63,7 +65,7 @@ export const HostedApps = HttpApiGroup.make("apps")
     HttpApiEndpoint.post("install", `${prefix}/install`, {
       params,
       payload: InstallApp,
-      success: App,
+      success: DeployedApp,
       error: [...deployErrors, CatalogImportFailed, CatalogUnavailable],
     }).annotate(RequiredAction, "manage"),
   )
@@ -71,7 +73,7 @@ export const HostedApps = HttpApiGroup.make("apps")
     HttpApiEndpoint.post("importCustom", `${prefix}/import`, {
       params,
       payload: Schema.Struct({ source: RemoteCustomAppInput }),
-      success: App,
+      success: DeployedApp,
       error: [...deployErrors, CatalogImportFailed],
     }).annotate(RequiredAction, "manage"),
   )
@@ -79,7 +81,7 @@ export const HostedApps = HttpApiGroup.make("apps")
     HttpApiEndpoint.post("deploy", `${prefix}/deploy`, {
       params,
       payload: DeployApp,
-      success: App,
+      success: DeployedApp,
       error: deployErrors,
     }).annotate(RequiredAction, "manage"),
   )
@@ -98,6 +100,7 @@ export const HostedApps = HttpApiGroup.make("apps")
       error: [
         StorageError,
         AppNotFound,
+        AppNotDeployed,
         AccountNotFound,
         AccountSelectionInvalid,
         OrganizationForbidden,
@@ -123,25 +126,21 @@ export const HostedApps = HttpApiGroup.make("apps")
       params: app,
       query: { deployment: Schema.optional(DeploymentId) },
       success: Deployment,
-      error: [StorageError, AppNotFound, DeploymentNotFound, OrganizationForbidden],
+      error: [StorageError, AppNotFound, AppNotDeployed, DeploymentNotFound, OrganizationForbidden],
     }).annotate(RequiredAction, "read"),
-  )
-  .add(
-    HttpApiEndpoint.post("update", `${prefix}/:app/deployments`, {
-      params: app,
-      payload: UpdateApp,
-      success: App,
-      error: deployErrors,
-    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.post("activate", `${prefix}/:app/activate`, {
       params: app,
-      payload: Schema.Struct({ deployment: DeploymentId, expectedDeployment: DeploymentId }),
+      payload: Schema.Struct({
+        deployment: DeploymentId,
+        expectedDeployment: Schema.NullOr(DeploymentId),
+      }),
       success: App,
       error: [
         StorageError,
         AppNotFound,
+        AppNotDeployed,
         DeploymentNotFound,
         AppDeploymentChanged,
         AccountNotFound,

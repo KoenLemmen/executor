@@ -15,13 +15,14 @@ export const storageWalkthrough = () =>
       Effect.gen(function* () {
         const storage = yield* makeExecutorStorage({ provider: "postgresql" });
         yield* storage.migrate;
-        const orm = storage.orm("1.9.1");
+        const orm = storage.orm("1.12.0");
         const createdAt = new Date("2026-01-01T00:00:00.000Z");
         const deployment = yield* Schema.decodeUnknownEffect(StoredDeployment)({
           id: "dpl_example",
           code: "code_example",
           owner: "example-publisher",
-          files: [{ path: "index.ts", content: "// Synthetic retained source" }],
+          sourceCommit: "a".repeat(40),
+          fileCount: 1,
           build: "bld_example",
           requirements: { accounts: {} },
           createdAt,

@@ -1,27 +1,43 @@
 import { AppSchedules } from "@executor-js/ui/dashboard/schedules";
 import { scheduleBindings } from "../../contracts/schedules.ts";
+import { QueryResult, QueryView, useQuery } from "@executor-js/ui/dashboard/context";
 import { useAtomSet } from "@effect/atom-react";
 import type { App, AppId } from "@executor-js/sdk";
 import type { DashboardOverview } from "@executor-js/local-server/contracts";
+import { Atom, AsyncResult } from "effect/unstable/reactivity";
 import { Option } from "effect";
-import { QueryResult, useQuery } from "@executor-js/ui/dashboard/context";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft02Icon, ArrowUpRight01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
-import { appAtom } from "../../contracts/api.ts";
-import { renameAppAtom } from "../../contracts/apps.ts";
+import { ArrowLeft02Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { appAtom, toolsAtom } from "../../contracts/api.ts";
+import { renameAppAtom, acknowledgeApp } from "../../contracts/apps.ts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Failure } from "../components/common.tsx";
 import { Button } from "@executor-js/ui/components/button";
 import type { DashboardError } from "../../contracts/errors.ts";
 import { RenameApp } from "@executor-js/ui/dashboard/rename-app";
+import { CopyApp } from "@executor-js/ui/dashboard/copy-app";
+import { AppSettings } from "@executor-js/ui/dashboard/app-settings";
 import { AppDetailLayout } from "@executor-js/ui/dashboard/app-detail";
-import { ToolBrowserLoading } from "@executor-js/ui/dashboard/tools";
-import { DetailSkeleton } from "@executor-js/ui/dashboard/loading";
 import { AppTools } from "./app-tools.tsx";
 import { AppAccounts } from "./app-accounts.tsx";
-import { AppSource } from "./app-source.tsx";
+import { AppSource, AppDeployments } from "./app-source.tsx";
+import {
+  AppOverview,
+  AppOverviewAccounts,
+  AppOverviewTools,
+  AppOverviewSource,
+} from "@executor-js/ui/dashboard/app-overview";
+import { appManagement } from "../../contracts/app-management.ts";
+import { AppDetailLoading, OverviewCardLoading } from "@executor-js/ui/dashboard/app-loading";
 
-type Tab = "tools" | "accounts" | "source" | "schedules";
+import type { AppView } from "@executor-js/ui/contracts/dashboard";
+
+const overviewToolsAtom = Atom.family((app: AppId) =>
+  Atom.map(
+    toolsAtom(app),
+    AsyncResult.map((data) => ({ items: data.tools })),
+  ),
+);
 
 /** Inspect a configured app without conflating its live tools with retained source versions. */
 export function AppDetailPage({
@@ -31,7 +47,7 @@ export function AppDetailPage({
   overview,
 }: {
   readonly id: AppId;
-  readonly tab: Tab;
+  readonly tab: AppView;
   readonly tool: string | undefined;
   readonly overview: DashboardOverview;
 }) {
@@ -42,22 +58,11 @@ export function AppDetailPage({
     <AppDetailLayout
       key={id}
       app={app}
-      tab={tab}
-      tabs={[
-        { id: "tools", label: "Tools" },
-        { id: "accounts", label: "Accounts" },
-        { id: "schedules", label: "Schedules" },
-        { id: "source", label: "Source" },
-      ]}
-      onTabChange={(view) => {
-        void navigate({ to: "/apps/$appId", params: { appId: id }, search: { view } });
-      }}
+      view={tab}
+      canInspectSource
       back={
-        <Link
-          className="back-link inline-flex gap-1.5 items-center text-[12px] text-muted-foreground mb-4.25 hover:text-foreground max-[740px]:min-h-11 max-[740px]:inline-flex max-[740px]:items-center max-[740px]:-mt-2 max-[740px]:mb-3"
-          to="/apps"
-        >
-          <HugeiconsIcon icon={ArrowLeft02Icon} size={14} />
+        <Link to="/apps" aria-label="Back to apps">
+          <HugeiconsIcon icon={ArrowLeft02Icon} size={15} aria-hidden />
           Apps
         </Link>
       }
@@ -71,18 +76,21 @@ export function AppDetailPage({
               </a>
             </Button>
           )}
-          {Option.isSome(data) && data.value.canDelete && <AppRename app={data.value.app} />}
-          {Option.isSome(data) && data.value.canDelete && (
-            <Button variant="ghost" size="icon-sm" asChild>
-              <Link
-                to="/apps/$appId/delete"
-                params={{ appId: id }}
-                aria-label="Delete app"
-                title="Delete app"
-              >
-                <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} aria-hidden size={15} />
-              </Link>
-            </Button>
+          {app && (
+            <CopyApp
+              key={app.id}
+              Failure={Failure}
+              app={app}
+              atoms={appManagement}
+              onApp={acknowledgeApp}
+              onCopied={(copy) =>
+                navigate({
+                  to: "/apps/$appId",
+                  params: { appId: copy.id },
+                  search: { view: "source" },
+                })
+              }
+            />
           )}
         </>
       }
@@ -91,17 +99,63 @@ export function AppDetailPage({
         result={result}
         Failure={Failure}
         retry={refresh}
-        pending={tab === "tools" ? <ToolBrowserLoading /> : <DetailSkeleton label="Loading app" />}
+        pending={<AppDetailLoading view={tab} app={app} canInspectSource selectedTool={tool} />}
       >
         {(current) =>
           tab === "schedules" ? (
             <AppSchedules bindings={scheduleBindings({ app: id })} Failure={Failure} />
+          ) : tab === "overview" ? (
+            <AppOverview
+              app={current.app}
+              tools={
+                <AppOverviewTools
+                  app={current.app}
+                  accounts={overview.accounts}
+                  query={overviewToolsAtom(current.app.id)}
+                  Failure={Failure}
+                />
+              }
+              accounts={<AppOverviewAccounts app={current.app} accounts={overview.accounts} />}
+              source={
+                <QueryView
+                  query={appManagement.source(current.app.id)}
+                  Failure={Failure}
+                  pending={<OverviewCardLoading label="Loading source preview" />}
+                >
+                  {(source) => <AppOverviewSource source={source} />}
+                </QueryView>
+              }
+            />
+          ) : tab === "settings" ? (
+            <AppSettings
+              app={current.app}
+              renameAction={current.canDelete && <AppRename app={current.app} />}
+              deleteAction={
+                current.canDelete && (
+                  <Button variant="destructive" size="sm" asChild>
+                    <Link to="/apps/$appId/delete" params={{ appId: id }}>
+                      Delete app
+                    </Link>
+                  </Button>
+                )
+              }
+              notice={
+                !current.canDelete &&
+                "This app is managed by Executor and cannot be renamed or deleted."
+              }
+            />
+          ) : tab === "deployments" ? (
+            <AppDeployments data={current} />
+          ) : tab === "source" || tab === "history" ? (
+            <AppSource data={current} view={tab} />
+          ) : current.app.activeDeployment === null ? (
+            <p className="p-5 text-sm text-muted-foreground">
+              Deploy this app before using its tools or selecting accounts.
+            </p>
           ) : tab === "tools" ? (
             <AppTools app={current.app} accounts={overview.accounts} selected={tool} />
-          ) : tab === "accounts" ? (
-            <AppAccounts app={current.app} accounts={overview.accounts} />
           ) : (
-            <AppSource data={current} />
+            <AppAccounts app={current.app} accounts={overview.accounts} />
           )
         }
       </QueryResult>

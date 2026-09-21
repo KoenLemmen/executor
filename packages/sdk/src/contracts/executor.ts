@@ -10,6 +10,7 @@ import type { AppRuntime } from "../implementation/runtime.ts";
 import type { OAuthOptions } from "./oauth.ts";
 import type { ToolInvocationOptions } from "./tools.ts";
 import type { BlobStorage } from "./blobs.ts";
+import type { AppSourceStorage } from "./source.ts";
 
 /** Caller-owned SQL, blobs, execution and encryption; constructors do not migrate or close them. */
 export interface ExecutorOptions {
@@ -19,6 +20,7 @@ export interface ExecutorOptions {
   readonly storage: ExecutorDatabase;
   readonly appStorage?: import("@executor-js/app-data").AppDatabases;
   readonly blobs: BlobStorage;
+  readonly sources: AppSourceStorage;
   readonly runtime: AppRuntime;
   readonly credentials: Credentials;
   readonly oauth?: OAuthOptions;

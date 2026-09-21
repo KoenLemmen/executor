@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Real local pairing and HTTP contracts keep secret setup separate from management keys. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -37,6 +38,7 @@ test("API keys get links, while paired cookies and same-origin writes control se
         yield* storage.migrate;
         const executor = yield* createExecutor({
           storage,
+          sources: memorySourceStorage(),
           blobs: memoryBlobStore(),
           runtime: nodeRuntime({ workDirectory: directory + "/builds" }),
           credentials: yield* aesGcmCredentials(config.encryptionKey, crypto),

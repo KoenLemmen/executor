@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -66,6 +67,7 @@ const fixture = (
     const credentialStore = yield* credentials(Redacted.make("ab".repeat(32)), crypto);
     return {
       blobs: memoryBlobStore(),
+      sources: memorySourceStorage(),
       storage,
       credentials: credentialStore,
       runtime: runtimeAdapter(nativeRuntime),
@@ -86,6 +88,7 @@ test(
             owner,
             app: first.app.id,
             expectedDeployment: first.deployment.id,
+            expectedSource: first.source.revision.commit,
             files: files("two"),
           });
           assert.equal(second.app.id, first.app.id);
@@ -145,6 +148,7 @@ test(
               owner,
               app: initial.app.id,
               expectedDeployment: initial.deployment.id,
+              expectedSource: initial.source.revision.commit,
               files: files("fail"),
             }),
           );
@@ -186,6 +190,7 @@ test(
               owner,
               app: app.app.id,
               expectedDeployment: app.deployment.id,
+              expectedSource: app.source.revision.commit,
               files: files("next"),
             }),
           );
@@ -220,6 +225,7 @@ test(
             owner,
             app: first.app.id,
             expectedDeployment: first.deployment.id,
+            expectedSource: first.source.revision.commit,
             files: files("two"),
           });
           const stale = yield* Effect.flip(
@@ -227,6 +233,7 @@ test(
               owner,
               app: first.app.id,
               expectedDeployment: first.deployment.id,
+              expectedSource: first.source.revision.commit,
               files: files("three"),
             }),
           );
@@ -257,18 +264,14 @@ test(
               ),
             ),
           );
-          const shared = yield* executor.apps.add({
+          const shared = yield* executor.apps.copy({
             from: first.app.id,
             owner: otherOwner,
             name: "Shared",
           });
-          assert.deepEqual(
-            yield* executor.apps.deployments({
-              app: shared.id,
-              owner: otherOwner,
-              deploymentOwner: otherOwner,
-            }),
-            [],
+          assert.equal(
+            (yield* executor.apps.deployments({ app: shared.id, owner: otherOwner })).length,
+            1,
           );
           assert.equal(
             (yield* executor.apps.deployments({
@@ -276,7 +279,7 @@ test(
               owner: otherOwner,
               deploymentOwner: owner,
             })).length,
-            2,
+            0,
           );
         }).pipe(Effect.provide(services)),
       ),
@@ -329,6 +332,7 @@ test(
               owner,
               app: initial.app.id,
               expectedDeployment: initial.deployment.id,
+              expectedSource: initial.source.revision.commit,
               files: files("two"),
             })
             .pipe(Effect.forkChild);
@@ -344,7 +348,7 @@ test(
     ),
 );
 
-test("createOnly permits a fresh app and rejects a duplicate", { timeout: 10_000 }, () =>
+test("deploy by name creates a fresh app and rejects a duplicate", { timeout: 10_000 }, () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -353,10 +357,9 @@ test("createOnly permits a fresh app and rejects a duplicate", { timeout: 10_000
           owner,
           name: "Fresh",
           files: files("one"),
-          createOnly: true,
         });
         const duplicate = yield* Effect.flip(
-          executor.apps.deploy({ owner, name: "Fresh", files: files("two"), createOnly: true }),
+          executor.apps.deploy({ owner, name: "Fresh", files: files("two") }),
         );
         assert.equal(created.app.name, "Fresh");
         assert.ok(Schema.is(AppNameTaken)(duplicate));
@@ -399,6 +402,7 @@ test(
               owner,
               app: first.app.id,
               expectedDeployment: first.deployment.id,
+              expectedSource: first.source.revision.commit,
               files: files("slow"),
             })
             .pipe(Effect.result, Effect.forkChild);
@@ -407,6 +411,7 @@ test(
             owner,
             app: first.app.id,
             expectedDeployment: first.deployment.id,
+            expectedSource: first.source.revision.commit,
             files: files("fast"),
           });
           yield* Deferred.succeed(release, undefined);
@@ -433,13 +438,14 @@ test(
           const options = yield* fixture();
           const executor = yield* Effect.promise(() => createPromiseExecutor(options));
           const first = yield* Effect.promise(() =>
-            executor.apps.deploy({ owner, name: "Promise", files: files("one"), createOnly: true }),
+            executor.apps.deploy({ owner, name: "Promise", files: files("one") }),
           );
           const next = yield* Effect.promise(() =>
             executor.apps.deploy({
               owner,
               app: first.app.id,
               expectedDeployment: first.deployment.id,
+              expectedSource: first.source.revision.commit,
               files: files("two"),
             }),
           );

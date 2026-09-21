@@ -1,3 +1,4 @@
+import { saveAndDeploy } from "../support/app-authoring.ts";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { scenarios } from "../test-plan.ts";
@@ -194,7 +195,7 @@ layer(HostedLive, { excludeTestServices: true })("Executor API-key account", (it
               yield* api.request(actors.owner, "GET", `${prefix}/apps/${app.id}`),
             );
             expect(
-              (yield* api.request(actors.owner, "POST", `${prefix}/apps/${app.id}/deployments`, {
+              (yield* saveAndDeploy(actors.owner, `${prefix}/apps/${app.id}`, {
                 files: source.files,
                 expectedDeployment: current.activeDeployment,
               })).status,
@@ -221,9 +222,9 @@ layer(HostedLive, { excludeTestServices: true })("Executor API-key account", (it
                 ? { ...file, content: file.content + "\n// User customization\n" }
                 : file,
             );
-            const edited = yield* body(
-              App,
-              yield* api.request(actors.owner, "POST", `${prefix}/apps/${app.id}/deployments`, {
+            const { app: edited } = yield* body(
+              Schema.Struct({ app: App }),
+              yield* saveAndDeploy(actors.owner, `${prefix}/apps/${app.id}`, {
                 files,
                 expectedDeployment: current.activeDeployment,
               }),
@@ -243,7 +244,7 @@ layer(HostedLive, { excludeTestServices: true })("Executor API-key account", (it
               )).activeDeployment,
             ).toBe(edited.activeDeployment);
             expect(
-              (yield* api.request(actors.owner, "POST", `${prefix}/apps/${app.id}/deployments`, {
+              (yield* saveAndDeploy(actors.owner, `${prefix}/apps/${app.id}`, {
                 files: original.files,
                 expectedDeployment: edited.activeDeployment,
               })).status,

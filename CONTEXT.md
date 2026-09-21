@@ -1,6 +1,6 @@
 # Executor
 
-Executor connects reusable accounts to configured apps. Products decide who can
+Executor connects reusable accounts to apps people can build, run, and share. Products decide who can
 access those resources.
 
 ## Language
@@ -19,18 +19,48 @@ Several apps can select the same account ID without copying credentials.
 _Avoid_: Integration, connection as a replacement name for the saved account.
 
 **App**:
-One configured copy of deployed capabilities, with its own name, owner, active
-deployment and selected accounts. Two Axiom apps can share code and select
+Software with its own name, owner, source, account selections, and data. An app can
+exist before its first deployment. Configured copies can share code and select
 different accounts.
-_Avoid_: Integration.
+_Avoid_: Integration, artifact project as a separate kind of app.
+
+**Draft app**:
+An app with editable source and no active deployment.
+
+**Working source**:
+The app's current editable source. Saving changes does not change the running
+deployment.
+
+**Source revision**:
+An immutable state of an app's source files.
+
+**Fork**:
+A new app whose source and history start from another app and can change
+independently. Its accounts and data are separate.
+
+**Package name**:
+The scoped name used to discover a public app listing.
+
+**Publisher scope**:
+An organization's publishing namespace. Existing ownership survives changes to
+the organization's name or address.
+
+**Publication**:
+A public listing pointing to one selected Git commit. Republishing changes the
+listing; unpublishing removes it. Installed copies remain independent.
+
+**Public app installation**:
+Copy a reviewed publication's source into a new owned app and deploy it. It has
+its own Git repository, account selections and app data. Upstream changes do not
+update it. Executor app-to-app package dependencies are deferred.
 
 **App code**:
-The authored program behind configured copies. AppCodeId groups its retained
-deployments without adding a separate management API.
+The authored program and revision history behind configured copies.
 
 **Deployment**:
-One immutable source/build version. Configured apps in the same code lineage
-can select the same deployment. Deployment ownership records who deployed it.
+An immutable executable version of app code. Activating another deployment
+changes the running code, not stored app data. Configured copies can select
+deployments from the same code lineage.
 
 **Account slot**:
 An app-wide named requirement. A provider requires one account; provider.many()

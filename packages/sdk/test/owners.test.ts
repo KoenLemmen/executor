@@ -1,4 +1,6 @@
 /** Owner purge over real SQL: every owned row goes, other owners are untouched. */
+import { memorySourceStorage } from "@executor-js/sdk/testing";
+import { database } from "../src/implementation/database.ts";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -63,6 +65,7 @@ const fixture = Effect.gen(function* () {
   const credentialStore = yield* credentials(Redacted.make("ab".repeat(32)), crypto);
   return {
     blobs: memoryBlobStore(),
+    sources: memorySourceStorage(),
     storage,
     credentials: credentialStore,
     runtime: runtimeAdapter(runtime),
@@ -96,7 +99,7 @@ test(
         Effect.gen(function* () {
           const options = yield* fixture;
           const executor = yield* createExecutor(options);
-          const db = options.storage.orm("1.9.1");
+          const db = database(options.storage);
           const rows = (table: "deployments" | "accountConnections", owner: OwnerId) =>
             db.findMany(table, { select: ["id"], where: (b) => b("owner", "=", owner) });
           yield* populate(executor, alice);
@@ -146,7 +149,7 @@ test(
           const options = yield* fixture;
           const executor = yield* createExecutor(options);
           const mine = yield* populate(executor, alice);
-          const db = options.storage.orm("1.9.1");
+          const db = database(options.storage);
           // Stand in for a provider registration this owner still holds.
           yield* db.create("webhooks", {
             id: WebhookId.make("whk_live"),

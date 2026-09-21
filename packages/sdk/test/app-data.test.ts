@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Real retained app code, SQLite transactions, and independent public SDK callers. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -59,6 +60,7 @@ test(
         const credentialStore = yield* credentials(Redacted.make("ab".repeat(32)), crypto);
         const options = {
           blobs: memoryBlobStore(),
+          sources: memorySourceStorage(),
           storage,
           credentials: credentialStore,
           appStorage: yield* filesystemAppDatabases({
@@ -76,7 +78,7 @@ test(
             name: "Inbox",
             files: [{ path: "index.ts", content: source }],
           });
-          const copy = await executor.apps.add({
+          const copy = await executor.apps.copy({
             from: app.id,
             owner: OwnerId.make("bob"),
             name: "Other inbox",
@@ -240,7 +242,9 @@ test(
             // A deployment activation retains this configured app's storage.
             await writer.apps.deploy({
               owner: OwnerId.make("alice"),
-              name: "Inbox",
+              app: app.id,
+              expectedDeployment: app.activeDeployment,
+              expectedSource: (await writer.apps.workspace({ app: app.id })).revision.commit,
               files: [{ path: "index.ts", content: source }],
             });
             assert.deepEqual(await executor.appData.query(input), [message, resumed.value]);

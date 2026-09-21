@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
-import { Account, AccountConnection, App, AppSlug } from "@executor-js/sdk/core";
+import { SourceSnapshot, Account, AccountConnection, App, AppSlug } from "@executor-js/sdk/core";
 import { appAddresses } from "@executor-js/hosted-server/app-ui";
 import { AppUiBaseUrl } from "@executor-js/hosted-server/app-ui/contracts";
 import { OrganizationSlug } from "@executor-js/hosted-server/organization";
@@ -683,11 +683,34 @@ test(
                 401,
               );
               yield* sql`update "organization" set slug = ${saved.slug} where id = ${saved.organization}`;
+              const appPath = `/api/organizations/${saved.organization}/apps/${saved.app}`;
+              const workspaceResponse = yield* Effect.promise(() =>
+                send(origin, `${appPath}/workspace`, undefined, saved.parent),
+              );
+              assert.equal(workspaceResponse.status, 200);
+              const workspace = yield* Schema.decodeUnknownEffect(SourceSnapshot)(
+                yield* Effect.promise(() => workspaceResponse.json()),
+              );
+              const committedResponse = yield* Effect.promise(() =>
+                send(
+                  origin,
+                  `${appPath}/commits`,
+                  { expected: workspace.revision.commit, files, message: "Update private app" },
+                  saved.parent,
+                ),
+              );
+              assert.equal(committedResponse.status, 200);
+              const committed = yield* Schema.decodeUnknownEffect(SourceSnapshot)(
+                yield* Effect.promise(() => committedResponse.json()),
+              );
               const changed = yield* Effect.promise(() =>
                 send(
                   origin,
-                  `/api/organizations/${saved.organization}/apps/${saved.app}/deployments`,
-                  { files, expectedDeployment: saved.deployment },
+                  `${appPath}/deploy`,
+                  {
+                    expectedSource: committed.revision.commit,
+                    expectedDeployment: saved.deployment,
+                  },
                   saved.parent,
                 ),
               );

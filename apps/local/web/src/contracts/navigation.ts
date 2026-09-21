@@ -1,12 +1,13 @@
+import { AppView } from "@executor-js/ui/contracts/dashboard";
 import { AccountId, AppId, ProviderId } from "@executor-js/sdk";
 import { Option, Schema } from "effect";
 
 /** Dashboard areas used by route metadata to highlight the sidebar. */
 export type NavigationSection = "apps" | "accounts" | "connect" | "approvals";
 
-/** Existing app-detail query parameters; an absent view displays tools. */
+/** Existing app-detail query parameters; an absent view opens the app overview. */
 export interface AppSearch {
-  readonly view?: "tools" | "accounts" | "source" | "schedules" | undefined;
+  readonly view?: AppView | undefined;
   readonly tool?: string | undefined;
 }
 
@@ -27,9 +28,7 @@ const text = Schema.decodeUnknownOption(Schema.NonEmptyString);
 
 /** Ignore unsupported views and empty tool names, preserving existing deep links. */
 export function parseAppSearch(search: Record<string, unknown>): AppSearch {
-  const view = Schema.decodeUnknownOption(
-    Schema.Literals(["tools", "accounts", "source", "schedules"]),
-  )(search.view);
+  const view = Schema.decodeUnknownOption(AppView)(search.view);
   const tool = text(search.tool);
   return {
     view: Option.getOrUndefined(view),

@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Given a deployed live-inbox app, one caller watches and another writes. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import {
@@ -47,6 +48,7 @@ export async function liveStorageWalkthrough() {
         const credentialStore = yield* credentials(Redacted.make("ab".repeat(32)), crypto);
         const options = {
           blobs: memoryBlobStore(),
+          sources: memorySourceStorage(),
           storage,
           runtime: nodeRuntime({ workDirectory: directory }),
           credentials: credentialStore,

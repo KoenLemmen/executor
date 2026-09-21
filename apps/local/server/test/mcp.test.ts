@@ -199,7 +199,15 @@ async function verify(directory: string, source: string) {
       true,
     );
     const discovery = Schema.decodeUnknownSync(Search)(
-      await value(server, 'return await tools.search({ query: "Executor" })'),
+      await value(
+        server,
+        `const items = []; let offset = 0; while (true) {
+        const page = await tools.search({ query: "Executor", limit: 25, offset });
+        items.push(...page.items.map(({ path, signature }) => ({ path, signature })));
+        if (page.next === null) return { items };
+        offset = page.next.offset;
+      }`,
+      ),
     );
     const deployTool = discovery.items.find((item) => item.path.endsWith(".mutations.apps_deploy"));
     assert.ok(deployTool);
@@ -217,6 +225,61 @@ async function verify(directory: string, source: string) {
     for (const privateOperation of ["tools_resume", "webhookSetup_read", "accountConnect_submit"]) {
       assert.ok(!discovery.items.some((item) => item.path.endsWith(`.${privateOperation}`)));
     }
+
+    const draft = Schema.decodeUnknownSync(
+      Schema.Struct({ id: AppId, activeDeployment: Schema.Null }),
+    )(
+      await value(
+        server,
+        call(`${executor}.mutations.appManagement_create`, {
+          body: { name: "Agent draft", files: [{ path: "index.ts", content: example }] },
+        }),
+      ),
+    );
+    assert.equal(
+      (await execute(server, "return 1")).unavailableApps.find((app) => app.app === draft.id)
+        ?.reason,
+      "AppNotDeployed",
+    );
+    const sourceView = Schema.Struct({
+      revision: Schema.Struct({ commit: Schema.String }),
+      files: Schema.Array(Schema.Struct({ path: Schema.String, content: Schema.String })),
+    });
+    const initialSource = Schema.decodeUnknownSync(sourceView)(
+      await value(
+        server,
+        call(`${executor}.queries.appManagement_source`, { path: { app: draft.id } }),
+      ),
+    );
+    const committedSource = Schema.decodeUnknownSync(sourceView)(
+      await value(
+        server,
+        call(`${executor}.mutations.appManagement_commit`, {
+          path: { app: draft.id },
+          body: {
+            expected: initialSource.revision.commit,
+            files: [
+              ...initialSource.files,
+              { path: "README.md", content: "Edited by a connected agent." },
+            ],
+            message: "Add documentation",
+          },
+        }),
+      ),
+    );
+    assert.notEqual(committedSource.revision.commit, initialSource.revision.commit);
+    const deployedDraft = Schema.decodeUnknownSync(
+      Schema.Struct({ app: Schema.Struct({ id: AppId, activeDeployment: DeploymentId }) }),
+    )(
+      await value(
+        server,
+        call(`${executor}.mutations.appManagement_deploy`, {
+          path: { app: draft.id },
+          body: { expectedSource: committedSource.revision.commit, expectedDeployment: null },
+        }),
+      ),
+    );
+    assert.equal(deployedDraft.app.id, draft.id);
 
     // Deploy the exact source delivered through the skills tool, then call it through MCP.
     const documented = Schema.decodeUnknownSync(Schema.Struct({ app: App }))(
@@ -430,13 +493,13 @@ async function verify(directory: string, source: string) {
     const second = Schema.decodeUnknownSync(App)(
       await value(
         server,
-        call(`${executor}.mutations.apps_add`, {
+        call(`${executor}.mutations.apps_copy`, {
           body: { from: first.id, owner: "mcp-test", name: "Second" },
         }),
       ),
     );
-    assert.equal(second.code, first.code);
-    assert.equal(second.activeDeployment, first.activeDeployment);
+    assert.notEqual(second.code, first.code);
+    assert.notEqual(second.activeDeployment, first.activeDeployment);
     const standalone = Schema.decodeUnknownSync(Schema.toCodecJson(AccountConnectionLink))(
       await value(
         server,
@@ -700,6 +763,7 @@ export default defineApp({ accounts: { executor } }, async () => ({ name: "Execu
     const upgraded = await Effect.runPromise((await reader(server)).dashboard.overview());
     const managedAfter = upgraded.apps.find((app) => app.id === managed.id);
     assert.ok(managedAfter);
+    assert.ok(managedAfter.activeDeployment !== null);
     assert.equal(managedAfter.accounts.executor, managedAccount);
     assert.notEqual(managedAfter.activeDeployment, previous.app.activeDeployment);
     const generatedSource = await Effect.runPromise(

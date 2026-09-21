@@ -9,7 +9,7 @@ import {
 import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HostedApi } from "../contracts/api.ts";
-import type { DeployApp, InstallApp, UpdateApp } from "../contracts/apps.ts";
+import type { DeployApp, InstallApp } from "../contracts/apps.ts";
 import { HostedCatalog } from "../contracts/catalog.ts";
 import { HostedExecutor } from "../contracts/executor.ts";
 import { adminOwner, checkAccounts, currentOwner, selectedApp } from "./access.ts";
@@ -20,20 +20,20 @@ export const installApp = (owner: OwnerId, input: typeof InstallApp.Type) =>
     const executor = yield* Effect.flatten(HostedExecutor);
     const catalog = yield* HostedCatalog;
     const { files } = yield* catalog.prepare(input);
-    return (yield* executor.apps.deploy({ owner, name: input.name, files, createOnly: true })).app;
+    return (yield* executor.apps.deploy({ owner, name: input.name, files })).app;
   });
 /** Generate remote protocol source and create an organization app without replacing a name. */
 export const importCustomApp = (owner: OwnerId, input: RemoteCustomAppInput) =>
   Effect.gen(function* () {
     const executor = yield* Effect.flatten(HostedExecutor);
     const { files } = yield* generateCustomApp(input);
-    return (yield* executor.apps.deploy({ owner, name: input.name, files, createOnly: true })).app;
+    return (yield* executor.apps.deploy({ owner, name: input.name, files })).app;
   });
 /** Direct source deployment uses the same create-only operation as a catalog install. */
 export const deployApp = (owner: OwnerId, input: typeof DeployApp.Type) =>
   Effect.gen(function* () {
     const executor = yield* Effect.flatten(HostedExecutor);
-    return (yield* executor.apps.deploy({ ...input, owner, createOnly: true })).app;
+    return (yield* executor.apps.deploy({ ...input, owner })).app;
   });
 /** Read a configured app only within its authenticated organization. */
 export const getApp = (owner: OwnerId, input: { readonly app: AppId }) =>
@@ -69,19 +69,12 @@ export const appSource = (owner: OwnerId, app: AppId, deployment?: DeploymentId)
       ...(deployment === undefined ? {} : { deployment }),
     });
   });
-/** Build and activate only this configured app, with a version check at commit. */
-export const updateApp = (owner: OwnerId, app: AppId, input: typeof UpdateApp.Type) =>
-  Effect.gen(function* () {
-    const executor = yield* Effect.flatten(HostedExecutor);
-    yield* selectedApp(executor, owner, app);
-    return (yield* executor.apps.deploy({ owner, app, ...input })).app;
-  });
 /** Activation moves a pointer; it never rewinds app data or upstream side effects. */
 export const activateApp = (
   owner: OwnerId,
   app: AppId,
   deployment: DeploymentId,
-  expectedDeployment: DeploymentId,
+  expectedDeployment: DeploymentId | null,
 ) =>
   Effect.gen(function* () {
     yield* appSource(owner, app, deployment);
@@ -127,9 +120,6 @@ export const hostedAppHandlers = HttpApiBuilder.group(HostedApi, "apps", (handle
     )
     .handle("source", ({ params, query }) =>
       Effect.flatMap(adminOwner, (owner) => appSource(owner, params.app, query.deployment)),
-    )
-    .handle("update", ({ params, payload }) =>
-      Effect.flatMap(adminOwner, (owner) => updateApp(owner, params.app, payload)),
     )
     .handle("activate", ({ params, payload }) =>
       Effect.flatMap(adminOwner, (owner) =>

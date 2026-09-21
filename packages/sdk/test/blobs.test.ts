@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Storage replacement and cache loss through real SDK, filesystem and Node build boundaries. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -16,7 +17,6 @@ import {
   RuntimeBuildFailed,
 } from "@executor-js/sdk/core";
 import { filesystemBlobStore, nodeRuntime } from "@executor-js/sdk/node";
-import { migrateNodeBuilds } from "@executor-js/sdk/node/migrate";
 
 test("filesystem blobs publish complete bytes, distinguish absence and reject paths outside their root", () =>
   Effect.runPromise(
@@ -93,6 +93,7 @@ test(
           const directory = yield* fs.makeTempDirectoryScoped();
           const work = path.join(directory, "first");
           const blobs = memoryBlobStore();
+          const sources = memorySourceStorage();
           const storage = yield* makeExecutorStorage({ provider: "postgresql" });
           yield* storage.migrate;
           const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
@@ -100,6 +101,7 @@ test(
             storage,
             credentials,
             blobs,
+            sources,
             runtime: nodeRuntime({ workDirectory: work }),
           });
           const { app, deployment } = yield* first.apps.deploy({
@@ -117,7 +119,7 @@ test(
           yield* fs.remove(work, { recursive: true });
           const next = path.join(directory, "restored");
           const runtime = nodeRuntime({ workDirectory: next });
-          const second = yield* createExecutor({ storage, credentials, blobs, runtime });
+          const second = yield* createExecutor({ storage, credentials, blobs, sources, runtime });
           const calls = yield* Effect.all(
             [1, 2].map(() =>
               second.tools.call({
@@ -145,31 +147,6 @@ test(
           const html = yield* bound.asset({ build: deployment.build, path: "index.html" });
           assert.equal(html?.contentType, "text/html");
           assert.match(new TextDecoder().decode(html?.body), /executor-ui/);
-
-          // An explicit conversion preserves IDs and original bytes. Repeating it is safe.
-          const converted = memoryBlobStore();
-          assert.deepEqual(
-            yield* Effect.promise(() => migrateNodeBuilds({ directory: next, blobs: converted })),
-            [deployment.build],
-          );
-          assert.deepEqual(
-            yield* Effect.promise(() => migrateNodeBuilds({ directory: next, blobs: converted })),
-            [deployment.build],
-          );
-          const restored = toEffectRuntime(
-            nodeRuntime({ workDirectory: path.join(directory, "migrated") }),
-            converted,
-          );
-          assert.deepEqual(
-            yield* restored.call({
-              app: "synthetic-app",
-              build: deployment.build,
-              accounts: Redacted.make({}),
-              tool: "mutations.read",
-              input: {},
-            }),
-            { hello: "blobs" },
-          );
 
           // Revoking retained authority is not hidden by a warm materialized build.
           yield* blobs.remove(BlobKey.make(`${deployment.build}/build.json`));

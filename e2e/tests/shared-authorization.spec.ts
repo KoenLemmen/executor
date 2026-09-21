@@ -1,3 +1,4 @@
+import { saveAndDeploy } from "../support/app-authoring.ts";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { scenarios } from "../test-plan.ts";
@@ -136,25 +137,20 @@ layer(HostedLive, { excludeTestServices: true })("Shared authorization", (it) =>
               Schema.Struct({ id: Schema.String }),
               yield* api.request(actors.owner, "GET", `${prefix}/apps/${app.id}/source`),
             );
-            const updated = yield* api.request(
-              actors.owner,
-              "POST",
-              `${prefix}/apps/${app.id}/deployments`,
-              {
-                expectedDeployment: source.id,
-                files: [
-                  {
-                    path: "index.ts",
-                    content: `
+            const updated = yield* saveAndDeploy(actors.owner, `${prefix}/apps/${app.id}`, {
+              expectedDeployment: source.id,
+              files: [
+                {
+                  path: "index.ts",
+                  content: `
 import { defineApp, mutation, object, string } from "apps";
 export default defineApp({ accounts: {} }, async () => ({ name: ${JSON.stringify(name)}, mutations: {
   echo: mutation({ description: "Allowed echo", input: object({ message: string() }) }, async (_, input) => ({ message: input.message, receipt: ${JSON.stringify(receipt)} })),
   later: mutation({ description: "Added after consent", input: object({ message: string() }) }, async () => ({ forbidden: "later" }))
 } }));`,
-                  },
-                ],
-              },
-            );
+                },
+              ],
+            });
             expect(updated.status).toBe(200);
             const ownerTools = yield* body(
               Tools,

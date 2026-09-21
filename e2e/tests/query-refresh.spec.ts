@@ -112,12 +112,12 @@ export default defineApp({ accounts: {} }, async () => ({
         yield* browser.login(actors.owner);
         const first = yield* holdQuery(paths, "fail");
         yield* browser.use("Open the app with its first read held", (page) =>
-          page.goto(`/org/${actors.organization.slug}/apps/${app.id}?view=accounts`),
+          page.goto(`/org/${actors.organization.slug}/apps/${app.id}?view=settings`),
         );
         yield* first.requested;
         yield* browser.use("Initial data has a content skeleton", (page) =>
           page
-            .getByRole("status", { name: "Loading app", exact: true })
+            .getByRole("status", { name: "Loading settings", exact: true })
             .waitFor({ state: "visible" }),
         );
         yield* first.release;
@@ -126,7 +126,7 @@ export default defineApp({ accounts: {} }, async () => ({
         );
         yield* browser.use("An initial error has no skeleton", (page) =>
           page
-            .getByRole("status", { name: "Loading app", exact: true })
+            .getByRole("status", { name: "Loading settings", exact: true })
             .waitFor({ state: "hidden" }),
         );
         yield* browser.use("Retry the initial read", (page) =>
@@ -148,7 +148,7 @@ export default defineApp({ accounts: {} }, async () => ({
             ).toBe(draft);
             yield* browser.use(`${phase}: no loading replacement`, (page) =>
               page
-                .getByRole("status", { name: "Loading app", exact: true })
+                .getByRole("status", { name: "Loading settings", exact: true })
                 .waitFor({ state: "hidden" }),
             );
           });

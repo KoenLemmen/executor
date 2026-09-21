@@ -45,6 +45,7 @@ export function OAuthCallbackPage() {
         await navigate({
           to: "/org/$organizationSlug/apps/$appId",
           params: { organizationSlug, appId: app },
+          search: { view: "tools" },
         });
       } else
         await navigate({

@@ -1,0 +1,2 @@
+/apps/:scope/:name /apps/index.html 200
+/apps/:scope/:name/ /apps/index.html 200

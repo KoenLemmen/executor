@@ -2,12 +2,11 @@
 import {
   OwnerId,
   StorageError,
-  StoredDeployment,
   type ExecutorDatabase,
   type Credentials,
   type Executor,
 } from "@executor-js/sdk/core";
-import { Effect, Redacted, Schema } from "effect";
+import { Effect, Redacted } from "effect";
 import type { ServerConfig } from "../contracts/config.ts";
 import { executorAppSource } from "./executor-app-source.ts";
 
@@ -22,21 +21,31 @@ export const installExecutorApp = (
 ) =>
   Effect.gen(function* () {
     const files = yield* executorAppSource();
-    const db = storage.orm("1.9.1");
+    const db = storage.orm("1.12.0");
     const existing = (yield* executor.apps.list({ owner, name: "Executor" }))[0];
     const current =
-      existing === undefined
+      existing === undefined ? undefined : yield* executor.apps.source({ owner, app: existing.id });
+    const currentFiles =
+      current === undefined
         ? undefined
-        : yield* db
-            .findFirst("deployments", { where: (b) => b("id", "=", existing.activeDeployment) })
-            .pipe(Effect.mapError(() => new StorageError()))
-            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(StoredDeployment)));
+        : new Map(current.files.map((file) => [file.path, file.content]));
     const unchanged =
-      current !== undefined && JSON.stringify(current.files) === JSON.stringify(files);
+      currentFiles !== undefined &&
+      currentFiles.size === files.length &&
+      files.every((file) => currentFiles.get(file.path) === file.content);
     const app =
-      existing !== undefined && unchanged
-        ? existing
-        : (yield* executor.apps.deploy({ owner, name: "Executor", files })).app;
+      existing === undefined
+        ? (yield* executor.apps.deploy({ owner, name: "Executor", files })).app
+        : unchanged
+          ? existing
+          : (yield* executor.apps.deploy({
+              owner,
+              app: existing.id,
+              expectedDeployment: existing.activeDeployment,
+              expectedSource: (yield* executor.apps.workspace({ owner, app: existing.id })).revision
+                .commit,
+              files,
+            })).app;
     const requirement = app.requirements.accounts.executor;
     if (requirement === undefined) return yield* Effect.fail(new StorageError());
     // Every accepted local API caller already holds this exact key. No separate administrator key is created.

@@ -107,6 +107,15 @@ export const scenarios = {
     title: "OAuth resources are provisioned before client registration",
     targets: { local: scheduled, "self-host": scheduled, cloud: scheduled },
   },
+  appCopies: {
+    file: "app-copies.spec.ts",
+    title: "App copies use running source and remain independent through edits and navigation",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Hosted role checks use organization actors; local Git is covered separately."),
+    },
+  },
   lastOrganization: {
     file: "last-organization.spec.ts",
     title: "Last active organization survives entry and rename while stale destinations recover",
@@ -543,3 +552,16 @@ export const filesForTarget = (target: typeof Target.Type, suite: "all" | "hoste
       .map((scenario) => `e2e/tests/${scenario.file}`),
   ),
 ];
+
+/** Keep scenario-level target declarations when several targets share one test file. */
+export const patternForTarget = (
+  target: typeof Target.Type,
+  suite: "all" | "hosted",
+  filter: string,
+): string => {
+  const titles = scenariosForSuite(suite)
+    .filter((scenario) => scenario.targets[target].status === "scheduled")
+    .map((scenario) => scenario.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (titles.length === 0) return "(?!)";
+  return `^(?=[\\s\\S]*(?:${filter || ".*"}))[\\s\\S]*(?:${titles.join("|")})$`;
+};

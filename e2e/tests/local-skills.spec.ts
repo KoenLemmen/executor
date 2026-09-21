@@ -62,12 +62,13 @@ layer(TestLive, { excludeTestServices: true })("Local skills", (it) => {
         );
         const copyResponse = yield* session.send(
           "POST",
-          "/v1/apps",
+          "/v1/apps/copies",
           { owner: "local", name: "Skill copy", from: app.id },
           headers,
         );
         expect(copyResponse.status).toBe(200);
         const copy = yield* body(App, copyResponse);
+        expect(copy.activeDeployment).not.toBe(app.activeDeployment);
         yield* Effect.addFinalizer(() =>
           session.send("DELETE", `/v1/apps/${copy.id}`, undefined, headers).pipe(Effect.orDie),
         );
@@ -129,6 +130,10 @@ layer(TestLive, { excludeTestServices: true })("Local skills", (it) => {
               owner: "local",
               app: app.id,
               expectedDeployment: app.activeDeployment,
+              expectedSource: (yield* body(
+                Schema.Struct({ revision: Schema.Struct({ commit: Schema.String }) }),
+                yield* session.send("GET", `/v1/apps/${app.id}/workspace`, undefined, headers),
+              )).revision.commit,
               files: files("two"),
             },
             headers,
@@ -175,9 +180,11 @@ layer(TestLive, { excludeTestServices: true })("Local skills", (it) => {
               { signal },
             ),
         );
-        expect(
-          (yield* Schema.decodeUnknownEffect(Document)(copyRead.structuredContent)).deployment,
-        ).toBe(original.deployment);
+        const copiedDocument = yield* Schema.decodeUnknownEffect(Document)(
+          copyRead.structuredContent,
+        );
+        expect(copiedDocument.deployment).toBe(copy.activeDeployment);
+        expect(copiedDocument.content).toContain("Version one.");
         // Every document needs an app. There is no unscoped authoring-guide fallback.
         for (const input of [
           { file: "SKILL.md" },

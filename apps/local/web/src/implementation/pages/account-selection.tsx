@@ -90,7 +90,9 @@ function SelectionForm({
           Finish later
         </Link>
       }
-      onSaved={() => navigate({ to: "/apps/$appId", params: { appId: app.id } })}
+      onSaved={() =>
+        navigate({ to: "/apps/$appId", params: { appId: app.id }, search: { view: "tools" } })
+      }
     />
   );
 }

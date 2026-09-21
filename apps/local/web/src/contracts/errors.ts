@@ -1,3 +1,5 @@
+import { registryErrorMessage } from "@executor-js/ui/contracts/registry-error";
+import type { LocalAppManagementApi } from "@executor-js/local-server/app-management";
 import type { LocalWebhookSetupApi } from "@executor-js/local-server/webhook-setup";
 import type { DashboardApi } from "@executor-js/local-server/contracts";
 import type { AccountConnectApi } from "@executor-js/local-server/account-connections";
@@ -11,6 +13,7 @@ import type { LiveConnectionLost } from "./api.ts";
 import type { ToolCatalogChanged } from "@executor-js/local-server/contracts";
 
 type Groups =
+  | (typeof LocalAppManagementApi.groups)[keyof typeof LocalAppManagementApi.groups]
   | (typeof LocalWebhookSetupApi.groups)[keyof typeof LocalWebhookSetupApi.groups]
   | (typeof DashboardApi.groups)[keyof typeof DashboardApi.groups]
   | (typeof AccountConnectApi.groups)[keyof typeof AccountConnectApi.groups]
@@ -45,6 +48,9 @@ const errorMessage = Match.type<DashboardError>().pipe(
       ),
     ScheduleInvalid: () =>
       message("Invalid schedule", "Update the interval or calendar timing in the app source."),
+    RegistryError: (error) => message("Public app unavailable", registryErrorMessage(error)),
+    AppAccessDenied: () =>
+      message("Action unavailable", "You do not have permission to change this app."),
     ConnectionLinkRejected: () =>
       message("This connection link is invalid", "Ask your agent for a new connection link."),
     AccountConnectionNotFound: () =>
@@ -75,6 +81,18 @@ const errorMessage = Match.type<DashboardError>().pipe(
       message("Session ended", "Run executor pair and open its connection link."),
     DashboardForbidden: () =>
       message("Open this server directly", "Use the dashboard at http://127.0.0.1:4312."),
+    AppNotDeployed: () =>
+      message(
+        "App not deployed",
+        "Deploy this app before running its tools or configuring accounts.",
+      ),
+    SourceError: (error) =>
+      error.reason === "conflict"
+        ? message("Source changed", "Reload the latest source before saving again.")
+        : message(
+            "Source unavailable",
+            "The app source could not be saved or loaded. Check its files and try again.",
+          ),
     AppNotFound: () =>
       message(
         "App not found",
@@ -158,10 +176,12 @@ const errorMessage = Match.type<DashboardError>().pipe(
       message("Check the account fields", "The supplied fields do not match this sign-in method."),
     SkillDefinitionInvalid: ({ file }) =>
       message("Skill could not load", `Fix the skill definition in ${file} and deploy again.`),
-    DeploymentBuildFailed: () =>
+    DeploymentBuildFailed: (error) =>
       message(
         "App could not build",
-        "No app was created. This API needs changes to its generated source.",
+        error.reason === "App build failed"
+          ? "Check its source and dependencies, then try again. The running version is unchanged."
+          : error.reason,
       ),
     CatalogImportFailed: (error) => message("App could not be imported", error.reason),
     HttpClientError: unavailable,

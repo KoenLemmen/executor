@@ -1,4 +1,8 @@
 import { executorSelfHostApiDocument } from "./contracts/api.ts";
+import { AppManagementHost } from "@executor-js/app-management";
+import { remoteRegistry } from "@executor-js/app-registry";
+import { gitSourceStorage } from "@executor-js/app-source";
+import { nativeRepositories } from "@executor-js/app-source/node";
 /** Self-host SDK uses the same PGlite connection as Better Auth. */
 import { urlPolicyConfig } from "@executor-js/utils/url-policy";
 import {
@@ -50,10 +54,18 @@ export const selfHostExecutor = (skills: readonly SourceFile[]) =>
           path.resolve(directory, "workflow-engine"),
         ],
       });
+      const registry = remoteRegistry(
+        yield* Config.String("EXECUTOR_REGISTRY_URL").pipe(
+          Config.withDefault("https://v2.executor.sh"),
+        ),
+      );
+      const repositories = nativeRepositories(path.resolve(directory, "repositories"));
+      const sources = gitSourceStorage(repositories);
       const executor = yield* postgresExecutor(
         key,
         runtime,
         blobs,
+        sources,
         { urlPolicy, ...(clientMetadataUrl === undefined ? {} : { clientMetadataUrl }) },
         { storage, webhookOrigin: origin, workflows },
       );
@@ -77,6 +89,17 @@ export const selfHostExecutor = (skills: readonly SourceFile[]) =>
         Layer.succeed(ScheduledAuthority, scheduleAuthority),
         Layer.succeed(GroupDatabase, Effect.succeed(groupDatabase)),
         Layer.succeed(OrganizationIcons, makeOrganizationIcons(blobs)),
+        Layer.succeed(
+          AppManagementHost,
+          Effect.succeed({
+            executor,
+            sources,
+            repositories,
+            registry,
+            blobs,
+            publisher: undefined,
+          }),
+        ),
         Layer.succeed(HostedExecutor, Effect.succeed(executor)),
         Layer.succeed(OrganizationDefaults, initialize),
         Layer.succeed(HostedAppRuntime, toEffectRuntime(runtime, blobs)),

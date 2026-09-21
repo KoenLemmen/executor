@@ -1,3 +1,4 @@
+import { AppView } from "@executor-js/ui/contracts/dashboard";
 import { Option, Schema } from "effect";
 import { OrganizationId } from "@executor-js/hosted-server/organization";
 
@@ -16,15 +17,11 @@ declare module "@tanstack/history" {
 }
 /** App tabs keep their selection on refresh in both hosted products. */
 export function parseAppSearch(search: Record<string, unknown>): {
-  readonly view?: "tools" | "accounts" | "source" | "schedules" | undefined;
+  readonly view?: AppView | undefined;
   readonly tool?: string | undefined;
 } {
   return {
-    view: Option.getOrUndefined(
-      Schema.decodeUnknownOption(Schema.Literals(["tools", "accounts", "source", "schedules"]))(
-        search.view,
-      ),
-    ),
+    view: Option.getOrUndefined(Schema.decodeUnknownOption(AppView)(search.view)),
     tool: Option.getOrUndefined(Schema.decodeUnknownOption(Schema.NonEmptyString)(search.tool)),
   };
 }

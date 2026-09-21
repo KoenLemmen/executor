@@ -12,7 +12,7 @@ import type {
 } from "@executor-js/sdk";
 import type { McpImportAuth } from "@executor-js/catalog/contracts";
 import type { Atom, AsyncResult } from "effect/unstable/reactivity";
-import type { Cause } from "effect";
+import { Schema, type Cause } from "effect";
 import type { ComponentType, ReactNode } from "react";
 
 /** Display metadata may be absent in a host that has not exposed provider/status details yet. */
@@ -42,8 +42,8 @@ export interface QueryProps<A, E> {
   readonly query: Query<A, E>;
   readonly Failure: ComponentType<FailureProps<NoInfer<E>>>;
 }
-/** Read-only source inspection data supplied by a product-specific dashboard adapter. */
-export interface AppSourceProps<E> {
+/** Deployment history and retained source supplied by a product-specific dashboard adapter. */
+export interface AppDeploymentsProps<E> {
   readonly app: App;
   readonly deployments: readonly {
     readonly id: DeploymentId;
@@ -51,7 +51,6 @@ export interface AppSourceProps<E> {
     readonly fileCount: number;
   }[];
   readonly deployment: DeploymentId;
-  readonly selectedDeployment?: DeploymentId | undefined;
   readonly onDeploymentChange: (deployment: DeploymentId | undefined) => void;
   readonly query: Query<Deployment, E>;
   readonly Failure: ComponentType<FailureProps<NoInfer<E>>>;
@@ -73,13 +72,27 @@ export interface SelectAccounts {
   readonly app: AppId;
   readonly accounts: SelectedAccounts;
 }
+/** App sections use one URL vocabulary across local and hosted dashboards. */
+export const AppView = Schema.Literals([
+  "overview",
+  "schedules",
+  "tools",
+  "accounts",
+  "source",
+  "history",
+  "deployments",
+  "settings",
+]);
+export type AppView = typeof AppView.Type;
 /** Host routing remains typed by that host's TanStack tree. */
 export interface AppLinkProps {
   readonly app: AppId;
-  readonly view?: "tools" | "accounts";
+  readonly view?: AppView;
+  readonly tool?: string;
   readonly className?: string;
   readonly children: ReactNode;
   readonly "aria-label"?: string;
+  readonly "aria-current"?: "page" | undefined;
 }
 /** Accounts without a detail route can still render their label. */
 export interface AccountLinkProps {
@@ -140,6 +153,27 @@ export function accountSelectionIssues(
       return [];
     },
   );
+}
+/** Account metadata can block tool discovery; missing credential-health metadata makes no claim. */
+export function appToolReadiness<A extends AccountSummary>(
+  app: App,
+  accounts: readonly A[],
+):
+  | { readonly state: "not-deployed" }
+  | { readonly state: "selection"; readonly issues: readonly AccountSelectionIssue[] }
+  | { readonly state: "reconnect"; readonly accounts: readonly A[] }
+  | { readonly state: "unavailable"; readonly accounts: readonly A[] }
+  | { readonly state: "ready" } {
+  if (app.activeDeployment === null) return { state: "not-deployed" };
+  const issues = accountSelectionIssues(app, accounts);
+  if (issues.length > 0) return { state: "selection", issues };
+  const ids = selectedIds(app);
+  const selected = accounts.filter((account) => ids.includes(account.id));
+  const unavailable = selected.filter((account) => account.signIn?.state === "unavailable");
+  if (unavailable.length > 0) return { state: "unavailable", accounts: unavailable };
+  const reconnect = selected.filter((account) => accountNeedsSignIn(account));
+  if (reconnect.length > 0) return { state: "reconnect", accounts: reconnect };
+  return { state: "ready" };
 }
 /** Public OAuth endpoints can supply a favicon domain; credentials are never inspected. */
 export function providerDisplayUrl(definition: ProviderDefinition | undefined): string | null {

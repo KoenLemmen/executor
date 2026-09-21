@@ -18,7 +18,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
-import { scenariosForSuite } from "./test-plan.ts";
+import { patternForTarget, scenariosForSuite } from "./test-plan.ts";
 import { collectEvidence, writeEvidenceReport } from "./evidence-reporter.ts";
 import { type EvidenceReport, type RunMetadata } from "./report-model.ts";
 import { BrowserDriver } from "./support/browser.ts";
@@ -222,7 +222,8 @@ const command = Command.make("e2e", {
                           "run",
                           "--config",
                           "e2e/vitest.config.ts",
-                          ...(name ? ["--testNamePattern", name] : []),
+                          "--testNamePattern",
+                          patternForTarget(target, selected === "hosted" ? "hosted" : "all", name),
                         ],
                         {
                           extendEnv: target !== "cloud",

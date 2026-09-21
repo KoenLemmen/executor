@@ -55,7 +55,10 @@ export const applyConnectionTarget = (
       Effect.catchTag("AppNotFound", () => Effect.fail(changed())),
     );
     const deployment = yield* storedDeployment(db, app).pipe(
-      Effect.catchTag("DeploymentNotFound", () => Effect.fail(changed())),
+      Effect.catchTags({
+        DeploymentNotFound: () => Effect.fail(changed()),
+        AppNotDeployed: () => Effect.fail(changed()),
+      }),
     );
     const required = Object.hasOwn(deployment.requirements.accounts, target.requirement)
       ? deployment.requirements.accounts[target.requirement]

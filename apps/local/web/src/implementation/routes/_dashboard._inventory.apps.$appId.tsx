@@ -18,7 +18,7 @@ function AppRoute() {
     <AppDetailPage
       key={appId}
       id={appId}
-      tab={search.view ?? "tools"}
+      tab={search.view ?? (search.tool === undefined ? "overview" : "tools")}
       tool={search.tool}
       overview={useOverview()}
     />

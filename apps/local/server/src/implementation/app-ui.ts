@@ -30,6 +30,7 @@ import { appRequest } from "./app-auth.ts";
 import { appPrivateHeaders as privateHeaders, appSignInPage } from "apps/ui/auth";
 
 const failed = (reason: UiFailed["reason"] = "unavailable") => new UiFailed({ reason });
+const UiBuild = Schema.Struct({ id: DeploymentId, build: Deployment.fields.build });
 const watchScript = `const deployment = JSON.parse(document.getElementById("executor-context").textContent).deployment;
 const stream = new EventSource("/_executor/version");
 stream.addEventListener("version", event => {if(JSON.parse(event.data).deployment !== deployment) location.reload();});
@@ -46,7 +47,7 @@ export const appUi = (
   auth: LocalAuth,
 ) => {
   const native = runtime;
-  const db = storage.orm("1.9.1");
+  const db = storage.orm("1.12.0");
   const current = (id: AppId) =>
     executor.apps
       .get({ app: id, owner: OwnerId.make("local") })
@@ -54,9 +55,10 @@ export const appUi = (
   const deployment = (app: Effect.Success<ReturnType<typeof current>>, id = app.activeDeployment) =>
     Effect.gen(function* () {
       const row = yield* db.findFirst("deployments", {
+        select: ["id", "build"],
         where: (b) => b.and(b("id", "=", id), b("code", "=", app.code)),
       });
-      return yield* Schema.decodeUnknownEffect(Deployment)(row);
+      return yield* Schema.decodeUnknownEffect(UiBuild)(row);
     }).pipe(Effect.mapError(() => failed()));
   const authorize = Effect.gen(function* () {
     const { target, request } = yield* appRequest(config.port);
@@ -212,7 +214,12 @@ export const appUi = (
   );
   const telemetry = (signal: "traces" | "logs") =>
     authorize.pipe(
-      Effect.flatMap((app) => receiveBrowserTelemetry(signal, app.activeDeployment)),
+      Effect.flatMap((app) =>
+        receiveBrowserTelemetry(
+          signal,
+          app.activeDeployment === null ? undefined : app.activeDeployment,
+        ),
+      ),
       htmlResponse,
     );
   return { api: uiHandlers, page, asset, versions, watch, authenticated, telemetry };

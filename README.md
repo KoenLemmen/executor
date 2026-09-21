@@ -120,7 +120,7 @@ Keep contracts flat, one cohesive area per file.
   the product applies its own owner checks
 - [Deployments](playground/sdk/deployments.ts): retained code and the existing rollback seam
 
-The in-process SDK takes `{ storage, blobs, runtime, credentials }`. The Vercel example
+The in-process SDK takes `{ storage, sources, blobs, runtime, credentials }`. The Vercel example
 can use those adapters; OAuth and remote examples remain sketches. Source-file
 reads use Effect's filesystem service and assume the repository root. See the
 [local server](apps/local/server/README.md) for resource ownership and API setup.
@@ -137,8 +137,8 @@ Accounts store metadata and opaque encrypted credential bytes. The credential
 adapter owns encryption, envelope format and key custody. The local server
 uses AES-GCM with an explicitly configured key. Parsed storage
 records redact the bytes; public account records contain only metadata.
-Deployments retain source files, a build reference and declared account
-requirements. Public app requirements come from the active deployment. No
+Deployments retain a Git commit reference, file count, build reference and declared
+account requirements. Source reads load files from Git; SQL stores no source bytes. Public app requirements come from the active deployment. No
 live tool catalog is stored.
 
 The schema enforces unique app names per owner, account provider references,
@@ -208,17 +208,17 @@ host contracts redact them at entry. OAuth client configuration, state, PKCE,
 refresh tokens and grant storage belong to the trusted host.
 
 An app is a configured copy with saved account selections. `apps.deploy`
-keeps the one-step create/build/activate flow, keyed by `(owner,name)`.
-`apps.add({ from, owner, name })` makes another configured copy of the same
-code and active deployment. It starts with no accounts selected and does not
-copy credentials or selections.
+creates, builds and activates a new app, keyed by `(owner,name)`.
+`apps.copy({ from, owner, name })` copies running source into an independent app
+with fresh Git history and deploys it. Unfinished apps copy their working source
+and remain undeployed. Copies retain their origin but no accounts or app data.
 
 `apps.update({ app, accounts })` replaces the selected account map. Missing
 requirements are allowed during setup; every requirement must be filled before
 the app runs. A `.many()` slot accepts an explicit empty array. Requirements
 apply to the whole app, including tools that use only part of its context.
 
-`AppCodeId` groups shared deployments behind configured copies; it has no
+`AppCodeId` groups the deployments belonging to one independent app; it has no
 separate CRUD API. A deployment retains immutable source, its deploying owner,
 and a compiled-build reference. Code activation validates the candidate
 requirements against saved selections before changing the app's pointer.

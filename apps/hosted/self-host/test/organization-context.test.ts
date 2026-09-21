@@ -1,4 +1,8 @@
 import { GroupDatabase } from "@executor-js/hosted-server/groups";
+import { AppManagementHost, AppSourceView } from "@executor-js/app-management";
+import { gitSourceStorage } from "@executor-js/app-source";
+import { nativeRepositories } from "@executor-js/app-source/node";
+import { remoteRegistry } from "@executor-js/app-registry";
 /** Shared-session regressions through real Better Auth, PGlite and hosted HTTP routes. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -133,8 +137,12 @@ test(
             yield* sql`update "session" set "activeOrganizationId" = ${b.id} where "id" = ${session.id}`;
             const credentials = yield* aesGcmCredentials(Redacted.make(encryptionKey), crypto);
             const storage = yield* makeExecutorStorage({ provider: "postgresql" });
+            const blobs = memoryBlobStore();
+            const repositories = nativeRepositories(`${directory}/repositories`);
+            const sources = gitSourceStorage(repositories);
             const executor = yield* createExecutor({
-              blobs: memoryBlobStore(),
+              blobs,
+              sources,
               storage,
               credentials,
               runtime: runtimeAdapter({
@@ -232,6 +240,19 @@ test(
                 HttpRouter.provideRequest(
                   Layer.succeed(GroupDatabase, Effect.succeed(yield* SqlClient.SqlClient)),
                 ),
+                HttpRouter.provideRequest(
+                  Layer.succeed(
+                    AppManagementHost,
+                    Effect.succeed({
+                      executor,
+                      blobs,
+                      sources,
+                      repositories,
+                      registry: remoteRegistry(origin),
+                      publisher: undefined,
+                    }),
+                  ),
+                ),
               ),
               HttpRouter.add("*", "/api/auth/*", handler),
             ).pipe(
@@ -302,6 +323,27 @@ test(
                   "PATCH",
                 ),
             });
+            const sourcePath = `/api/organizations/${a.id}/apps/${app.app.id}/workspace`;
+            const sourceView = yield* json(yield* request(sourcePath), AppSourceView);
+            assert.equal(sourceView.files[0]?.content, "synthetic");
+            assert.equal(sourceView.canPublish, false);
+            assert.equal(
+              (yield* request(`/api/organizations/${b.id}/apps/${app.app.id}/workspace`)).status,
+              404,
+            );
+            const savedSource = yield* request(
+              `/api/organizations/${a.id}/apps/${app.app.id}/commits`,
+              {
+                expected: sourceView.revision.commit,
+                files: [...sourceView.files, { path: "README.md", content: "Edited in Alpha." }],
+                message: "Edit source",
+              },
+            );
+            assert.equal(savedSource.status, 200);
+            assert.equal(
+              (yield* executor.apps.get({ app: app.app.id })).activeDeployment,
+              app.deployment.id,
+            );
             const tabA = tab(a.slug, a.id);
             const tabB = tab(b.slug, b.id);
             assert.equal((yield* tabA.read()).accounts[0]?.id, alpha.id);
@@ -759,7 +801,7 @@ test(
             assert.equal(renamedApp.name, "Renamed app");
             assert.equal(renamedApp.activeDeployment, app.app.activeDeployment);
             assert.equal(renamedApp.code, app.app.code);
-            const collision = yield* executor.apps.add({
+            const collision = yield* executor.apps.copy({
               from: app.app.id,
               owner: app.app.owner,
               name: "Already used",
@@ -788,6 +830,7 @@ test(
               Schema.Struct({ canManage: Schema.Boolean }),
             );
             assert.equal(readOnly.canManage, false);
+            assert.equal((yield* request(sourcePath, undefined, "GET", otherCookie)).status, 403);
             assert.equal(
               (yield* request(`${accountPath}/connections`, {}, "POST", otherCookie)).status,
               403,

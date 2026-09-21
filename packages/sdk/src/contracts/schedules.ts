@@ -10,7 +10,7 @@ import {
   RequestInvalid,
   ToolName,
 } from "./shared.ts";
-import { AppNotFound, AccountRequired, AccountSelectionInvalid } from "./apps.ts";
+import { AppNotDeployed, AppNotFound, AccountRequired, AccountSelectionInvalid } from "./apps.ts";
 import { AccountNotFound } from "./account.ts";
 import { DeploymentNotFound } from "./deployment.ts";
 import { OAuthReconnectRequired } from "./oauth.ts";
@@ -146,6 +146,7 @@ export const ScheduleErrors = [
   ScheduleConflict,
   ScheduleInvalid,
   AppNotFound,
+  AppNotDeployed,
   AccountRequired,
   AccountSelectionInvalid,
   AccountNotFound,

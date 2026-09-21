@@ -23,9 +23,10 @@ export function DeleteAppPage({ id }: { readonly id: AppId }) {
         className="back-link inline-flex gap-1.5 items-center text-[12px] text-muted-foreground mb-4.25 hover:text-foreground max-[740px]:min-h-11 max-[740px]:inline-flex max-[740px]:items-center max-[740px]:-mt-2 max-[740px]:mb-3"
         to="/apps/$appId"
         params={{ appId: id }}
+        search={{ view: "settings" }}
       >
         <HugeiconsIcon icon={ArrowLeft02Icon} strokeWidth={2} aria-hidden size={14} />
-        App
+        Settings
       </Link>
       <QueryView key={id} query={appAtom(id)} Failure={Failure} pending={<LoadingRows />}>
         {(data) => <DeleteAppConfirmation id={id} data={data} />}
@@ -44,8 +45,8 @@ function DeleteAppConfirmation({ id, data }: { readonly id: AppId; readonly data
     return (
       <Empty title="Managed by Executor">
         This app is part of the local server.{" "}
-        <Link to="/apps/$appId" params={{ appId: id }}>
-          Return to app
+        <Link to="/apps/$appId" params={{ appId: id }} search={{ view: "settings" }}>
+          Return to settings
         </Link>
       </Empty>
     );
@@ -91,7 +92,13 @@ function DeleteAppConfirmation({ id, data }: { readonly id: AppId; readonly data
           <Button
             variant="outline"
             disabled={pending}
-            onClick={() => void navigate({ to: "/apps/$appId", params: { appId: id } })}
+            onClick={() =>
+              void navigate({
+                to: "/apps/$appId",
+                params: { appId: id },
+                search: { view: "settings" },
+              })
+            }
           >
             Cancel
           </Button>

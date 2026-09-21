@@ -2,6 +2,7 @@ import { Cause, Match, Option } from "effect";
 import type { DashboardError } from "./errors.ts";
 export {
   accountNeedsSignIn,
+  appToolReadiness,
   selectedIds,
   accountSelectionIssues,
   displayDate,

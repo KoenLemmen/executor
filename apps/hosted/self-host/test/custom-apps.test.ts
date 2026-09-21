@@ -1,6 +1,8 @@
+import { AppManagementHost } from "@executor-js/app-management";
 import { SqlClient } from "effect/unstable/sql";
 import { GroupDatabase } from "@executor-js/hosted-server/groups";
 import { OrganizationId as ReferenceOrganizationId } from "@executor-js/hosted-server";
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Custom forms use the real hosted HTTP handlers, source generators, builder and storage. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -44,7 +46,12 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HostedApi } from "@executor-js/hosted-server/contracts";
 
 // This legacy fixture exercises shared handlers; full product composition is verified in e2e.
-const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(Layer.provide(hostedHandlers));
+const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(
+  Layer.provide(hostedHandlers),
+  HttpRouter.provideRequest(
+    Layer.succeed(AppManagementHost, Effect.die("App authoring is outside this fixture")),
+  ),
+);
 
 const origin = "http://localhost:4400";
 test(
@@ -85,6 +92,7 @@ test(
             const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
             const executor = yield* createExecutor({
               blobs: memoryBlobStore(),
+              sources: memorySourceStorage(),
               storage,
               credentials,
               runtime: nodeRuntime({ workDirectory: directory }),
@@ -322,6 +330,7 @@ export default defineApp({ accounts: {} }, async () => ({ name: "Approval errors
               currentExecutor,
               yield* createExecutor({
                 blobs: memoryBlobStore(),
+                sources: memorySourceStorage(),
                 storage,
                 credentials,
                 runtime: nodeRuntime({ workDirectory: directory }),

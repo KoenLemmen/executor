@@ -9,12 +9,7 @@ import { ToolBrowser } from "@executor-js/ui/dashboard/tools";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft02Icon, Key01Icon } from "@hugeicons/core-free-icons";
 import { toolsAtom } from "../../contracts/api.ts";
-import {
-  accountSelectionIssues,
-  accountSetupFailure,
-  accountNeedsSignIn,
-  selectedIds,
-} from "../../contracts/dashboard.ts";
+import { appToolReadiness, accountSetupFailure } from "../../contracts/dashboard.ts";
 import { Button } from "@executor-js/ui/components/button";
 import { Link, useNavigate } from "@tanstack/react-router";
 
@@ -68,21 +63,28 @@ function AccountSetup({
 
 /** Incomplete account setup is a product state; do not start tool discovery until it is resolved. */
 export function AppTools(props: AppToolsProps) {
-  const issues = accountSelectionIssues(props.app, props.accounts);
-  const ids = selectedIds(props.app);
-  const reconnect = props.accounts.filter(
-    (account) => ids.includes(account.id) && accountNeedsSignIn(account),
-  );
-  return issues.length > 0 ? (
-    <AccountSetup
-      {...props}
-      disconnected={issues.some((issue) => issue.reason === "disconnected")}
-    />
-  ) : reconnect.length > 0 ? (
-    <AccountReconnect accounts={reconnect} />
-  ) : (
-    <LiveAppTools {...props} />
-  );
+  const readiness = appToolReadiness(props.app, props.accounts);
+  switch (readiness.state) {
+    case "not-deployed":
+      return <p>Deploy this app to load its tools.</p>;
+    case "selection":
+      return (
+        <AccountSetup
+          {...props}
+          disconnected={readiness.issues.some((issue) => issue.reason === "disconnected")}
+        />
+      );
+    case "reconnect":
+      return <AccountReconnect accounts={readiness.accounts} />;
+    case "unavailable":
+      return (
+        <p role="alert" className="text-sm text-muted-foreground">
+          Account status is unavailable. Check Accounts and try again.
+        </p>
+      );
+    case "ready":
+      return <LiveAppTools {...props} />;
+  }
 }
 
 /** An expired sign-in is an account action, not an empty tool browser or retryable request. */
@@ -154,7 +156,7 @@ function LiveAppTools({ app, accounts, selected }: AppToolsProps) {
       }}
       back={
         <Link
-          className="back-link inline-flex gap-1.5 items-center text-[12px] text-muted-foreground mb-4.25 hover:text-foreground max-[740px]:min-h-11 max-[740px]:inline-flex max-[740px]:items-center max-[740px]:-mt-2 max-[740px]:mb-3"
+          className="inline-flex min-h-11 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           to="/apps/$appId"
           params={{ appId: app.id }}
           search={{ view: "tools" }}

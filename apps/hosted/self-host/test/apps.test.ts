@@ -1,5 +1,6 @@
 import { CurrentAuthorization } from "../../server/src/contracts/authorization.ts";
 import { fullAuthority } from "@executor-js/authorization";
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Hosted operations exercise the real Node builder, saved accounts and portable app handler. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -63,6 +64,7 @@ test(
           const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
           const executor = yield* createExecutor({
             blobs: memoryBlobStore(),
+            sources: memorySourceStorage(),
             storage,
             credentials,
             runtime: nodeRuntime({ workDirectory: directory }),

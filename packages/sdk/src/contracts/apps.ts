@@ -9,6 +9,7 @@ import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { AccountId, AppCodeId, AppId, DeploymentId, OwnerId, ProviderId } from "./shared.ts";
 import { AccountNotFound } from "./account.ts";
 import { ProviderDefinition } from "./provider.ts";
+import { SourceCommit, sourceErrors, SourceSnapshot } from "./source.ts";
 import {
   AppDeploymentChanged,
   Deployment,
@@ -53,19 +54,29 @@ export const AppName = Schema.String.check(
   Schema.isPattern(/\S/),
 );
 
-/**
- * One configured app. Copies share code/deployments and provider references,
- * while keeping independent names, owners and selected account IDs. An app
- * can exist with incomplete selections while being configured. Execution
- * requires every declared slot, including explicit [] for an empty collection.
- */
+/** Informational origin captured when a copy is made. It never grants access or drives updates. */
+export const AppCopyOrigin = Schema.Struct({
+  reference: Schema.NonEmptyString,
+  name: Schema.NonEmptyString,
+  commit: SourceCommit,
+});
+export type AppCopyOrigin = typeof AppCopyOrigin.Type;
+/** A host-resolved snapshot. Hosts authorize its origin before invoking the SDK. */
+export const AppCopySnapshot = Schema.Struct({
+  files: SourceFiles,
+  origin: AppCopyOrigin,
+  activation: Schema.Literals(["deploy", "save"]),
+});
+export type AppCopySnapshot = typeof AppCopySnapshot.Type;
+/** One independent app, its source repository, selected accounts, and optional active deployment. */
 export const App = Schema.Struct({
   id: AppId,
   slug: AppSlug,
   code: AppCodeId,
   owner: OwnerId,
   name: Schema.NonEmptyString,
-  activeDeployment: DeploymentId,
+  activeDeployment: Schema.NullOr(DeploymentId),
+  copiedFrom: Schema.NullOr(AppCopyOrigin),
   requirements: AppRequirements,
   accounts: SelectedAccounts,
   createdAt: Schema.Date,
@@ -73,23 +84,30 @@ export const App = Schema.Struct({
 
 export type App = typeof App.Type;
 
+/** Operations that just deployed code can return a non-null active deployment. */
+export const DeployedApp = App.mapFields((fields) => ({
+  ...fields,
+  activeDeployment: DeploymentId,
+}));
+export type DeployedApp = typeof DeployedApp.Type;
+
 /** Public deploy input, keyed either by the owner's app name or stable app id. */
 export const DeployAppInput = Schema.Union([
   Schema.Struct({
     owner: OwnerId,
     name: Schema.NonEmptyString,
     files: SourceFiles,
-    createOnly: Schema.optional(Schema.Boolean),
     app: Schema.optional(Schema.Never),
     expectedDeployment: Schema.optional(Schema.Never),
+    expectedSource: Schema.optional(Schema.Never),
   }),
   Schema.Struct({
     owner: OwnerId,
     app: AppId,
-    expectedDeployment: DeploymentId,
+    expectedDeployment: Schema.NullOr(DeploymentId),
+    expectedSource: SourceCommit,
     files: SourceFiles,
     name: Schema.optional(Schema.Never),
-    createOnly: Schema.optional(Schema.Never),
   }),
 ]);
 
@@ -100,6 +118,13 @@ export class AppNotFound extends Schema.TaggedError<AppNotFound>()(
   "AppNotFound",
   { app: AppId },
   { httpApiStatus: 404, description: "No app matches this id and any supplied owner constraint." },
+) {}
+
+/** A draft has source but no active executable deployment. */
+export class AppNotDeployed extends Schema.TaggedError<AppNotDeployed>()(
+  "AppNotDeployed",
+  { app: AppId },
+  { httpApiStatus: 409 },
 ) {}
 
 /** Adding a configured copy must not overwrite an existing app with that name. */
@@ -168,8 +193,21 @@ export class AppWorkflowsActive extends Schema.TaggedError<AppWorkflowsActive>()
 
 /** Canonical operation inputs; Promise and HTTP callers use the same validators. */
 export const AppInputs = {
+  create: Schema.Struct({ owner: OwnerId, name: AppName, files: SourceFiles }),
+  workspace: Schema.Struct({ app: AppId, owner: Schema.optional(OwnerId) }),
+  commit: Schema.Struct({
+    app: AppId,
+    owner: Schema.optional(OwnerId),
+    expected: Schema.NullOr(SourceCommit),
+    files: SourceFiles,
+    message: Schema.NonEmptyString,
+  }),
+  copy: Schema.Struct({
+    from: Schema.Union([AppId, AppCopySnapshot]),
+    owner: OwnerId,
+    name: AppName,
+  }),
   deploy: DeployAppInput,
-  add: Schema.Struct({ from: AppId, owner: OwnerId, name: Schema.NonEmptyString }),
   get: Schema.Struct({ app: AppId, owner: Schema.optional(OwnerId) }),
   // Omitted IDs select all apps for the owner; an empty list selects none.
   list: Schema.Struct({
@@ -184,7 +222,7 @@ export const AppInputs = {
     app: AppId,
     deployment: DeploymentId,
     owner: Schema.optional(OwnerId),
-    expectedDeployment: Schema.optional(DeploymentId),
+    expectedDeployment: Schema.optional(Schema.NullOr(DeploymentId)),
   }),
   rename: Schema.Struct({
     app: AppId,
@@ -207,18 +245,54 @@ export const AppInputs = {
 const appParams = { app: AppInputs.get.fields.app };
 const ownerQuery = { owner: AppInputs.get.fields.owner };
 
-/**
- * deploy retains the one-step create/build/activate flow keyed by (owner,name).
- * add makes another configured copy from an existing app, without rebuilding
- * or copying its account selections. update replaces the whole selection map.
- * These operations manage configured apps; they do not author HTTP endpoints in app code.
- */
+/** Creation and checked updates share the same build pipeline; copies always own independent source. */
 export const AppsGroup = HttpApiGroup.make("apps")
   .add(
+    HttpApiEndpoint.post("create", "/v1/apps/drafts", {
+      payload: AppInputs.create,
+      success: App,
+      error: [StorageError, ...sourceErrors, AppNameTaken, AppSlugTaken],
+    }),
+    HttpApiEndpoint.get("workspace", "/v1/apps/:app/workspace", {
+      params: appParams,
+      query: ownerQuery,
+      success: SourceSnapshot,
+      error: [StorageError, ...sourceErrors, AppNotFound],
+    }),
+    HttpApiEndpoint.post("commit", "/v1/apps/:app/commits", {
+      params: appParams,
+      payload: AppInputs.commit.mapFields((fields) => ({
+        expected: fields.expected,
+        files: fields.files,
+        message: fields.message,
+        owner: fields.owner,
+      })),
+      success: SourceSnapshot,
+      error: [StorageError, ...sourceErrors, AppNotFound],
+    }),
+    HttpApiEndpoint.post("copy", "/v1/apps/copies", {
+      payload: AppInputs.copy,
+      success: App,
+      error: [
+        StorageError,
+        ...sourceErrors,
+        AppNotFound,
+        AppNameTaken,
+        AppSlugTaken,
+        DeploymentNotFound,
+        AppNotDeployed,
+        DeploymentBuildFailed,
+        SkillDefinitionInvalid,
+        AppDeploymentChanged,
+        AccountNotFound,
+        AccountSelectionInvalid,
+      ],
+    }),
     HttpApiEndpoint.post("deploy", "/v1/apps/deploy", {
       payload: AppInputs.deploy,
-      success: Schema.Struct({ app: App, deployment: Deployment }),
+      success: Schema.Struct({ app: DeployedApp, deployment: Deployment, source: SourceSnapshot }),
       error: [
+        ...sourceErrors,
         StorageError,
         DeploymentBuildFailed,
         SkillDefinitionInvalid,
@@ -231,17 +305,7 @@ export const AppsGroup = HttpApiGroup.make("apps")
       ],
     }).annotate(
       OpenApi.Description,
-      "Deploy app source files. index.ts exports defineApp from apps. Creates or updates by owner and name, or updates by app ID and expected deployment. Activates only after a successful build. Discover tools in the next execute call.",
-    ),
-  )
-  .add(
-    HttpApiEndpoint.post("add", "/v1/apps", {
-      payload: AppInputs.add,
-      success: App,
-      error: [StorageError, AppNotFound, AppNameTaken, AppSlugTaken],
-    }).annotate(
-      OpenApi.Description,
-      "Create another configured copy of an existing app. Code is shared; account selections start empty.",
+      "Deploy app source files. index.ts exports defineApp from apps. Creates a new named app, or updates by app ID with the source revision and deployment the caller read. Activates only after a successful build. Discover tools in the next execute call.",
     ),
   )
   .add(
@@ -305,7 +369,7 @@ export const AppsGroup = HttpApiGroup.make("apps")
       success: App,
       // Validate all supplied slots/accounts before replacing the map. Missing
       // selections are allowed during setup; tools fail AccountRequired until ready.
-      error: [StorageError, AppNotFound, AccountNotFound, AccountSelectionInvalid],
+      error: [StorageError, AppNotFound, AppNotDeployed, AccountNotFound, AccountSelectionInvalid],
     }).annotate(
       OpenApi.Description,
       "Replace the whole account selection map. Include every slot to keep. Each value is an account ID, or an array of IDs for a many requirement. Omitted slots become unconfigured.",
@@ -326,6 +390,7 @@ export const AppsGroup = HttpApiGroup.make("apps")
         StorageError,
         AppNotFound,
         DeploymentNotFound,
+        AppNotDeployed,
         AppDeploymentChanged,
         AccountNotFound,
         AccountSelectionInvalid,
@@ -355,7 +420,7 @@ export const AppsGroup = HttpApiGroup.make("apps")
         deployment: AppInputs.source.fields.deployment,
       },
       success: Deployment,
-      error: [StorageError, AppNotFound, DeploymentNotFound],
+      error: [StorageError, AppNotFound, AppNotDeployed, DeploymentNotFound],
     }).annotate(
       OpenApi.Description,
       "Read source files for a retained deployment in the app code lineage.",

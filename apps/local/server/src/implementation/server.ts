@@ -2,6 +2,9 @@ import { startScheduleWorker, defaultScheduleWorkerOptions } from "@executor-js/
 import { localScheduleHandlers } from "./schedules.ts";
 import { localMcpApproval } from "./mcp-approvals.ts";
 import { makeLocalMcpOAuth } from "./mcp-oauth.ts";
+import { remoteRegistry } from "@executor-js/app-registry";
+import { localAppManagement } from "./app-management.ts";
+
 /** Local host composition. The SDK owns operations; this package owns local resources and access. */
 import {
   ExecutorApi,
@@ -46,6 +49,8 @@ import { AccountConnectApi } from "../contracts/account-connections.ts";
 import { browserTelemetry } from "./telemetry.ts";
 import { webFiles } from "./web.ts";
 import { localManagementDocument } from "../contracts/management.ts";
+import { gitSourceStorage } from "@executor-js/app-source";
+import { nativeRepositories } from "@executor-js/app-source/node";
 
 /** Initialize local persistence and compose the API, without choosing a socket implementation. */
 export const localApi = (
@@ -73,12 +78,20 @@ export const localApi = (
           path.join(directory, "workflow-engine"),
         ],
       });
+      const registry = remoteRegistry(
+        yield* Config.String("EXECUTOR_REGISTRY_URL").pipe(
+          Config.withDefault("https://v2.executor.sh"),
+        ),
+      );
+      const repositories = nativeRepositories(path.join(directory, "repositories"));
+      const sources = gitSourceStorage(repositories);
       const executor = yield* createExecutor({
         workflows,
         webhookOrigin:
           config.webhookOrigin ?? config.browserOrigin ?? `http://localhost:${config.port}`,
         storage,
         blobs,
+        sources,
         credentials: credentialStore,
         runtime,
         oauth: {
@@ -215,11 +228,19 @@ export const localApi = (
       });
       const web = options.web ?? (yield* webFiles);
       // Dashboard-host routes never include the app-origin APIs.
+      const authoring = yield* localAppManagement(config, auth, managed.app, {
+        executor,
+        sources,
+        repositories,
+        registry,
+        blobs,
+      });
       const productRoutes = Layer.mergeAll(
         HttpApiBuilder.layer(LocalWebhookSetupApi).pipe(
           Layer.provide(localWebhookSetupHandlers(executor, config, auth)),
         ),
         HttpRouter.add("*", "/api/webhooks/:appId/:subscriptionId", webhookCallback(executor)),
+        authoring,
         options.devtools === undefined ? Layer.empty : options.devtools(auth, config),
         HttpRouter.add(
           "POST",

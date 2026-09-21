@@ -1,3 +1,4 @@
+import { memorySourceStorage } from "@executor-js/sdk/testing";
 /** Stateless live queries must not allocate a cloud storage notification channel. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -25,6 +26,7 @@ for (const database of [undefined, {}]) {
           const observed: string[] = [];
           const executor = yield* createExecutor({
             storage,
+            sources: memorySourceStorage(),
             credentials,
             blobs: memoryBlobStore(),
             runtime: runtimeAdapter({

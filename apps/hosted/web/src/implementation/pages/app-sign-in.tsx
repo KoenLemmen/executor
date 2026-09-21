@@ -41,6 +41,18 @@ export function AppSignInPage({ request }: { readonly request: AppSignInId | und
 
 /** Optional action slot: products with app hosting render a normal link. */
 export function OpenAppAction({ app }: { readonly app: App }) {
+  return app.activeDeployment === null ? null : (
+    <DeployedOpenAppAction app={app} deployment={app.activeDeployment} />
+  );
+}
+
+function DeployedOpenAppAction({
+  app,
+  deployment,
+}: {
+  readonly app: App;
+  readonly deployment: NonNullable<App["activeDeployment"]>;
+}) {
   const { organization, slug } = useOrganizationRoute();
   const result = useAtomValue(
     appUiLocationAtom({
@@ -48,7 +60,7 @@ export function OpenAppAction({ app }: { readonly app: App }) {
       slug,
       app: app.id,
       appSlug: app.slug,
-      deployment: app.activeDeployment,
+      deployment,
     }),
   );
   if (AsyncResult.isFailure(result))

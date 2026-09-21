@@ -4,6 +4,8 @@ import {
   defaultScheduleWorkerOptions,
   ScheduleHostReady,
 } from "@executor-js/sdk/scheduling";
+import { gitRoutes } from "@executor-js/app-management";
+import { hostedAppGitAccess } from "@executor-js/hosted-server/app-management";
 /** Docker/Node composition edge. Runtime imports resolve only here. */
 import { readExecutorSkills } from "@executor-js/app-templates/executor";
 import { createServer } from "node:http";
@@ -104,7 +106,14 @@ export const selfHostRoutes = Effect.gen(function* () {
       mcpAuthorizationServer,
     ),
   ).pipe(HttpRouter.provideRequest(executorServices), HttpRouter.provideRequest(auth.mcpIdentity));
+  const authoring = gitRoutes.pipe(
+    HttpRouter.provideRequest(hostedAppGitAccess),
+    HttpRouter.provideRequest(executorServices),
+    Layer.provide(auth.identity),
+    Layer.provide(auth.apiIdentity),
+  );
   const productRoutes = Layer.mergeAll(
+    authoring,
     api,
     browserTelemetry.pipe(HttpRouter.provideRequest(auth.identity)),
     HttpRouter.add("*", "/api/webhooks/:appId/:subscriptionId", hostedWebhookCallback).pipe(

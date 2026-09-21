@@ -16,12 +16,15 @@
     "./migrations": "./src/implementation/migrations.ts",
     "./organization-icon": "./src/contracts/organization-icon.ts",
     "./browser": "./src/browser.ts",
-    "./browser/contracts": "./src/contracts/browser.ts"
+    "./browser/contracts": "./src/contracts/browser.ts",
+    "./app-management": "./src/app-management.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.5",
     "@better-auth/core": "1.7.5",
     "@better-auth/oauth-provider": "1.7.5",
+    "@executor-js/app-management": "workspace:*",
+    "@executor-js/app-registry": "workspace:*",
     "@executor-js/app-templates": "workspace:*",
     "@executor-js/authorization": "workspace:*",
     "@executor-js/catalog": "workspace:*",
@@ -33,5 +36,6 @@
     "apps": "workspace:*",
     "better-auth": "1.7.5",
     "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d"
-  }
+  },
+  "devDependencies": {}
 }

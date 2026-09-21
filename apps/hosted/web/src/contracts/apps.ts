@@ -69,7 +69,7 @@ const connectionQuery = Atom.family(
 /** Catalog installation, selection, connection and execution actions. */
 const activateApp = Atom.family((key: AppKey) =>
   HostedClient.runtime.fn(
-    (payload: { deployment: DeploymentId; expectedDeployment: DeploymentId }, get) =>
+    (payload: { deployment: DeploymentId; expectedDeployment: DeploymentId | null }, get) =>
       Effect.flatMap(HostedClient, (client) => client.apps.activate({ params: key, payload })).pipe(
         Effect.tap((saved) =>
           Effect.sync(() => {

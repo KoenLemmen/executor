@@ -1,8 +1,9 @@
+import { AppSectionHeader, AppSectionTitle } from "./app-section-header.tsx";
 import { useState, type ReactNode } from "react";
 import type { Tool } from "@executor-js/sdk";
 import { Option } from "effect";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { SourceCodeIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft02Icon, SourceCodeIcon } from "@hugeicons/core-free-icons";
 import type { QueryProps } from "../../contracts/dashboard.ts";
 import { QueryResult, useQuery } from "./context.tsx";
 import { Code, CopyButton } from "./code.tsx";
@@ -35,98 +36,209 @@ export function ToolBrowser<E>({
   const current = tools.find((tool) => tool.name === selected) ?? filtered[0];
   const inspecting = selected !== undefined && current?.name === selected;
   return (
-    <div
-      className={cn(
-        "tools-section flex flex-col flex-1 min-h-0 [&_>_*]:shrink-0",
-        inspecting && "is-inspecting",
-      )}
-    >
-      <div className="tool-back hidden max-[740px]:[.tools-section:not(.is-inspecting)_&]:hidden max-[740px]:[.is-inspecting_&]:inline-flex">
-        {back}
-      </div>
-      <div className="tool-toolbar flex gap-3 items-center mb-3.5 min-h-8.75 [&_>_button]:ml-auto max-[740px]:grid max-[740px]:grid-cols-[minmax(0,_1fr)_44px] max-[740px]:gap-[0_8px] max-[740px]:[.is-inspecting_&]:hidden">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search tools…" />
-        <span className="tool-count text-muted-foreground text-[11px] max-[740px]:whitespace-nowrap">
-          {Option.isSome(data)
-            ? `${filtered.length}${search ? ` of ${tools.length}` : ""} tools`
-            : "Live tools"}
-        </span>
-      </div>
+    <div className="tools-section flex min-h-0 flex-1 flex-col">
       <QueryResult
         result={result}
         Failure={Failure}
         retry={refresh}
-        pending={<ToolContentLoading />}
+        pending={
+          <ToolBrowserLoading
+            selected={selected}
+            searchControl={
+              <SearchInput value={search} onChange={setSearch} placeholder="Search tools…" />
+            }
+            back={back}
+          />
+        }
       >
         {() =>
           tools.length === 0 ? (
-            <Empty title="No tools">This app's live definition did not expose any tools.</Empty>
-          ) : filtered.length === 0 ? (
-            <Empty title="No matching tools">Search by name or description.</Empty>
-          ) : (
-            <div className="tool-browser border border-border rounded-[8px] overflow-hidden grid grid-cols-[minmax(230px,_0.83fr)_minmax(0,_1.17fr)] grid-rows-[minmax(0,_1fr)] flex-1 min-h-0 max-[1000px]:grid-cols-[minmax(200px,_0.9fr)_minmax(0,_1.1fr)] max-[740px]:grid-cols-1 max-[740px]:h-auto max-[740px]:min-h-0">
-              <div
-                className="tool-list overflow-y-auto border-r border-r-border bg-background max-[740px]:border-0 max-[740px]:[.is-inspecting_&]:hidden"
-                aria-label="App tools"
-              >
-                {filtered.map((tool) => (
-                  <button
-                    className={cn(
-                      "tool-row block text-left [padding:17px_17px_15px] w-full border-b border-b-border [transition:background_0.1s] hover:bg-muted max-[740px]:py-[17px] max-[740px]:px-[16px]",
-                      current?.name === tool.name &&
-                        "selected [.tool-row&]:bg-accent [.file-row&]:bg-accent",
-                    )}
-                    aria-pressed={current?.name === tool.name}
-                    key={tool.name}
-                    onClick={() => onSelect(tool.name)}
-                  >
-                    <span className="tool-row-title flex items-center gap-2 [&_svg]:text-muted-foreground [&_svg]:shrink-0 [&_code]:text-[11px] [&_code]:font-medium [&_code]:wrap-anywhere max-[740px]:[&_code]:text-[12px]">
-                      <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} aria-hidden size={14} />
-                      <code>{tool.name}</code>
-                    </span>
-                    <span className="tool-row-description [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden text-muted-foreground text-[12px] leading-[1.5] mt-1.25 max-[740px]:text-[13px]">
-                      {tool.description || "No description"}
-                    </span>
-                  </button>
-                ))}
+            <>
+              <AppSectionHeader>
+                <AppSectionTitle>Tools</AppSectionTitle>
+                <span className="text-muted-foreground">0</span>
+              </AppSectionHeader>
+              <div className="p-6">
+                <Empty title="No tools">This app's live definition did not expose any tools.</Empty>
               </div>
-              <div className="tool-detail min-w-0 overflow-auto py-[23px] px-[24px] max-[1000px]:py-[20px] max-[1000px]:px-[18px] max-[740px]:hidden max-[740px]:py-[18px] max-[740px]:px-[16px] max-[740px]:[.is-inspecting_&]:block">
-                {current && (
-                  <>
-                    <div className="tool-detail-heading flex items-start gap-2.25 [&_svg]:text-muted-foreground [&_svg]:shrink-0 [&_svg]:mt-0.5 [&_h2]:font-mono [&_h2]:text-[13px] [&_h2]:font-medium [&_h2]:wrap-anywhere [&_[data-slot='button']]:ml-auto">
-                      <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} aria-hidden size={17} />
-                      <h2>{current.name}</h2>
-                      <CopyButton code={current.name} label="Copy tool name" inline />
-                    </div>
-                    <ToolDescription key={current.name} description={current.description} />
-                    <div className="schema-label text-[11px] font-medium text-muted-foreground [margin:26px_0_10px]">
-                      Input schema
-                    </div>
-                    <Code
-                      code={JSON.stringify(current.inputSchema, null, 2)}
-                      copyable
-                      copyLabel="Copy input schema"
-                    />
-                    {current.outputSchema !== undefined && (
-                      <>
-                        <div className="schema-label text-[11px] font-medium text-muted-foreground [margin:26px_0_10px]">
-                          Output schema
-                        </div>
-                        <Code
-                          code={JSON.stringify(current.outputSchema, null, 2)}
-                          copyable
-                          copyLabel="Copy output schema"
+            </>
+          ) : (
+            <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)] overflow-hidden max-[740px]:grid-cols-1">
+              <aside
+                className={cn(
+                  "flex min-h-0 flex-col border-r bg-muted/15 max-[740px]:border-0",
+                  inspecting && "max-[740px]:hidden",
+                )}
+              >
+                <AppSectionHeader>
+                  <AppSectionTitle>Tools</AppSectionTitle>
+                  <span className="font-normal tabular-nums text-muted-foreground">
+                    {filtered.length}
+                    {search ? ` / ${tools.length}` : ""}
+                  </span>
+                </AppSectionHeader>
+                <div className="shrink-0 border-b p-2 [&_.search-field]:w-full">
+                  <SearchInput value={search} onChange={setSearch} placeholder="Search tools…" />
+                </div>
+                <nav
+                  aria-label="App tools"
+                  className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2"
+                >
+                  {filtered.length === 0 ? (
+                    <p className="px-2 py-4 text-xs text-muted-foreground">No matching tools.</p>
+                  ) : (
+                    filtered.map((tool) => (
+                      <button
+                        type="button"
+                        key={tool.name}
+                        title={tool.name}
+                        aria-pressed={current?.name === tool.name}
+                        onClick={() => onSelect(tool.name)}
+                        className={cn(
+                          "flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-ring max-[740px]:min-h-11",
+                          current?.name === tool.name && "bg-muted font-medium text-foreground",
+                        )}
+                      >
+                        <HugeiconsIcon
+                          icon={SourceCodeIcon}
+                          size={15}
+                          strokeWidth={1.7}
+                          className="shrink-0 text-muted-foreground"
+                          aria-hidden
                         />
-                      </>
-                    )}
-                    {renderAction?.(current)}
+                        <code className="truncate">{tool.name}</code>
+                      </button>
+                    ))
+                  )}
+                </nav>
+              </aside>
+              <div
+                className={cn(
+                  "tool-detail flex min-h-0 min-w-0 flex-col max-[740px]:hidden",
+                  inspecting && "max-[740px]:flex",
+                )}
+              >
+                {current ? (
+                  <>
+                    <AppSectionHeader>
+                      <div className="hidden shrink-0 max-[740px]:flex">{back}</div>
+                      <h2
+                        className="min-w-0 flex-1 truncate font-mono text-[13px] font-medium"
+                        title={current.name}
+                      >
+                        {current.name}
+                      </h2>
+                      <CopyButton code={current.name} label="Copy tool name" inline />
+                    </AppSectionHeader>
+                    <div className="min-h-0 flex-1 overflow-auto px-6 pb-6 max-[740px]:px-4">
+                      <ToolDescription key={current.name} description={current.description} />
+                      <div className="mb-2.5 mt-6 text-xs font-medium text-muted-foreground">
+                        Input schema
+                      </div>
+                      <Code
+                        code={JSON.stringify(current.inputSchema, null, 2)}
+                        copyable
+                        copyLabel="Copy input schema"
+                      />
+                      {current.outputSchema !== undefined && (
+                        <>
+                          <div className="mb-2.5 mt-6 text-xs font-medium text-muted-foreground">
+                            Output schema
+                          </div>
+                          <Code
+                            code={JSON.stringify(current.outputSchema, null, 2)}
+                            copyable
+                            copyLabel="Copy output schema"
+                          />
+                        </>
+                      )}
+                      {renderAction?.(current)}
+                    </div>
                   </>
+                ) : (
+                  <div className="p-6 text-sm text-muted-foreground">
+                    Choose a tool to inspect its schema.
+                  </div>
                 )}
               </div>
             </div>
           )
         }
       </QueryResult>
+    </div>
+  );
+}
+
+/** Retain the tool browser's list and detail geometry while its reads are pending. */
+export function ToolBrowserLoading({
+  label = "Loading tools",
+  selected,
+  searchControl,
+  back,
+}: {
+  readonly label?: string;
+  readonly selected?: string | undefined;
+  readonly searchControl?: ReactNode;
+  readonly back?: ReactNode;
+}) {
+  return (
+    <div
+      role="status"
+      aria-label={label}
+      className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)] max-[740px]:grid-cols-1"
+    >
+      <div
+        className={cn(
+          "border-r max-[740px]:border-r-0",
+          selected !== undefined && "max-[740px]:hidden",
+        )}
+      >
+        <AppSectionHeader>
+          <AppSectionTitle>Tools</AppSectionTitle>
+        </AppSectionHeader>
+        <div className="border-b p-2 [&_.search-field]:w-full">
+          {searchControl ?? <Skeleton className="h-8.75 w-full" />}
+        </div>
+        <div className="space-y-5 p-4" aria-hidden>
+          <Skeleton className="h-3 w-3/4" />
+          <Skeleton className="h-3 w-2/3" />
+          <Skeleton className="h-3 w-3/4" />
+        </div>
+      </div>
+      <div
+        className={cn("min-w-0 max-[740px]:hidden", selected !== undefined && "max-[740px]:block")}
+      >
+        <AppSectionHeader>
+          {selected !== undefined && (
+            <div className="hidden max-[740px]:block">
+              {back ?? (
+                <span className="inline-flex min-h-11 items-center gap-1.5 text-xs text-muted-foreground">
+                  <HugeiconsIcon icon={ArrowLeft02Icon} size={16} aria-hidden />
+                  All tools
+                </span>
+              )}
+            </div>
+          )}
+          {selected ? (
+            <AppSectionTitle className="min-w-0 flex-1 truncate font-mono">
+              {selected}
+            </AppSectionTitle>
+          ) : (
+            <Skeleton className="h-3 w-36" />
+          )}
+          <CopyButton code={undefined} label="Copy tool name" inline />
+        </AppSectionHeader>
+        <div aria-hidden className="min-w-0 px-6 pb-6 max-[740px]:px-4">
+          <Skeleton className="mt-3.5 h-5 w-3/4" />
+          <div className="mb-2.5 mt-6 text-xs font-medium text-muted-foreground">Input schema</div>
+          <div className="space-y-3 rounded-lg bg-muted p-4">
+            <Skeleton className="h-3 w-2/3" />
+            <Skeleton className="h-3 w-1/2" />
+            <Skeleton className="h-3 w-3/5" />
+          </div>
+        </div>
+      </div>
+      <span className="sr-only">{label}…</span>
     </div>
   );
 }
@@ -158,37 +270,6 @@ function ToolDescription({ description }: { readonly description: string }) {
           {expanded ? "Show less" : "Show more"}
         </Button>
       )}
-    </div>
-  );
-}
-
-/** Reserve the tool panel without predicting the result count or account requirements. */
-function ToolContentLoading({ label = "Loading tools" }: { readonly label?: string }) {
-  return (
-    <div
-      role="status"
-      aria-label={label}
-      className="flex flex-1 min-h-48 items-center justify-center rounded-lg border bg-muted/20"
-    >
-      <span className="text-xs text-muted-foreground">{label}…</span>
-    </div>
-  );
-}
-
-/** Keep the tools toolbar and panel footprint while app metadata is still unknown. */
-export function ToolBrowserLoading({ label = "Loading app" }: { readonly label?: string }) {
-  return (
-    <div className="tools-section flex flex-col flex-1 min-h-0">
-      <div
-        aria-hidden
-        className="flex items-center gap-3 mb-3.5 min-h-8.75 max-[740px]:grid max-[740px]:grid-cols-[minmax(0,_1fr)_44px] max-[740px]:gap-[0_8px]"
-      >
-        <Skeleton className="h-8.75 w-full max-w-85 rounded-md max-[740px]:h-11 max-[740px]:max-w-none max-[740px]:col-[1_/_-1]" />
-        <span className="text-muted-foreground text-[11px] max-[740px]:whitespace-nowrap">
-          Live tools
-        </span>
-      </div>
-      <ToolContentLoading label={label} />
     </div>
   );
 }

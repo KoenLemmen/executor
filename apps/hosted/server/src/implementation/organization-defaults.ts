@@ -1,4 +1,5 @@
 import type { HostedApiDocument } from "../contracts/api.ts";
+import { sourceFilesEqual } from "@executor-js/sdk/core";
 import {
   AccountId,
   AppId,
@@ -52,22 +53,19 @@ export const organizationDefaults = (
           const source = yield* defaultExecutorAppSource(origin, skills, document);
           const existing = (yield* executor.apps.list({ owner, name: "Executor" }))[0];
           if (existing === undefined) {
-            yield* executor.apps
-              .deploy({ owner, name: "Executor", files: source.files, createOnly: true })
-              .pipe(
-                Effect.catchTags({
-                  AppNameTaken: () => Effect.void,
-                  AppSlugTaken: () => Effect.void,
-                }),
-              );
+            yield* executor.apps.deploy({ owner, name: "Executor", files: source.files }).pipe(
+              Effect.catchTags({
+                AppNameTaken: () => Effect.void,
+                AppSlugTaken: () => Effect.void,
+              }),
+            );
           }
           const installed = (yield* executor.apps.list({ owner, name: "Executor" }))[0];
           if (installed === undefined) return yield* new StorageError();
           const installedSource = yield* executor.apps.source({ owner, app: installed.id });
-          const approved =
-            JSON.stringify(installedSource.files) === JSON.stringify(source.files)
-              ? installedSource.id
-              : null;
+          const approved = sourceFilesEqual(installedSource.files, source.files)
+            ? installedSource.id
+            : null;
           yield* sql`update "organization" set metadata = jsonb_set(
             coalesce(metadata::jsonb, '{}'::jsonb), '{executorDefaults}',
             jsonb_build_object('installed', true, 'app', ${installed.id}::text, 'deployment', ${approved}::text)
@@ -88,15 +86,18 @@ export const organizationDefaults = (
           const deployment = yield* executor.apps.source({ owner, app: app.id });
           if (deployment.id !== app.activeDeployment) return;
           const source = yield* defaultExecutorAppSource(origin, skills, document);
-          if (JSON.stringify(deployment.files) !== JSON.stringify(source.files)) {
+          if (!sourceFilesEqual(deployment.files, source.files)) {
             // Upgrade only the untouched, unconfigured catalog version. Preserve user edits and connections.
             if (Object.keys(app.accounts).length > 0) return;
             const catalog = yield* executorAppSource(origin, skills, document);
-            if (JSON.stringify(deployment.files) !== JSON.stringify(catalog.files)) return;
+            if (!sourceFilesEqual(deployment.files, catalog.files)) return;
+            const workspace = yield* executor.apps.workspace({ owner, app: app.id });
+            if (!sourceFilesEqual(workspace.files, deployment.files)) return;
             current = (yield* executor.apps.deploy({
               owner,
               app: app.id,
               expectedDeployment: app.activeDeployment,
+              expectedSource: workspace.revision.commit,
               files: source.files,
             })).app;
           }
@@ -137,7 +138,7 @@ export const organizationDefaults = (
         const token = saved === undefined ? yield* user.key : undefined;
         // Build/network work finished above. Only account creation or selection repair needs the lock.
         yield* storage
-          .orm("1.9.1")
+          .orm("1.12.0")
           .transaction(
             Effect.gen(function* () {
               const rows =
