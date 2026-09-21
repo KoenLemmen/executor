@@ -1,0 +1,355 @@
+import { reportCloudFailure } from "../implementation/error-reporting.ts";
+/** Cloud apps use account-isolated cached Workers; explicitly declared databases run in facets. */
+import { appRpcBridge, appFacetBridge } from "../implementation/app-bridge.ts";
+import {
+  AppRpcEntrypoint,
+  AppRpcInvocation,
+  invocationElicitation,
+} from "../implementation/elicitation.ts";
+import { forwardTelemetry, TelemetryBatch, traceHeaders } from "@executor-js/telemetry";
+import {
+  BuildId,
+  Json,
+  RuntimeBuildFailed,
+  RuntimeProtocolFailed,
+  runtimeAdapter,
+} from "@executor-js/sdk/core";
+import {
+  HostRequirementsError,
+  HostInspectError,
+  HostCallError,
+  DeclaredRequirements,
+  HostedTool,
+  HostResponse,
+  type HostContext,
+  type HostRequest,
+} from "apps/contracts";
+import { RuntimeContext } from "alchemy";
+import * as Cloudflare from "alchemy/Cloudflare";
+import { Effect, Option, Redacted, Result, Schema, Scope } from "effect";
+import { facetIdentity } from "@executor-js/app-data/cloudflare";
+import type { AppDataSupervisor } from "./app-data.ts";
+import { dataChanges } from "../implementation/data-changes.ts";
+import type { DurableObjectNamespace } from "@cloudflare/workers-types";
+import type { CloudBundle } from "../contracts/builds.ts";
+import { CompiledCloudApp } from "../contracts/builds.ts";
+import { AppCompiler } from "./compiler.ts";
+import {
+  loadCloudBuild,
+  retainCloudBuild,
+  cloudBuildAsset,
+} from "../implementation/build-storage.ts";
+
+/** Keep the underlying failure beside the public error so the build span can report it. */
+const causes = new WeakMap<object, string>();
+const causeOf = (error: unknown) =>
+  (typeof error === "object" && error !== null ? causes.get(error) : undefined) ?? "";
+const describe = (cause: unknown) =>
+  cause instanceof Error
+    ? `${cause.name}: ${cause.message}`
+    : (JSON.stringify(cause) ?? String(cause));
+const protocolFailed = (cause: unknown) => {
+  const error = new RuntimeProtocolFailed();
+  causes.set(error, describe(cause));
+  return error;
+};
+const failed = (stage: RuntimeBuildFailed["stage"], cause: unknown) => {
+  const error = new RuntimeBuildFailed({ stage });
+  causes.set(
+    error,
+    cause instanceof Error
+      ? `${cause.name}: ${cause.message}`
+      : (JSON.stringify(cause) ?? String(cause)),
+  );
+  return error;
+};
+
+/** Native Alchemy bindings are resolved once; actual work belongs to the current invocation. */
+export const cloudRuntime = Effect.fn(function* (
+  databases: Cloudflare.DurableObject<AppDataSupervisor>,
+) {
+  const loader = yield* Cloudflare.WorkerLoader("AppLoader");
+  const compiler = yield* Cloudflare.Workers.bindWorker(AppCompiler);
+  const environment = yield* Cloudflare.WorkerEnvironment;
+  return Effect.gen(function* () {
+    const scope = yield* Scope.Scope;
+    const collect = (body: unknown, build?: BuildId, owner: Scope.Scope = scope) =>
+      Effect.gen(function* () {
+        // Telemetry is an additive transport field. Retained builds keep their original protocol.
+        const collected = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({ telemetry: Schema.optional(TelemetryBatch) }),
+        )(body).pipe(Effect.result);
+        if (Result.isFailure(collected)) yield* Effect.logWarning(collected.failure);
+        if (Result.isSuccess(collected) && collected.success.telemetry !== undefined) {
+          const span = yield* Effect.currentSpan.pipe(Effect.option);
+          const batch = collected.success.telemetry;
+          if (Option.isSome(span))
+            yield* Effect.addFinalizer(() =>
+              forwardTelemetry(batch, span.value.traceId, build).pipe(
+                Effect.catch((error) => Effect.logWarning(error)),
+              ),
+            ).pipe(Effect.provideService(Scope.Scope, owner));
+        }
+      });
+    const dispatch = <A, E>(
+      bundle: CloudBundle,
+      command: HostRequest,
+      context: HostContext,
+      schema: Schema.Decoder<A>,
+      error: Schema.Decoder<E>,
+      build: BuildId,
+      identity: string,
+    ) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const lifetime = yield* Effect.acquireRelease(
+            Effect.sync(() => new AbortController()),
+            (controller) => Effect.sync(() => controller.abort()),
+          );
+          // The identity includes app, build and current credentials. Reuse never crosses account contexts.
+          const worker = yield* loader.get(identity, () => ({
+            mainModule: "__executor_rpc.js",
+            modules: { ...bundle.modules, "__executor_rpc.js": appRpcBridge(bundle.mainModule) },
+            compatibilityDate: "2026-07-30",
+            // Same-zone URLs must use their public Worker routes, not the underlying origin.
+            compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
+          }));
+          // Workers RPC structured-clones its arguments; Effect headers carry a prototype it rejects.
+          const headers = Object.fromEntries(Object.entries(yield* traceHeaders));
+          // Native RPC carries the live callback; the fetch payload remains the existing portable protocol.
+          const entrypoint = yield* Schema.decodeUnknownEffect(AppRpcEntrypoint)(
+            worker.getEntrypoint().raw,
+          ).pipe(Effect.mapError((cause) => protocolFailed(cause)));
+          const invocation = yield* Effect.acquireRelease(
+            Effect.tryPromise({
+              try: () =>
+                entrypoint.start(
+                  JSON.stringify({
+                    command,
+                    accounts: Redacted.value(context.accounts),
+                    approval: context.approval,
+                  }),
+                  headers,
+                  context.elicitation === undefined
+                    ? null
+                    : invocationElicitation(context.elicitation, lifetime.signal),
+                ),
+              catch: protocolFailed,
+            }).pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(AppRpcInvocation)),
+              Effect.mapError(protocolFailed),
+            ),
+            (call) =>
+              Effect.promise(async () => {
+                try {
+                  await call.cancel();
+                } finally {
+                  call[Symbol.dispose]();
+                }
+              }).pipe(Effect.catchCause(() => Effect.void)),
+          );
+          const body = yield* Effect.tryPromise({
+            try: () => invocation.result(),
+            catch: protocolFailed,
+          });
+          yield* collect(body, build);
+          const envelope = yield* Schema.decodeUnknownEffect(HostResponse)(body).pipe(
+            Effect.mapError((cause) => protocolFailed(cause)),
+          );
+          if (!envelope.ok)
+            return yield* Schema.decodeUnknownEffect(error)(envelope.error).pipe(
+              Effect.mapError((cause) => protocolFailed(cause)),
+              Effect.flatMap(Effect.fail),
+            );
+          return yield* Schema.decodeUnknownEffect(schema)(envelope.value).pipe(
+            Effect.mapError((cause) => protocolFailed(cause)),
+          );
+        }),
+      ).pipe(
+        Effect.provide(RuntimeContext.phantom),
+        Effect.catchDefect((defect) => Effect.fail(protocolFailed(defect))),
+        Effect.tapCause(reportCloudFailure),
+        Effect.tapError((error) =>
+          Effect.annotateCurrentSpan({ "dispatch.cause": causeOf(error) }),
+        ),
+      );
+    const load = (build: BuildId) =>
+      loadCloudBuild(build).pipe(Effect.provide(RuntimeContext.phantom));
+    const data = (
+      command: Extract<
+        HostRequest,
+        {
+          operation:
+            | "query"
+            | "mutate"
+            | "call"
+            | "webhook-complete"
+            | "webhook-validate"
+            | "webhooks"
+            | "webhook-register"
+            | "webhook-handle"
+            | "webhook-unregister";
+        }
+      >,
+      input: { readonly app: string; readonly build: BuildId } & HostContext,
+    ) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const invocationScope = yield* Scope.Scope;
+          if (input.storage !== undefined) return yield* new RuntimeProtocolFailed();
+          const { database, ...bundle } = yield* load(input.build);
+          const identity = yield* facetIdentity(
+            input.build,
+            JSON.stringify(Redacted.value(input.accounts)),
+          );
+          yield* Effect.annotateCurrentSpan({
+            "executor.runtime.mode": database ? "facet" : "worker",
+            "executor.worker.identity": `${input.app}:${identity}`,
+          });
+          if (!database)
+            return yield* dispatch(
+              bundle,
+              command,
+              input,
+              Json,
+              HostCallError,
+              input.build,
+              `${input.app}:${identity}`,
+            );
+          const lifetime = yield* Effect.acquireRelease(
+            Effect.sync(() => new AbortController()),
+            (controller) => Effect.sync(() => controller.abort()),
+          );
+          const target = databases.getByName(input.app);
+          const id = crypto.randomUUID();
+          const body = yield* target
+            .invoke(
+              {
+                id,
+                identity,
+                bundle: {
+                  ...bundle,
+                  mainModule: "__executor_facet.js",
+                  modules: {
+                    ...bundle.modules,
+                    "__executor_facet.js": appFacetBridge(bundle.mainModule),
+                  },
+                },
+                write:
+                  command.operation === "mutate" ||
+                  (command.operation === "call" && command.tool.startsWith("mutations.")),
+                body: JSON.stringify({
+                  command,
+                  approval: input.approval,
+                  accounts: Redacted.value(input.accounts),
+                }),
+                headers: Object.fromEntries(Object.entries(yield* traceHeaders)),
+              },
+              input.elicitation === undefined
+                ? null
+                : invocationElicitation(input.elicitation, lifetime.signal),
+            )
+            .pipe(
+              Effect.onInterrupt(() => target.cancel(id).pipe(Effect.catch(() => Effect.void))),
+            );
+          yield* collect(body, input.build, invocationScope);
+          const envelope = yield* Schema.decodeUnknownEffect(HostResponse)(body);
+          if (!envelope.ok)
+            return yield* Schema.decodeUnknownEffect(HostCallError)(envelope.error).pipe(
+              Effect.flatMap(Effect.fail),
+            );
+          return yield* Schema.decodeUnknownEffect(Json)(envelope.value);
+        }),
+      ).pipe(
+        Effect.provide(RuntimeContext.phantom),
+        Effect.catchTags({
+          SchemaError: () => Effect.fail(new RuntimeProtocolFailed()),
+          AppDatabaseError: () => Effect.fail(new RuntimeProtocolFailed()),
+        }),
+      );
+    return runtimeAdapter({
+      asset: ({ build, path }) =>
+        cloudBuildAsset(build, path).pipe(Effect.provide(RuntimeContext.phantom)),
+      build: ({ files }) =>
+        Effect.gen(function* () {
+          const headers = Object.fromEntries(Object.entries(yield* traceHeaders));
+          const { bundle, ui } = yield* compiler.compile(files, headers).pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(CompiledCloudApp)),
+            Effect.catchTag("SchemaError", (cause) => Effect.fail(failed("compile", cause))),
+          );
+          const build = BuildId.make(`bld_${crypto.randomUUID()}`);
+          const requirements = yield* dispatch(
+            bundle,
+            { operation: "requirements" },
+            { accounts: Redacted.make({}) },
+            DeclaredRequirements,
+            HostRequirementsError,
+            build,
+            `declaration:${build}`,
+          ).pipe(Effect.mapError((cause) => failed("declaration", cause)));
+          const assets = yield* retainCloudBuild(
+            build,
+            {
+              ...bundle,
+              database: requirements.database !== undefined,
+            },
+            ui,
+          ).pipe(Effect.provide(RuntimeContext.phantom));
+          return { build, requirements, ...(assets === undefined ? {} : { ui: assets }) };
+        }).pipe(
+          // The failing stage and its cause belong on the span; the public error stays small.
+          Effect.tapError((error) =>
+            Effect.annotateCurrentSpan({
+              "build.stage": error.stage,
+              "build.cause": causeOf(error),
+            }),
+          ),
+          Effect.withSpan("runtime.cloud.build"),
+        ),
+      inspect: ({ app, build, ...context }) =>
+        Effect.gen(function* () {
+          const { database: _database, ...bundle } = yield* load(build);
+          const identity = `${app}:${yield* facetIdentity(build, JSON.stringify(Redacted.value(context.accounts))).pipe(Effect.mapError(protocolFailed))}`;
+          yield* Effect.annotateCurrentSpan({
+            "executor.runtime.mode": "worker",
+            "executor.worker.identity": identity,
+          });
+          return yield* dispatch(
+            bundle,
+            { operation: "inspect" },
+            context,
+            Schema.Array(HostedTool),
+            HostInspectError,
+            build,
+            identity,
+          );
+        }).pipe(Effect.withSpan("runtime.cloud.inspect")),
+      webhook: (input) => data(input.command, input),
+      call: (input) =>
+        data({ operation: "call", tool: input.tool, input: input.input }, input).pipe(
+          Effect.withSpan("runtime.cloud.call"),
+        ),
+      query: (input) =>
+        data({ operation: "query", name: input.name, input: input.input }, input).pipe(
+          Effect.withSpan("runtime.cloud.query"),
+        ),
+      mutate: (input) =>
+        data({ operation: "mutate", name: input.name, input: input.input }, input).pipe(
+          Effect.withSpan("runtime.cloud.mutate"),
+        ),
+      changes: (app) => {
+        // Native fetch retains the upgrade response; Alchemy's typed HTTP stub omits it.
+        const namespace = Schema.decodeUnknownSync(
+          Schema.declare(
+            (value): value is Pick<DurableObjectNamespace, "getByName"> =>
+              typeof value === "object" &&
+              value !== null &&
+              "getByName" in value &&
+              typeof value.getByName === "function",
+          ),
+        )(environment.AppDataSupervisor);
+        return dataChanges(namespace, app);
+      },
+    });
+  });
+});

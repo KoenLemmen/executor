@@ -1,0 +1,32 @@
+/* Compile with the deploy helper before the SDK bundles the authored UI. */
+@layer theme, base, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "./main.tsx";
+
+@layer base {
+  :root {
+    font-family:
+      Inter,
+      ui-sans-serif,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+    color: #232321;
+    background: #fafaf8;
+    font-synthesis: none;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+  }
+  button {
+    font: inherit;
+  }
+  input {
+    font: inherit;
+  }
+}

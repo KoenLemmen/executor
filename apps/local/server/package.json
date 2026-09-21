@@ -1,0 +1,41 @@
+{
+  "name": "@executor-js/local-server",
+  "private": true,
+  "bin": {
+    "executor": "./src/bin.ts"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./contracts": "./src/contracts/dashboard.ts",
+    "./account-connections": "./src/contracts/account-connections.ts",
+    "./webhook-setup": "./src/contracts/webhook-setup.ts",
+    "./auth": "./src/contracts/auth.ts",
+    "./node": "./src/node.ts",
+    "./app-ui": "./src/contracts/app-ui.ts"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test:mcp": "node --test test/mcp.test.ts"
+  },
+  "dependencies": {
+    "@effect/platform-node": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
+    "@effect/sql-pglite": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-pglite@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
+    "@executor-js/app-templates": "workspace:*",
+    "@executor-js/catalog": "workspace:*",
+    "@executor-js/devtools": "workspace:*",
+    "@executor-js/mcp": "workspace:*",
+    "@executor-js/mcp-auth": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
+    "@executor-js/telemetry": "workspace:*",
+    "apps": "workspace:*",
+    "better-auth": "1.7.5",
+    "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
+    "fumadb-effect": "workspace:*"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "graphql": "16.11.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.3"
+  }
+}

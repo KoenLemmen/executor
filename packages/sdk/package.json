@@ -1,0 +1,34 @@
+{
+  "name": "@executor-js/sdk",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts",
+    "./node/migrate": "./src/node-migrate.ts",
+    "./core": "./src/core.ts",
+    "./blobs": "./src/blobs.ts",
+    "./ui-build": "./src/ui-build.ts",
+    "./skill-source": "./src/skill-source.ts"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
+    "@effect/platform-node": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
+    "@executor-js/app-data": "workspace:*",
+    "@executor-js/reactivity": "workspace:*",
+    "@executor-js/telemetry": "workspace:*",
+    "ajv": "^8.17.1",
+    "apps": "workspace:*",
+    "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
+    "esbuild": "0.28.2",
+    "fumadb-effect": "workspace:*",
+    "oauth4webapi": "3.8.8",
+    "parse5": "8.0.0",
+    "tar": "7.5.22",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@effect/sql-pglite": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-pglite@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d"
+  }
+}

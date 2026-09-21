@@ -1,0 +1,334 @@
+/** Snapshot the configured app, then execute with its selected credentials. */
+import { type Crypto, Effect, Match, Redacted, Result, Schema } from "effect";
+import type { AppDatabases } from "@executor-js/app-data";
+import { bindAppStorage } from "./app-database.ts";
+import { HostToolApprovalRequired, type ResolvedAccounts } from "apps/contracts";
+import { AccountRequired } from "../contracts/apps.ts";
+import type { Executor } from "../contracts/executor.ts";
+import type { Runtime } from "../contracts/runtime.ts";
+import {
+  Cursor,
+  ToolName,
+  Json,
+  RequestInvalid,
+  StorageError,
+  type AppId,
+  type DeploymentId,
+} from "../contracts/shared.ts";
+import type { makeOAuth } from "./oauth.ts";
+import {
+  AppEvaluationFailed,
+  InputInvalid,
+  ToolCallFailed,
+  ToolNotFound,
+  ToolBlocked,
+  ToolApprovalRequired,
+  ToolPolicyFailed,
+  ToolElicitationFailed,
+  ToolInvocation,
+  ToolInputs,
+  type ToolInvocationOptions,
+  type ToolResumeResult,
+} from "../contracts/tools.ts";
+import type { ExecutorDatabase } from "./storage.ts";
+import type { Credentials } from "../contracts/storage.ts";
+import { makeToolApprovals } from "./tool-approvals.ts";
+import { storedAccount } from "./accounts.ts";
+import { storedApp, storedDeployment } from "./apps.ts";
+import { database, transaction, type Query } from "./database.ts";
+import { validateSelection } from "./selection.ts";
+
+/** Resolve one consistent app/deployment/account selection before invoking authored code. */
+export function snapshot(
+  db: Query,
+  input: { app: AppId; deployment?: DeploymentId | undefined },
+  savedAccounts?: import("../contracts/apps.ts").SelectedAccounts,
+) {
+  return transaction(db, (tx) =>
+    Effect.gen(function* () {
+      const app = yield* storedApp(tx, input);
+      const deployment = yield* storedDeployment(tx, app, input.deployment);
+      const bindings = savedAccounts ?? app.accounts;
+      yield* validateSelection(tx, app.id, deployment.requirements, bindings);
+      const selections = yield* Effect.forEach(
+        Object.entries(deployment.requirements.accounts),
+        ([slot, required]) =>
+          Effect.gen(function* () {
+            const selected = Object.hasOwn(bindings, slot) ? bindings[slot] : undefined;
+            if (selected === undefined)
+              return yield* Effect.fail(
+                new AccountRequired({ app: app.id, deployment: deployment.id, slot }),
+              );
+            const accounts = yield* Effect.forEach(
+              typeof selected === "string" ? [selected] : selected,
+              (id) => storedAccount(tx, id),
+            );
+            return { slot, required, accounts };
+          }),
+      );
+      return { app, deployment, selections };
+    }),
+  );
+}
+
+/** Resolve current credentials without holding a database transaction open. */
+export function resolve(
+  state: Effect.Success<ReturnType<typeof snapshot>>,
+  resolveAccount: ReturnType<typeof makeOAuth>["resolve"],
+) {
+  return Effect.gen(function* () {
+    const selections = new Map<string, ResolvedAccounts[string]>();
+    for (const { slot, required, accounts } of state.selections) {
+      const resolved = yield* Effect.forEach(accounts, (account) =>
+        resolveAccount(account, required.definition).pipe(
+          Effect.map((fields) => ({
+            id: account.id,
+            provider: required.definition,
+            method: account.method,
+            fields: Redacted.value(fields),
+          })),
+        ),
+      );
+      if (required.cardinality === "many") selections.set(slot, resolved);
+      else {
+        const account = resolved[0];
+        if (account === undefined)
+          return yield* Effect.fail(
+            new AccountRequired({ app: state.app.id, deployment: state.deployment.id, slot }),
+          );
+        selections.set(slot, account);
+      }
+    }
+    return { accounts: Redacted.make(Object.fromEntries(selections)) };
+  });
+}
+
+type Snapshot = Effect.Success<ReturnType<typeof snapshot>>;
+
+function invocation(state: Snapshot, tool: ToolName, input: Json) {
+  return Schema.decodeUnknownEffect(ToolInvocation)({
+    app: state.app.id,
+    owner: state.app.owner,
+    deployment: state.deployment.id,
+    tool,
+    input,
+    accounts: Object.fromEntries(
+      state.selections.map(({ slot, required, accounts }) => {
+        const identities = accounts.map(({ id, owner, provider, method }) => ({
+          id,
+          owner,
+          provider,
+          method,
+        }));
+        return [slot, required.cardinality === "many" ? identities : identities[0]];
+      }),
+    ),
+  }).pipe(Effect.mapError(() => new StorageError()));
+}
+
+const runtimeFailure = (identity: { app: AppId; deployment: DeploymentId; tool: ToolName }) =>
+  Match.type<
+    Effect.Error<ReturnType<Runtime["call"] | Runtime["query"] | Runtime["mutate"]>>
+  >().pipe(
+    Match.tagsExhaustive({
+      ElicitationFailed: ({ reason }) => new ToolElicitationFailed({ ...identity, reason }),
+      HostToolNotFound: () => new ToolNotFound(identity),
+      HostOperationNotFound: () => new ToolNotFound(identity),
+      HostOperationFailed: () =>
+        new ToolCallFailed({ ...identity, reason: "Operation execution failed" }),
+      HostInputInvalid: () =>
+        new InputInvalid({ ...identity, problems: ["Input did not match the tool schema"] }),
+      HostToolBlocked: () => new ToolBlocked(identity),
+      HostToolApprovalRequired: () => new ToolApprovalRequired(identity),
+      HostToolPolicyFailed: () => new ToolPolicyFailed(identity),
+      HostOutputInvalid: () => new ToolCallFailed({ ...identity, reason: "Tool execution failed" }),
+      HostRequestInvalid: () =>
+        new AppEvaluationFailed({ ...identity, reason: "App evaluation failed" }),
+      HostAccountsInvalid: () =>
+        new AppEvaluationFailed({ ...identity, reason: "App evaluation failed" }),
+      HostDeclarationInvalid: () =>
+        new AppEvaluationFailed({ ...identity, reason: "App evaluation failed" }),
+      HostEvaluationFailed: () =>
+        new AppEvaluationFailed({ ...identity, reason: "App evaluation failed" }),
+      RuntimeBuildUnavailable: () =>
+        new AppEvaluationFailed({ ...identity, reason: "App evaluation failed" }),
+      RuntimeProtocolFailed: () =>
+        new AppEvaluationFailed({ ...identity, reason: "App evaluation failed" }),
+    }),
+  );
+
+/** Live calls return completion or a durable approval request. Resume trusts the supplied SDK decision. */
+export const makeTools = (
+  storage: ExecutorDatabase,
+  resolveAccount: ReturnType<typeof makeOAuth>["resolve"],
+  runtime: Runtime,
+  credentials: Credentials,
+  crypto: Crypto.Crypto,
+  appStorage?: AppDatabases,
+) => {
+  const db = database(storage);
+  const approvals = makeToolApprovals(db, credentials, crypto, storage.reactivity.inTransaction);
+  return {
+    list: (input: Parameters<Executor["tools"]["list"]>[0]) =>
+      Effect.gen(function* () {
+        const state = yield* snapshot(db, input).pipe(Effect.withSpan("sdk.invocation.snapshot"));
+        const context = yield* resolve(state, resolveAccount).pipe(
+          Effect.withSpan("sdk.accounts.resolve"),
+        );
+        yield* Effect.annotateCurrentSpan({
+          "executor.app.id": state.app.id,
+          "executor.deployment.id": state.deployment.id,
+          "executor.build.id": state.deployment.build,
+        });
+        const tools = yield* runtime
+          .inspect({ app: state.app.id, build: state.deployment.build, ...context })
+          .pipe(
+            Effect.mapError(
+              () =>
+                new AppEvaluationFailed({
+                  app: state.app.id,
+                  deployment: state.deployment.id,
+                  reason: "App evaluation failed",
+                }),
+            ),
+          );
+        const sorted = [...tools]
+          .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+          .filter((tool) => input.cursor === undefined || tool.name > input.cursor);
+        const selected = sorted.slice(0, input.limit ?? 2_000);
+        const last = selected.at(-1);
+        return {
+          deployment: state.deployment.id,
+          items: selected.map((tool) => ({
+            ...tool,
+            app: state.app.id,
+            deployment: state.deployment.id,
+            name: ToolName.make(tool.name),
+          })),
+          ...(last !== undefined && sorted.length > selected.length
+            ? { next: Cursor.make(last.name) }
+            : {}),
+        };
+      }).pipe(Effect.withSpan("sdk.tools.list")),
+    call: (input: Parameters<Executor["tools"]["call"]>[0], options?: ToolInvocationOptions) =>
+      Effect.gen(function* () {
+        if (yield* storage.reactivity.inTransaction) return yield* new RequestInvalid();
+        const parsed = yield* Schema.decodeUnknownEffect(ToolInputs.call)(input).pipe(
+          Effect.mapError(() => new RequestInvalid()),
+        );
+        // Round-trip before any async lookup: later caller mutations cannot change the dispatched or saved arguments.
+        const args = yield* Schema.encodeEffect(Schema.fromJsonString(Json))(
+          parsed.input === undefined ? {} : parsed.input,
+        ).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(Json))),
+          Effect.mapError(() => new RequestInvalid()),
+        );
+        const state = yield* snapshot(db, parsed).pipe(Effect.withSpan("sdk.invocation.snapshot"));
+        const context = yield* resolve(state, resolveAccount).pipe(
+          Effect.withSpan("sdk.accounts.resolve"),
+        );
+        const identity = { app: state.app.id, deployment: state.deployment.id, tool: parsed.tool };
+        yield* Effect.annotateCurrentSpan({
+          "executor.app.id": state.app.id,
+          "executor.deployment.id": state.deployment.id,
+          "executor.build.id": state.deployment.build,
+          "executor.tool.name": parsed.tool,
+        });
+        const result = yield* runtime
+          .call({
+            app: state.app.id,
+            ...(yield* bindAppStorage(appStorage, state.app.id)),
+            build: state.deployment.build,
+            ...context,
+            tool: parsed.tool,
+            input: args,
+            ...(options?.elicitation === undefined ? {} : { elicitation: options.elicitation }),
+          })
+          .pipe(Effect.result);
+        if (Result.isSuccess(result))
+          return { status: "completed" as const, value: result.success };
+        if (Schema.is(HostToolApprovalRequired)(result.failure)) {
+          return yield* approvals.save(
+            yield* invocation(state, parsed.tool, result.failure.input),
+            args,
+            result.failure.elicitation,
+          );
+        }
+        return yield* Effect.fail(runtimeFailure(identity)(result.failure));
+      }).pipe(Effect.withSpan("sdk.tools.call")),
+    pruneApprovals: (input: Parameters<Executor["tools"]["pruneApprovals"]>[0] = {}) =>
+      Schema.decodeUnknownEffect(ToolInputs.pruneApprovals)(input)
+        .pipe(
+          Effect.mapError(() => new RequestInvalid()),
+          Effect.flatMap(({ owner }) => approvals.prune(owner)),
+        )
+        .pipe(Effect.withSpan("sdk.tools.pruneApprovals")),
+    resume: (input: Parameters<Executor["tools"]["resume"]>[0], options?: ToolInvocationOptions) =>
+      Schema.decodeUnknownEffect(ToolInputs.resume)(input, { onExcessProperty: "error" })
+        .pipe(
+          Effect.mapError(() => new RequestInvalid()),
+          Effect.flatMap((input) =>
+            approvals.resume(input, (saved, originalInput) =>
+              Effect.gen(function* () {
+                const checked = yield* snapshot(db, {
+                  app: saved.app,
+                  deployment: saved.deployment,
+                }).pipe(
+                  Effect.withSpan("sdk.invocation.snapshot"),
+                  Effect.flatMap((state) =>
+                    invocation(state, saved.tool, saved.input).pipe(
+                      Effect.map((current) => ({ state, current })),
+                    ),
+                  ),
+                  Effect.result,
+                );
+                if (
+                  Result.isFailure(checked) ||
+                  !Schema.toEquivalence(ToolInvocation)(saved, checked.success.current)
+                ) {
+                  return {
+                    status: "failed",
+                    requestId: input.requestId,
+                    reason: "context-changed",
+                  } satisfies ToolResumeResult;
+                }
+                return yield* Effect.gen(function* () {
+                  yield* Effect.annotateCurrentSpan({
+                    "executor.app.id": saved.app,
+                    "executor.deployment.id": saved.deployment,
+                    "executor.build.id": checked.success.state.deployment.build,
+                    "executor.tool.name": saved.tool,
+                    "executor.approval.id": input.requestId,
+                  });
+                  const context = yield* resolve(checked.success.state, resolveAccount).pipe(
+                    Effect.withSpan("sdk.accounts.resolve"),
+                  );
+                  const value = yield* runtime.call({
+                    app: saved.app,
+                    ...(yield* bindAppStorage(appStorage, saved.app)),
+                    build: checked.success.state.deployment.build,
+                    ...context,
+                    tool: saved.tool,
+                    input: originalInput,
+                    approval: { tool: saved.tool, input: saved.input },
+                    ...(options?.elicitation === undefined
+                      ? {}
+                      : { elicitation: options.elicitation }),
+                  });
+                  return { status: "completed" as const, value };
+                }).pipe(
+                  Effect.catch(() =>
+                    Effect.succeed({
+                      status: "failed" as const,
+                      requestId: input.requestId,
+                      reason: "execution-failed" as const,
+                    }),
+                  ),
+                );
+              }),
+            ),
+          ),
+        )
+        .pipe(Effect.withSpan("sdk.tools.resume")),
+  };
+};

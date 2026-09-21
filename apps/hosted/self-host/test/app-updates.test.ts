@@ -1,0 +1,360 @@
+import { OrganizationId as ReferenceOrganizationId } from "@executor-js/hosted-server";
+/** Hosted source/update/activation through real HTTP contracts, PGlite and Node-built apps. */
+import { WebhookSubscription, WebhookSetupView } from "@executor-js/sdk/core";
+import { OpenApi } from "effect/unstable/httpapi";
+import { HostedApi } from "@executor-js/hosted-server/contracts";
+import { memoryBlobStore } from "@executor-js/sdk/blobs";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Effect, FileSystem, Layer, Redacted, Ref, Schema } from "effect";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { pgliteLayer } from "fumadb-effect/pglite";
+import {
+  AppNotFound,
+  AppDeploymentChanged,
+  DeploymentBuildFailed,
+  DeploymentNotFound,
+  App,
+  Deployment,
+  DeploymentSummary,
+  OwnerId,
+  aesGcmCredentials,
+  createExecutor,
+  makeExecutorStorage,
+} from "@executor-js/sdk/core";
+import { nodeRuntime } from "@executor-js/sdk/node";
+import {
+  OrganizationDefaults,
+  Authentication,
+  ApiAuthentication,
+  HostedCatalog,
+  HostedExecutor,
+  requireOrganizationLive,
+  requireUserLive,
+  OrganizationIcons,
+  makeOrganizationIcons,
+} from "@executor-js/hosted-server";
+import { Principal } from "../../server/src/contracts/auth.ts";
+import { selfHostApi } from "../src/implementation/api.ts";
+
+const origin = "http://localhost:4400";
+const source = (version: string) =>
+  [
+    {
+      path: "index.ts",
+      content: `import { query, mutation, defineApp, defineProvider, secrets, object, string } from "apps";
+const service = defineProvider({ name: "Fixture", auth: { key: secrets({ label: "Key", fields: object({ token: string() }) }) } });
+export default defineApp({ accounts: { service } }, async (appContext) => {
+    const { accounts } = appContext;
+    return ({
+        name: "Fixture", webhooks: { manual: { account: "service", config: object({}), state: object({}), setup: { instructions: "Configure the provider.", signingSecret: "executor" }, async handle() { return new Response(null, {status: 204}); } } }, mutations: { version: mutation({ description: "Version",
+                input: object({}) }, async (operationContext, _input) => {
+                return ({ version: "${version}", account: accounts.service.id });
+            }) }
+    });
+});
+`,
+    },
+  ] as const;
+
+test(
+  "hosted apps update and roll back without losing accounts, and reject unauthorized or stale changes",
+  { timeout: 60_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const directory = yield* fs.makeTempDirectoryScoped({ prefix: "hosted-app-updates-" });
+          const storage = yield* makeExecutorStorage({ provider: "postgresql" });
+          yield* storage.migrate;
+          const credentials = yield* aesGcmCredentials(Redacted.make("ab".repeat(32)), crypto);
+          const executor = yield* createExecutor({
+            webhookOrigin: origin,
+            blobs: memoryBlobStore(),
+            storage,
+            credentials,
+            runtime: nodeRuntime({ workDirectory: directory }),
+          });
+          const role = yield* Ref.make<"admin" | "member">("admin");
+          const signedIn = yield* Ref.make(true);
+          const principal = Schema.decodeUnknownSync(Principal)({
+            userId: "fixture",
+            sessionId: "fixture",
+            name: "Fixture",
+          });
+          const auth = Layer.succeed(Authentication, {
+            apiKey: () => Effect.die("API key creation is outside this fixture"),
+            origin,
+            organization: (reference) => Effect.succeed(ReferenceOrganizationId.make(reference)),
+            organizationSlug: () => Effect.succeed("alpha"),
+            current: () => Ref.get(signedIn).pipe(Effect.map((yes) => (yes ? principal : null))),
+            membership: () =>
+              Ref.get(role).pipe(Effect.map((role) => ({ role, headers: new Headers() }))),
+            removeOrganization: () => Effect.die("Organization removal is outside this fixture"),
+          });
+          const routes = selfHostApi.pipe(
+            HttpRouter.provideRequest(Layer.succeed(HostedExecutor, Effect.succeed(executor))),
+            HttpRouter.provideRequest(Layer.succeed(OrganizationDefaults, () => Effect.void)),
+            HttpRouter.provideRequest(
+              Layer.succeed(HostedCatalog, {
+                list: Effect.succeed([]),
+                prepare: () => Effect.die("No catalog in this fixture"),
+              }),
+            ),
+            Layer.provide(requireUserLive),
+            Layer.provide(requireOrganizationLive),
+            Layer.provide(auth),
+            Layer.provide(
+              Layer.succeed(ApiAuthentication, {
+                origin,
+                authenticate: () => Effect.die("No bearer in this fixture"),
+              }),
+            ),
+            HttpRouter.provideRequest(
+              Layer.succeed(OrganizationIcons, makeOrganizationIcons(memoryBlobStore())),
+            ),
+            Layer.provide(HttpServer.layerServices),
+          );
+          const web = yield* Effect.acquireRelease(
+            Effect.sync(() => HttpRouter.toWebHandler(routes, { disableLogger: true })),
+            (web) => Effect.promise(() => web.dispose()),
+          );
+          const request = (path: string, body?: unknown, organization = "alpha") =>
+            Effect.promise(() =>
+              web.handler(
+                new Request(`${origin}/api/organizations/${organization}${path}`, {
+                  method: body === undefined ? "GET" : "POST",
+                  headers: { origin, "content-type": "application/json" },
+                  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+                }),
+              ),
+            );
+          const read = <A>(response: Response, schema: Schema.Decoder<A>) =>
+            Effect.gen(function* () {
+              assert.equal(
+                response.status,
+                200,
+                yield* Effect.promise(() => response.clone().text()),
+              );
+              return yield* Effect.promise(() => response.json()).pipe(
+                Effect.flatMap(Schema.decodeUnknownEffect(schema)),
+              );
+            });
+          const rejected = (response: Response, schema: Schema.Decoder<unknown>, status: number) =>
+            Effect.gen(function* () {
+              assert.equal(response.status, status);
+              yield* Effect.promise(() => response.json()).pipe(
+                Effect.flatMap(Schema.decodeUnknownEffect(schema)),
+              );
+            });
+          const first = yield* read(
+            yield* request("/apps/deploy", { name: "Fixture", files: source("one") }),
+            Schema.toCodecJson(App),
+          );
+          const provider = first.requirements.accounts.service?.provider;
+          assert.ok(provider);
+          const account = yield* executor.accounts.add({
+            owner: first.owner,
+            provider,
+            method: "key",
+            label: "Default",
+            fields: Redacted.make({ token: "synthetic" }),
+          });
+          yield* executor.apps.update({ app: first.id, accounts: { service: account.id } });
+          const appPath = `/apps/${first.id}`;
+          const before = yield* read(
+            yield* request(`${appPath}/source`),
+            Schema.toCodecJson(Deployment),
+          );
+          assert.deepEqual(before.files, source("one"));
+          const updated = yield* read(
+            yield* request(`${appPath}/deployments`, {
+              expectedDeployment: before.id,
+              files: source("two"),
+            }),
+            Schema.toCodecJson(App),
+          );
+          assert.equal(updated.id, first.id);
+          assert.equal(updated.code, first.code);
+          assert.deepEqual(updated.accounts, { service: account.id });
+          const history = yield* read(
+            yield* request(`${appPath}/deployments`),
+            Schema.toCodecJson(Schema.Array(DeploymentSummary)),
+          );
+          assert.equal(history.length, 2);
+          assert.ok(history.every((item) => !("files" in item)));
+          assert.deepEqual(
+            (yield* read(
+              yield* request(`${appPath}/source?deployment=${before.id}`),
+              Schema.toCodecJson(Deployment),
+            )).files,
+            source("one"),
+          );
+          const resultSchema = Schema.Struct({ version: Schema.String, account: Schema.String });
+          assert.deepEqual(
+            yield* read(
+              yield* request(`${appPath}/tools/call`, { tool: "mutations.version", input: {} }),
+              resultSchema,
+            ),
+            { version: "two", account: account.id },
+          );
+          yield* rejected(
+            yield* request(`${appPath}/deployments`, {
+              expectedDeployment: before.id,
+              files: source("stale"),
+            }),
+            AppDeploymentChanged,
+            409,
+          );
+          yield* rejected(
+            yield* request(`${appPath}/deployments`, {
+              expectedDeployment: updated.activeDeployment,
+              files: [{ path: "index.ts", content: "export default !!!" }],
+            }),
+            DeploymentBuildFailed,
+            422,
+          );
+          assert.equal(
+            (yield* executor.apps.get({ app: first.id })).activeDeployment,
+            updated.activeDeployment,
+          );
+          assert.equal((yield* executor.apps.deployments({ app: first.id })).length, 2);
+          yield* rejected(
+            yield* request(`${appPath}/activate`, {
+              expectedDeployment: before.id,
+              deployment: before.id,
+            }),
+            AppDeploymentChanged,
+            409,
+          );
+          const rolled = yield* read(
+            yield* request(`${appPath}/activate`, {
+              expectedDeployment: updated.activeDeployment,
+              deployment: before.id,
+            }),
+            Schema.toCodecJson(App),
+          );
+          assert.equal(rolled.activeDeployment, before.id);
+          assert.deepEqual(rolled.accounts, updated.accounts);
+          assert.deepEqual(
+            yield* read(
+              yield* request(`${appPath}/tools/call`, { tool: "mutations.version", input: {} }),
+              resultSchema,
+            ),
+            { version: "one", account: account.id },
+          );
+          // Same code lineage alone does not authorize another organization's deployment.
+          const copy = yield* executor.apps.add({
+            from: first.id,
+            owner: OwnerId.make("organization:beta"),
+            name: "Other owner",
+          });
+          const foreign = yield* executor.apps.deploy({
+            owner: copy.owner,
+            app: copy.id,
+            expectedDeployment: copy.activeDeployment,
+            files: source("foreign"),
+          });
+          yield* rejected(
+            yield* request(`${appPath}/source?deployment=${foreign.deployment.id}`),
+            Schema.Union([AppNotFound, DeploymentNotFound]),
+            404,
+          );
+          yield* rejected(
+            yield* request(`${appPath}/activate`, {
+              deployment: foreign.deployment.id,
+              expectedDeployment: rolled.activeDeployment,
+            }),
+            Schema.Union([AppNotFound, DeploymentNotFound]),
+            404,
+          );
+          assert.equal(
+            (yield* read(
+              yield* request(`${appPath}/deployments`),
+              Schema.toCodecJson(Schema.Array(DeploymentSummary)),
+            )).length,
+            2,
+          );
+          for (const path of ["/source", "/deployments", "/webhooks", "/webhook-definitions"])
+            yield* rejected(
+              yield* request(appPath + path, undefined, "beta"),
+              Schema.Union([AppNotFound, DeploymentNotFound]),
+              404,
+            );
+          const manual = yield* read(
+            yield* request(`${appPath}/webhooks`, { key: "manual", name: "manual", config: {} }),
+            Schema.toCodecJson(WebhookSubscription),
+          );
+          const privatePath = `/webhook-setup/${first.id}/${manual.id}`;
+          const setup = yield* read(
+            yield* request(privatePath),
+            Schema.toCodecJson(WebhookSetupView),
+          );
+          assert.equal(setup.step, "configure");
+          assert.ok(
+            !Object.keys(OpenApi.fromApi(HostedApi).paths).some((path) =>
+              path.includes("/webhook-setup/"),
+            ),
+          );
+          const setupLink = yield* request(`${appPath}/webhooks/${manual.id}/setup-link`);
+          assert.equal(setupLink.status, 200);
+          assert.deepEqual(yield* Effect.promise(() => setupLink.json()), {
+            url: `${origin}/org/alpha/webhooks/${first.id}/${manual.id}`,
+          });
+          const bearerRead = yield* Effect.promise(() =>
+            web.handler(
+              new Request(`${origin}/api/organizations/alpha${privatePath}`, {
+                headers: { authorization: "Bearer synthetic-token" },
+              }),
+            ),
+          );
+          assert.equal(bearerRead.status, 401);
+          assert.equal((yield* request(privatePath, undefined, "beta")).status, 404);
+          assert.equal((yield* request(`${appPath}/webhooks`)).status, 200);
+          yield* Ref.set(role, "member");
+          assert.equal((yield* request(privatePath)).status, 403);
+          assert.equal((yield* request(`${appPath}/webhooks`)).status, 200);
+          assert.equal(
+            (yield* request(`${appPath}/webhooks`, { key: "events", name: "changed", config: {} }))
+              .status,
+            403,
+          );
+          assert.equal(
+            (yield* request(`${appPath}/webhooks/whk_missing/reconcile`, {})).status,
+            403,
+          );
+          const removedHook = yield* Effect.promise(() =>
+            web.handler(
+              new Request(`${origin}/api/organizations/alpha${appPath}/webhooks/whk_missing`, {
+                method: "DELETE",
+                headers: { origin },
+              }),
+            ),
+          );
+          assert.equal(removedHook.status, 403);
+          for (const path of ["/source", "/deployments"])
+            assert.equal((yield* request(appPath + path)).status, 403);
+          assert.equal(
+            (yield* request(`${appPath}/deployments`, {
+              expectedDeployment: rolled.activeDeployment,
+              files: source("denied"),
+            })).status,
+            403,
+          );
+          assert.equal(
+            (yield* request(`${appPath}/activate`, {
+              expectedDeployment: rolled.activeDeployment,
+              deployment: updated.activeDeployment,
+            })).status,
+            403,
+          );
+          yield* Ref.set(signedIn, false);
+          assert.equal((yield* request(privatePath)).status, 401);
+          assert.equal((yield* request(`${appPath}/source`)).status, 401);
+          assert.equal((yield* request(`${appPath}/webhooks`)).status, 401);
+        }),
+      ).pipe(Effect.provide(pgliteLayer()), Effect.provide(NodeServices.layer)),
+    ),
+);

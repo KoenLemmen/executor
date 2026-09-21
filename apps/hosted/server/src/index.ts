@@ -1,0 +1,66 @@
+/** Hosted product composition, shared by cloud and self-host only. */
+export { HostedApi } from "./contracts/api.ts";
+export { HostedCatalog } from "./contracts/catalog.ts";
+export { hostedHandlers } from "./implementation/api.ts";
+export { catalogLive } from "./implementation/catalog.ts";
+export {
+  CurrentUserId,
+  ApiAuthentication,
+  Authentication,
+  AuthenticationUnavailable,
+  RequireUser,
+  CurrentPrincipal,
+} from "./contracts/auth.ts";
+export {
+  authOptions,
+  authSettings,
+  requireUserLive,
+  sessionPrincipal,
+} from "./implementation/auth.ts";
+export * from "./contracts/organization.ts";
+export { HostedExecutor } from "./contracts/executor.ts";
+export { OrganizationDefaults } from "./contracts/organization-defaults.ts";
+export { organizationDefaults } from "./implementation/organization-defaults.ts";
+export {
+  lookupMembership,
+  lookupOrganizationSlug,
+  requireOrganizationLive,
+} from "./implementation/organization.ts";
+export { requireOrganizationAdmin, requireOrganizationOwner } from "./implementation/access.ts";
+export {
+  HostedOrganizationRemoval,
+  OrganizationRemoved,
+} from "./contracts/organization-removal.ts";
+export {
+  deleteOrganizationRecords,
+  removeCurrentOrganization,
+} from "./implementation/organization-removal.ts";
+
+export { hostedOAuthCallback } from "./implementation/accounts.ts";
+export type { HostedAccountConnection } from "./contracts/accounts.ts";
+
+export { hostedMcpBackend } from "./implementation/mcp.ts";
+
+export * from "./contracts/mcp.ts";
+export { mcpAuthenticationError, apiAuthenticationError } from "./implementation/mcp-oauth.ts";
+export {
+  makeHostedMcp,
+  mcpSessionKey,
+  dispatchHostedMcp,
+  authenticatedMcp,
+  mcpProtectedResource,
+  mcpAuthorizationServer,
+} from "./implementation/mcp-http.ts";
+
+export { apiChallenge, apiProtectedResource } from "./implementation/api-oauth.ts";
+
+export { browserTelemetry } from "./implementation/telemetry.ts";
+
+export { hostedWebhookCallback } from "./implementation/webhooks.ts";
+export { browserMcpRequest, hostedMcpApproval } from "./implementation/mcp-approvals.ts";
+
+export { makeOrganizationIcons } from "./implementation/organization-icons.ts";
+
+export * from "./contracts/execution-admission.ts";
+
+export { resolveOrganizationReference } from "./implementation/organization-reference.ts";

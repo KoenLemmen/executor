@@ -1,0 +1,14 @@
+name: Install the e2e browser and media tools
+description: Install Playwright Chromium, ffmpeg and Xvfb for the end-to-end suite on Linux.
+
+runs:
+  using: composite
+  steps:
+    - name: Install ffmpeg and Xvfb
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends ffmpeg xvfb
+    - name: Install Playwright Chromium
+      shell: bash
+      run: bunx playwright install --with-deps chromium

@@ -1,0 +1,53 @@
+import { Failure } from "../components/common.tsx";
+import { dashboardAtoms } from "../../contracts/dashboard-bindings.ts";
+import { useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import type { CatalogEntry } from "@executor-js/catalog/contracts";
+import { CatalogPage as Catalog, CatalogInstall } from "@executor-js/ui/dashboard/catalog";
+import { Button } from "@executor-js/ui/components/button";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, ArrowLeft02Icon } from "@hugeicons/core-free-icons";
+
+/** Local chooses the custom-source action and setup destination. */
+export function CatalogPage() {
+  const [entry, setEntry] = useState<CatalogEntry>();
+  const navigate = useNavigate();
+  return entry ? (
+    <CatalogInstall
+      mutation={dashboardAtoms.install}
+      Failure={Failure}
+      key={entry.id}
+      entry={entry}
+      onBack={() => setEntry(undefined)}
+      onInstalled={(app) =>
+        navigate({
+          to: Object.keys(app.requirements.accounts).length ? "/apps/$appId/setup" : "/apps/$appId",
+          params: { appId: app.id },
+        })
+      }
+    />
+  ) : (
+    <Catalog
+      query={dashboardAtoms.catalog}
+      Failure={Failure}
+      onSelect={setEntry}
+      back={
+        <Link
+          to="/apps"
+          className="back-link inline-flex gap-1.5 items-center text-[12px] text-muted-foreground mb-4.25 hover:text-foreground max-[740px]:min-h-11 max-[740px]:inline-flex max-[740px]:items-center max-[740px]:-mt-2 max-[740px]:mb-3"
+        >
+          <HugeiconsIcon icon={ArrowLeft02Icon} size={14} />
+          Apps
+        </Link>
+      }
+      action={
+        <Button variant="outline" asChild>
+          <Link to="/apps/add/custom">
+            <HugeiconsIcon icon={Add01Icon} size={14} />
+            Custom app
+          </Link>
+        </Button>
+      }
+    />
+  );
+}

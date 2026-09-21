@@ -1,0 +1,54 @@
+{
+  "name": "apps",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./contracts": "./src/contracts/host.ts",
+    "./host": "./src/host.ts",
+    "./effect": "./src/effect.ts",
+    "./operations/approval": "./src/approval.ts",
+    "./client": "./src/client.ts",
+    "./mcp": "./src/mcp.ts",
+    "./mcp/stdio": "./src/mcp-stdio.ts",
+    "./mcp/effect": "./src/implementation/mcp.ts",
+    "./graphql": "./src/graphql.ts",
+    "./openapi": "./src/openapi.ts",
+    "./ui/contracts": "./src/contracts/ui.ts",
+    "./ui/auth": "./src/ui-auth.ts",
+    "./ui/serving": "./src/ui-serving.ts",
+    "./ui/auth/contracts": "./src/contracts/ui-auth.ts",
+    "./react": "./src/react.ts",
+    "./storage/facet": "./src/facet.ts"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "4.1.1",
+    "@effect/sql-sqlite-do": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
+    "@executor-js/app-data": "workspace:*",
+    "@executor-js/telemetry": "workspace:*",
+    "effect": "https://pkg.pr.new/Effect-TS/effect/effect@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@types/react": "^19.2.0",
+    "graphql": "16.11.0",
+    "react": "^19.2.0"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "graphql": "^16.11.0",
+    "react": "^19.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "graphql": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  }
+}

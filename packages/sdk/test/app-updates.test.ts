@@ -1,0 +1,466 @@
+import { memoryBlobStore } from "@executor-js/sdk/blobs";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
+import { pgliteLayer } from "fumadb-effect/pglite";
+import { Deferred, Effect, Fiber, Layer, Redacted, Result, Schema } from "effect";
+import {
+  AccountSelectionInvalid,
+  AppDeploymentChanged,
+  AppNameTaken,
+  AppNotFound,
+  BuildId,
+  DeploymentBuildFailed,
+  DeploymentNotFound,
+  OwnerId,
+  RuntimeBuildFailed,
+  createExecutor,
+  makeExecutorStorage,
+  runtimeAdapter,
+  type ExecutorOptions,
+  type Runtime,
+} from "@executor-js/sdk/core";
+import { createExecutor as createPromiseExecutor } from "@executor-js/sdk";
+import { aesGcmCredentials as credentials } from "@executor-js/sdk/core";
+
+const owner = OwnerId.make("updates-owner");
+const otherOwner = OwnerId.make("other-owner");
+const files = (content: string) => [{ path: "index.ts", content }] as const;
+const definition = (name: string) => ({
+  name,
+  auth: {
+    key: {
+      type: "secrets" as const,
+      label: "API key",
+      fields: {
+        type: "object" as const,
+        properties: { token: { type: "string" as const } },
+        required: ["token"],
+      },
+    },
+  },
+});
+const requirements = (name: string) => ({
+  accounts: {
+    service: { cardinality: "one" as const, definition: definition(name) },
+  },
+});
+
+const runtimeFor = (build: Runtime["build"]): Runtime => ({
+  build,
+  webhook: () => Effect.die("Unexpected webhook invocation"),
+  inspect: () => Effect.succeed([]),
+  query: () => Effect.succeed(null),
+  mutate: () => Effect.succeed(null),
+  call: () => Effect.succeed(null),
+});
+const fixture = (
+  nativeRuntime: Runtime = runtimeFor(() =>
+    Effect.succeed({ build: BuildId.make("bld_updates"), requirements: requirements("Synthetic") }),
+  ),
+) =>
+  Effect.gen(function* () {
+    const storage = yield* makeExecutorStorage({ provider: "postgresql" });
+    yield* storage.migrate;
+    const credentialStore = yield* credentials(Redacted.make("ab".repeat(32)), crypto);
+    return {
+      blobs: memoryBlobStore(),
+      storage,
+      credentials: credentialStore,
+      runtime: runtimeAdapter(nativeRuntime),
+    } satisfies ExecutorOptions;
+  });
+const services = Layer.mergeAll(BrowserCrypto.layer, pgliteLayer());
+
+test(
+  "ID deploy preserves app identity and supports source, list, and rollback",
+  { timeout: 10_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const executor = yield* createExecutor(yield* fixture());
+          const first = yield* executor.apps.deploy({ owner, name: "Hosted", files: files("one") });
+          const second = yield* executor.apps.deploy({
+            owner,
+            app: first.app.id,
+            expectedDeployment: first.deployment.id,
+            files: files("two"),
+          });
+          assert.equal(second.app.id, first.app.id);
+          assert.equal(second.app.code, first.app.code);
+          assert.equal(second.app.activeDeployment, second.deployment.id);
+          const summaries = yield* executor.apps.deployments({ app: first.app.id, owner });
+          assert.deepEqual(
+            new Set(summaries.map(({ id }) => id)),
+            new Set([second.deployment.id, first.deployment.id]),
+          );
+          assert.equal(summaries.length, 2);
+          assert.equal(summaries[0]?.fileCount, 1);
+          assert.equal(
+            (yield* executor.apps.source({
+              app: first.app.id,
+              owner,
+              deployment: first.deployment.id,
+            })).id,
+            first.deployment.id,
+          );
+          const rolled = yield* executor.apps.activate({
+            app: first.app.id,
+            owner,
+            deployment: first.deployment.id,
+            expectedDeployment: second.deployment.id,
+          });
+          assert.equal(rolled.activeDeployment, first.deployment.id);
+        }).pipe(Effect.provide(services)),
+      ),
+    ),
+);
+
+test(
+  "failed and incompatible ID builds preserve pointer, selections, and deployment rows",
+  { timeout: 10_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const failing = runtimeFor((input) =>
+            input.files[0]?.content === "fail"
+              ? Effect.fail(new RuntimeBuildFailed({ stage: "compile" }))
+              : Effect.succeed({
+                  build: BuildId.make("bld_ok"),
+                  requirements: requirements("Synthetic"),
+                }),
+          );
+          const options = yield* fixture(failing);
+          const executor = yield* createExecutor(options);
+          const initial = yield* executor.apps.deploy({
+            owner,
+            name: "Stable",
+            files: files("ok"),
+          });
+          const failed = yield* Effect.flip(
+            executor.apps.deploy({
+              owner,
+              app: initial.app.id,
+              expectedDeployment: initial.deployment.id,
+              files: files("fail"),
+            }),
+          );
+          assert.ok(Schema.is(DeploymentBuildFailed)(failed));
+          assert.equal(
+            (yield* executor.apps.get({ app: initial.app.id })).activeDeployment,
+            initial.deployment.id,
+          );
+          assert.equal((yield* executor.apps.deployments({ app: initial.app.id })).length, 1);
+
+          let incompatibleBuild = 0;
+          const incompatible = runtimeFor(() =>
+            Effect.succeed({
+              build: BuildId.make(`bld_incompatible_${++incompatibleBuild}`),
+              requirements: incompatibleBuild === 1 ? requirements("Synthetic") : { accounts: {} },
+            }),
+          );
+          const incompatibleExecutor = yield* createExecutor(yield* fixture(incompatible));
+          const app = yield* incompatibleExecutor.apps.deploy({
+            owner,
+            name: "Selection",
+            files: files("ok"),
+          });
+          const requirement = app.app.requirements.accounts.service;
+          assert.ok(requirement);
+          const account = yield* incompatibleExecutor.accounts.add({
+            owner,
+            provider: requirement.provider,
+            method: "key",
+            label: "Default",
+            fields: Redacted.make({ token: "token" }),
+          });
+          yield* incompatibleExecutor.apps.update({
+            app: app.app.id,
+            accounts: { service: account.id },
+          });
+          const invalid = yield* Effect.flip(
+            incompatibleExecutor.apps.deploy({
+              owner,
+              app: app.app.id,
+              expectedDeployment: app.deployment.id,
+              files: files("next"),
+            }),
+          );
+          assert.ok(Schema.is(AccountSelectionInvalid)(invalid));
+          assert.equal(
+            (yield* incompatibleExecutor.apps.get({ app: app.app.id })).activeDeployment,
+            app.deployment.id,
+          );
+          assert.equal(
+            (yield* incompatibleExecutor.apps.deployments({ app: app.app.id })).length,
+            1,
+          );
+        }).pipe(Effect.provide(services)),
+      ),
+    ),
+);
+
+test(
+  "stale expected deployments and foreign lineage or owner lookups are rejected",
+  { timeout: 10_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const executor = yield* createExecutor(yield* fixture());
+          const first = yield* executor.apps.deploy({
+            owner,
+            name: "Concurrent",
+            files: files("one"),
+          });
+          const second = yield* executor.apps.deploy({
+            owner,
+            app: first.app.id,
+            expectedDeployment: first.deployment.id,
+            files: files("two"),
+          });
+          const stale = yield* Effect.flip(
+            executor.apps.deploy({
+              owner,
+              app: first.app.id,
+              expectedDeployment: first.deployment.id,
+              files: files("three"),
+            }),
+          );
+          assert.ok(Schema.is(AppDeploymentChanged)(stale));
+          assert.equal(
+            (yield* executor.apps.get({ app: first.app.id })).activeDeployment,
+            second.deployment.id,
+          );
+          assert.ok(
+            Schema.is(AppNotFound)(
+              yield* Effect.flip(executor.apps.get({ app: first.app.id, owner: otherOwner })),
+            ),
+          );
+          assert.ok(
+            Schema.is(AppNotFound)(
+              yield* Effect.flip(executor.apps.source({ app: first.app.id, owner: otherOwner })),
+            ),
+          );
+          const other = yield* executor.apps.deploy({
+            owner: otherOwner,
+            name: "Other",
+            files: files("other"),
+          });
+          assert.ok(
+            Schema.is(DeploymentNotFound)(
+              yield* Effect.flip(
+                executor.apps.source({ app: first.app.id, owner, deployment: other.deployment.id }),
+              ),
+            ),
+          );
+          const shared = yield* executor.apps.add({
+            from: first.app.id,
+            owner: otherOwner,
+            name: "Shared",
+          });
+          assert.deepEqual(
+            yield* executor.apps.deployments({
+              app: shared.id,
+              owner: otherOwner,
+              deploymentOwner: otherOwner,
+            }),
+            [],
+          );
+          assert.equal(
+            (yield* executor.apps.deployments({
+              app: shared.id,
+              owner: otherOwner,
+              deploymentOwner: owner,
+            })).length,
+            2,
+          );
+        }).pipe(Effect.provide(services)),
+      ),
+    ),
+);
+
+test(
+  "rename during an ID build keeps the same app and latest selections",
+  { timeout: 10_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const started = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          let buildCount = 0;
+          const building = runtimeFor(() =>
+            ++buildCount === 1
+              ? Effect.succeed({
+                  build: BuildId.make("bld_initial"),
+                  requirements: requirements("Synthetic"),
+                })
+              : Deferred.succeed(started, undefined).pipe(
+                  Effect.andThen(Deferred.await(release)),
+                  Effect.as({
+                    build: BuildId.make("bld_rename"),
+                    requirements: requirements("Synthetic"),
+                  }),
+                ),
+          );
+          const options = yield* fixture(building);
+          const executor = yield* createExecutor(options);
+          const initial = yield* executor.apps.deploy({
+            owner,
+            name: "Before",
+            files: files("one"),
+          });
+          const requirement = initial.app.requirements.accounts.service;
+          assert.ok(requirement);
+          const account = yield* executor.accounts.add({
+            owner,
+            provider: requirement.provider,
+            method: "key",
+            label: "Default",
+            fields: Redacted.make({ token: "token" }),
+          });
+          yield* executor.apps.update({ app: initial.app.id, accounts: { service: account.id } });
+          const update = yield* executor.apps
+            .deploy({
+              owner,
+              app: initial.app.id,
+              expectedDeployment: initial.deployment.id,
+              files: files("two"),
+            })
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(started);
+          yield* executor.apps.rename({ app: initial.app.id, owner, name: "After" });
+          yield* Deferred.succeed(release, undefined);
+          const deployed = yield* Fiber.join(update);
+          assert.equal(deployed.app.id, initial.app.id);
+          assert.equal(deployed.app.name, "After");
+          assert.deepEqual(deployed.app.accounts, { service: account.id });
+        }).pipe(Effect.provide(services)),
+      ),
+    ),
+);
+
+test("createOnly permits a fresh app and rejects a duplicate", { timeout: 10_000 }, () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const executor = yield* createExecutor(yield* fixture());
+        const created = yield* executor.apps.deploy({
+          owner,
+          name: "Fresh",
+          files: files("one"),
+          createOnly: true,
+        });
+        const duplicate = yield* Effect.flip(
+          executor.apps.deploy({ owner, name: "Fresh", files: files("two"), createOnly: true }),
+        );
+        assert.equal(created.app.name, "Fresh");
+        assert.ok(Schema.is(AppNameTaken)(duplicate));
+      }).pipe(Effect.provide(services)),
+    ),
+  ),
+);
+
+test(
+  "a deployment committed during a slow build rejects the stale build without retaining a deployment row",
+  { timeout: 10_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const started = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const building = runtimeFor((input) =>
+            input.files[0]?.content === "slow"
+              ? Deferred.succeed(started, undefined).pipe(
+                  Effect.andThen(Deferred.await(release)),
+                  Effect.as({
+                    build: BuildId.make("bld_slow"),
+                    requirements: requirements("Synthetic"),
+                  }),
+                )
+              : Effect.succeed({
+                  build: BuildId.make("bld_fast"),
+                  requirements: requirements("Synthetic"),
+                }),
+          );
+          const executor = yield* createExecutor(yield* fixture(building));
+          const first = yield* executor.apps.deploy({
+            owner,
+            name: "Concurrent builds",
+            files: files("initial"),
+          });
+          const slow = yield* executor.apps
+            .deploy({
+              owner,
+              app: first.app.id,
+              expectedDeployment: first.deployment.id,
+              files: files("slow"),
+            })
+            .pipe(Effect.result, Effect.forkChild);
+          yield* Deferred.await(started);
+          const latest = yield* executor.apps.deploy({
+            owner,
+            app: first.app.id,
+            expectedDeployment: first.deployment.id,
+            files: files("fast"),
+          });
+          yield* Deferred.succeed(release, undefined);
+          const result = yield* Fiber.join(slow);
+          assert.ok(Result.isFailure(result));
+          assert.ok(Schema.is(AppDeploymentChanged)(result.failure));
+          assert.equal(
+            (yield* executor.apps.get({ app: first.app.id })).activeDeployment,
+            latest.deployment.id,
+          );
+          assert.equal((yield* executor.apps.deployments({ app: first.app.id })).length, 2);
+        }).pipe(Effect.provide(services)),
+      ),
+    ),
+);
+
+test(
+  "Promise facade preserves deployment selectors and source/activation arguments",
+  { timeout: 10_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const options = yield* fixture();
+          const executor = yield* Effect.promise(() => createPromiseExecutor(options));
+          const first = yield* Effect.promise(() =>
+            executor.apps.deploy({ owner, name: "Promise", files: files("one"), createOnly: true }),
+          );
+          const next = yield* Effect.promise(() =>
+            executor.apps.deploy({
+              owner,
+              app: first.app.id,
+              expectedDeployment: first.deployment.id,
+              files: files("two"),
+            }),
+          );
+          const retained = yield* Effect.promise(() =>
+            executor.apps.source({ owner, app: first.app.id, deployment: first.deployment.id }),
+          );
+          assert.deepEqual(retained.files, files("one"));
+          assert.equal(
+            (yield* Effect.promise(() => executor.apps.deployments({ owner, app: first.app.id })))
+              .length,
+            2,
+          );
+          const rolled = yield* Effect.promise(() =>
+            executor.apps.activate({
+              owner,
+              app: first.app.id,
+              deployment: first.deployment.id,
+              expectedDeployment: next.deployment.id,
+            }),
+          );
+          assert.equal(rolled.activeDeployment, first.deployment.id);
+        }).pipe(Effect.provide(services)),
+      ),
+    ),
+);

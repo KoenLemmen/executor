@@ -1,0 +1,56 @@
+/** Shared private SPA rendering, independent of identity, database, and runtime choice. */
+import { CurrentTelemetryConfig } from "@executor-js/telemetry";
+import { Effect } from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { UiForbidden, type AppUiAsset } from "../contracts/ui.ts";
+import { appPrivateHeaders } from "./ui-auth.ts";
+
+/** Render an authorized deployment. Host-owned markup may add local-only deployment watching. */
+export const appDocument = <E, R>(options: {
+  readonly deployment: string;
+  readonly origin: string;
+  readonly asset: (path: string) => Effect.Effect<AppUiAsset | undefined, E, R>;
+  readonly head?: string;
+}) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const pathname = yield* Effect.try(() => new URL(request.url, options.origin).pathname).pipe(
+      Effect.mapError(() => new UiForbidden()),
+    );
+    const file = pathname === "/" ? undefined : yield* options.asset(pathname.slice(1));
+    if (file !== undefined && file.contentType !== "text/html")
+      return HttpServerResponse.uint8Array(file.body, {
+        contentType: file.contentType,
+        headers: appPrivateHeaders,
+      });
+    if (pathname.includes(".") && pathname !== "/index.html")
+      return HttpServerResponse.empty({ status: 404 });
+    const document = yield* options.asset("index.html");
+    if (document === undefined)
+      return HttpServerResponse.text("This app has no UI.", {
+        status: 404,
+        headers: appPrivateHeaders,
+      });
+    const context = JSON.stringify({ deployment: options.deployment }).replaceAll("<", "\\u003c");
+    const telemetry = yield* CurrentTelemetryConfig;
+    const attribute = (text: string) =>
+      text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+    const metadata =
+      telemetry === undefined
+        ? ""
+        : `<meta name="executor-build" content="${attribute(telemetry.version)}"><meta name="executor-environment" content="${attribute(telemetry.environment)}">`;
+    const boot = `${metadata}<base href="/_executor/assets/${attribute(options.deployment)}/"><script type="application/json" id="executor-context">${context}</script>${options.head ?? ""}`;
+    return HttpServerResponse.text(
+      new TextDecoder().decode(document.body).replace("<!--executor-ui-->", boot),
+      { contentType: "text/html", headers: appPrivateHeaders },
+    );
+  });
+
+/** Versioned asset endpoints never expose HTML as a second application entry point. */
+export const appAsset = (asset: AppUiAsset | undefined) =>
+  asset === undefined || asset.contentType === "text/html"
+    ? HttpServerResponse.empty({ status: 404 })
+    : HttpServerResponse.uint8Array(asset.body, {
+        contentType: asset.contentType,
+        headers: appPrivateHeaders,
+      });

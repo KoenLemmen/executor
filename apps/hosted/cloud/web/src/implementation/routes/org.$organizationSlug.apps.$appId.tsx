@@ -1,0 +1,21 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { OpenAppAction } from "@executor-js/hosted-web/pages/app-sign-in";
+import { AppDetailPage } from "@executor-js/hosted-web/pages/app-detail";
+import { parseAppSearch } from "@executor-js/hosted-web/contracts/navigation";
+
+export const Route = createFileRoute("/org/$organizationSlug/apps/$appId")({
+  validateSearch: parseAppSearch,
+  component: AppPage,
+});
+function AppPage() {
+  const { appId } = Route.useParams();
+  const { view, tool } = Route.useSearch();
+  return (
+    <AppDetailPage
+      appId={appId}
+      view={view}
+      tool={tool}
+      openApp={(app) => <OpenAppAction app={app} />}
+    />
+  );
+}

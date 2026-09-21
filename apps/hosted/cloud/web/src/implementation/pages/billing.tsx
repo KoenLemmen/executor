@@ -1,0 +1,191 @@
+import { PageSkeleton, DetailSkeleton } from "@executor-js/ui/dashboard/loading";
+import { AsyncResult } from "effect/unstable/reactivity";
+import { Alert, AlertDescription } from "@executor-js/ui/components/alert";
+import { Empty } from "@executor-js/ui/components/empty";
+import { Card } from "@executor-js/ui/components/card";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { QueryResult, useQuery } from "@executor-js/ui/dashboard/context";
+import { useOrganizationRoute } from "@executor-js/hosted-web/organization";
+import { Button } from "@executor-js/ui/components/button";
+import { Exit, Option } from "effect";
+import { useState } from "react";
+import { billingAtom, checkoutAtom, portalAtom } from "../../contracts/billing.ts";
+
+/** Checkout return context is only a UI hint, never evidence of payment or authority. */
+export const billingSearch = (search: Record<string, unknown>) => ({
+  organization: typeof search.organization === "string" ? search.organization : "",
+  plan: typeof search.plan === "string" ? search.plan : "",
+});
+
+function BillingDetails({ returned }: { readonly returned: ReturnType<typeof billingSearch> }) {
+  const organization = useOrganizationRoute();
+  const { result, data, refresh } = useQuery(billingAtom(organization.organization));
+  const checkout = useAtomSet(checkoutAtom, { mode: "promiseExit" });
+  const portal = useAtomSet(portalAtom, { mode: "promiseExit" });
+  const checkoutState = useAtomValue(checkoutAtom);
+  const portalState = useAtomValue(portalAtom);
+  const [error, setError] = useState<string | null>(null);
+  const busy = checkoutState.waiting || portalState.waiting || !AsyncResult.isSuccess(result);
+  const waitingForPlan =
+    returned.organization === organization.id &&
+    returned.plan !== "" &&
+    Option.isSome(data) &&
+    !data.value.subscriptions.some(
+      (subscription) =>
+        subscription.planId === returned.plan &&
+        ["active", "trialing"].includes(subscription.status),
+    );
+  return (
+    <section className="page w-full shrink-0 max-w-315 [padding:24px_24px_48px] my-0 mx-auto max-[1000px]:[padding:20px_20px_40px] max-[740px]:[padding:18px_max(16px,_env(safe-area-inset-right))_max(32px,_env(safe-area-inset-bottom))_max(16px,_env(safe-area-inset-left))]">
+      <div className="page-heading gap-4 flex justify-between items-center min-h-12 mb-4.5 [&_p]:text-muted-foreground [&_p]:text-[13px] [&_p]:mt-1.25 [&_>_div]:min-w-0 [&_>_div]:wrap-anywhere max-[740px]:items-start max-[740px]:mb-4.5 max-[740px]:[&_p]:leading-[1.6] max-[740px]:[&_>_[data-slot='button']]:mt-0.25 max-[740px]:[.setup-page_&]:min-h-0">
+        <h1 className="text-[22px] font-semibold tracking-[-0.035em] leading-[1.35] [&>span]:text-muted-foreground [&>span]:text-[13px] [&>span]:font-mono [&>span]:font-normal [&>span]:ml-[8px] [&>span]:align-middle">
+          Billing
+        </h1>
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={async () => {
+            setError(null);
+            const result = await portal({ params: { organization: organization.organization } });
+            if (Exit.isFailure(result)) setError("Unable to open billing settings. Try again.");
+            else window.location.assign(result.value.url);
+          }}
+        >
+          Manage billing
+        </Button>
+      </div>
+      <p className="muted text-muted-foreground">{organization.name}</p>
+      {Option.isSome(data) && data.value.mode !== "live" && (
+        <Alert className="notice border border-border rounded-[8px] py-[12px] px-[16px] my-[20px] mx-0 text-[13px]">
+          <AlertDescription>Test billing · No real charges</AlertDescription>
+        </Alert>
+      )}
+      {returned.organization && returned.organization !== organization.id && (
+        <Alert className="notice border border-border rounded-[8px] py-[12px] px-[16px] my-[20px] mx-0 text-[13px]">
+          <AlertDescription>
+            Checkout was opened for another organization. Select that organization to see its plan.
+          </AlertDescription>
+        </Alert>
+      )}
+      {waitingForPlan && (
+        <Alert
+          className="notice border border-border rounded-[8px] py-[12px] px-[16px] my-[20px] mx-0 text-[13px]"
+          role="status"
+        >
+          <AlertDescription>
+            Waiting for payment confirmation. This page updates automatically.
+          </AlertDescription>
+        </Alert>
+      )}
+      {Option.isSome(data) && data.value.usage && (
+        <p className="text-sm text-muted-foreground my-4">
+          {data.value.usage.used.toLocaleString()} executions used this month
+          {data.value.usage.unlimited
+            ? " · Unlimited"
+            : ` · ${data.value.usage.remaining.toLocaleString()} remaining`}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="auth-error text-destructive text-[13px]">
+          {error}
+        </p>
+      )}
+      <QueryResult
+        result={result}
+        Failure={BillingFailure}
+        retry={refresh}
+        pending={<DetailSkeleton label="Loading plans" />}
+      >
+        {(billing) => (
+          <div className="catalog-grid grid grid-cols-3 gap-3 max-[1050px]:grid-cols-2 max-[640px]:grid-cols-1">
+            {billing.plans.map((plan) => {
+              const subscription = billing.subscriptions.find(
+                (subscription) =>
+                  subscription.planId === plan.id &&
+                  ["active", "trialing", "scheduled"].includes(subscription.status),
+              );
+              return (
+                <Card key={plan.id} asChild className="gap-0 rounded-lg shadow-none">
+                  <article className="plan-card flex flex-col gap-4.5 border border-border rounded-[8px] p-[20px] min-h-45 [&_h2]:text-[15px] [&_h2]:font-medium [&_button]:mt-auto">
+                    <h2>{plan.name}</h2>
+                    <p className="plan-price text-[24px] font-medium [&_span]:text-[13px] [&_span]:text-muted-foreground [&_span]:font-normal">
+                      {plan.price === null ? (
+                        "Free"
+                      ) : (
+                        <>
+                          {new Intl.NumberFormat("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                            maximumFractionDigits: 0,
+                          }).format(plan.price.amount)}
+                          <span>
+                            {" "}
+                            / {plan.price.unit === "member" ? "member / " : ""}
+                            {plan.price.interval}
+                          </span>
+                        </>
+                      )}
+                    </p>
+                    <Button
+                      variant={subscription ? "outline" : "default"}
+                      disabled={busy || !!subscription}
+                      onClick={async () => {
+                        setError(null);
+                        const result = await checkout({
+                          params: { organization: organization.organization },
+                          payload: { plan: plan.id },
+                        });
+                        if (Exit.isFailure(result))
+                          setError(
+                            "Unable to confirm the plan change. Check your current plan before trying again.",
+                          );
+                        else if (result.value.url !== null)
+                          window.location.assign(result.value.url);
+                        else refresh();
+                      }}
+                    >
+                      {subscription
+                        ? subscription.status === "scheduled"
+                          ? "Scheduled"
+                          : "Current plan"
+                        : `Choose ${plan.name}`}
+                    </Button>
+                  </article>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </QueryResult>
+    </section>
+  );
+}
+function BillingFailure({ retry }: { readonly retry?: (() => void) | undefined }) {
+  return (
+    <Empty
+      className="empty-state min-h-77.5 flex flex-col justify-center items-center text-center p-[32px] text-muted-foreground border border-border rounded-[8px] [&_h2]:text-[14px] [&_h2]:text-foreground [&_h2]:font-medium [&_h2]:[margin:15px_0_5px] [&_p]:text-[12px] [&_p]:max-w-85 [&_a]:underline [&_a]:underline-offset-[3px] max-[740px]:min-h-62.5 max-[740px]:py-[24px] max-[740px]:px-[18px] max-[740px]:[&_a]:inline-flex max-[740px]:[&_a]:items-center max-[740px]:[&_a]:min-h-11"
+      role="alert"
+    >
+      <h2>Billing unavailable</h2>
+      <p>We couldn’t load your billing details.</p>
+      <Button onClick={retry}>Try again</Button>
+    </Empty>
+  );
+}
+/** Members never fetch billing; the backend independently enforces the same rule. */
+export function BillingPage({ returned }: { readonly returned: ReturnType<typeof billingSearch> }) {
+  const organization = useOrganizationRoute();
+  if (organization.role === undefined) return <PageSkeleton title="Billing" />;
+  if (organization.role === "member")
+    return (
+      <section className="page w-full shrink-0 max-w-315 [padding:24px_24px_48px] my-0 mx-auto max-[1000px]:[padding:20px_20px_40px] max-[740px]:[padding:18px_max(16px,_env(safe-area-inset-right))_max(32px,_env(safe-area-inset-bottom))_max(16px,_env(safe-area-inset-left))]">
+        <h1 className="text-[22px] font-semibold tracking-[-0.035em] leading-[1.35] [&>span]:text-muted-foreground [&>span]:text-[13px] [&>span]:font-mono [&>span]:font-normal [&>span]:ml-[8px] [&>span]:align-middle">
+          Billing
+        </h1>
+        <Empty className="empty-state min-h-77.5 flex flex-col justify-center items-center text-center p-[32px] text-muted-foreground border border-border rounded-[8px] [&_h2]:text-[14px] [&_h2]:text-foreground [&_h2]:font-medium [&_h2]:[margin:15px_0_5px] [&_p]:text-[12px] [&_p]:max-w-85 [&_a]:underline [&_a]:underline-offset-[3px] max-[740px]:min-h-62.5 max-[740px]:py-[24px] max-[740px]:px-[18px] max-[740px]:[&_a]:inline-flex max-[740px]:[&_a]:items-center max-[740px]:[&_a]:min-h-11">
+          <p>An organization owner or admin can manage billing.</p>
+        </Empty>
+      </section>
+    );
+  return <BillingDetails key={organization.organization} returned={returned} />;
+}

@@ -1,0 +1,102 @@
+/** Alchemy provisions Axiom; its event scope owns the shared safe Effect exporters. */
+import { TelemetryConfig, telemetryConfig, telemetryLayer } from "@executor-js/telemetry";
+import { CurrentRuntimeContext } from "alchemy/RuntimeContext";
+import { AlchemyContext } from "alchemy/AlchemyContext";
+import * as Axiom from "alchemy/Axiom";
+import * as Output from "alchemy/Output";
+import { adopt } from "alchemy/AdoptPolicy";
+import { retain } from "alchemy/RemovalPolicy";
+import { Stage } from "alchemy/Stage";
+import * as Telemetry from "alchemy/Telemetry";
+import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
+import { testStage } from "./stage.ts";
+
+const binding = "EXECUTOR_TELEMETRY";
+
+/**
+ * Configured stages own their datasets and never adopt the original Executor's telemetry.
+ * Test stages share one retained set and are told apart by the environment field, so a
+ * destroyed test stage removes only its ingest token.
+ */
+export const telemetryResources = Effect.gen(function* () {
+  const stage = yield* Stage;
+  const shared = Option.isSome(yield* testStage.pipe(Effect.orDie));
+  const owner = shared ? "test" : stage;
+  const names = {
+    traces: `executor-next-${owner}-traces`,
+    logs: `executor-next-${owner}-logs`,
+    metrics: `executor-next-${owner}-metrics`,
+  };
+  // Axiom marks ownership per stage; every test stage takes the shared datasets over on deploy.
+  const dataset = (
+    id: string,
+    name: string,
+    kind: "otel:traces:v1" | "otel:logs:v1" | "otel:metrics:v1",
+  ) => Axiom.Dataset(id, { name, kind }).pipe(adopt(shared), retain());
+  const traces = yield* dataset("TelemetryTraces", names.traces, "otel:traces:v1");
+  const logs = yield* dataset("TelemetryLogs", names.logs, "otel:logs:v1");
+  const metrics = yield* dataset("TelemetryMetrics", names.metrics, "otel:metrics:v1");
+  const ingest = yield* Axiom.ApiToken("TelemetryIngest", {
+    name: `executor-next-${stage}-ingest`,
+    datasetCapabilities: {
+      [names.traces]: { ingest: ["create"] },
+      [names.logs]: { ingest: ["create"] },
+      [names.metrics]: { ingest: ["create"] },
+    },
+  });
+  return { names, traces, logs, metrics, ingest };
+});
+
+/** Worker props own provisioning; local workerd uses only explicit local OTLP settings. */
+export const telemetryBindings = Effect.gen(function* () {
+  if ((yield* AlchemyContext).dev) {
+    const config = yield* telemetryConfig("executor-cloud");
+    const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(TelemetryConfig))(config);
+    return { [binding]: Output.asOutput(Redacted.make(encoded)) };
+  }
+  const { names, traces, logs, metrics, ingest } = yield* telemetryResources;
+  const version = yield* Config.NonEmptyString("EXECUTOR_BUILD_VERSION");
+  const environment = yield* Stage;
+  return {
+    [binding]: Output.all(
+      traces.otelTracesEndpoint,
+      logs.otelLogsEndpoint,
+      metrics.otelMetricsEndpoint,
+      ingest.token,
+    ).pipe(
+      Output.map(([traceUrl, logUrl, metricUrl, token]) => {
+        const target = (url: string, dataset: string) => ({
+          url,
+          headers: { Authorization: `Bearer ${Redacted.value(token)}`, "X-Axiom-Dataset": dataset },
+        });
+        return Redacted.make(
+          JSON.stringify({
+            service: "executor-cloud",
+            version,
+            environment,
+            traces: target(traceUrl, names.traces),
+            logs: target(logUrl, names.logs),
+            metrics: target(metricUrl, names.metrics),
+          }),
+        );
+      }),
+    ),
+  };
+}).pipe(Effect.orDie);
+
+/** Alchemy builds this safe exporter in each Worker/DO event scope and flushes through waitUntil. */
+export const cloudTelemetry = Layer.unwrap(
+  Effect.gen(function* () {
+    if (!globalThis.__ALCHEMY_RUNTIME__) return Layer.empty;
+    const context = yield* CurrentRuntimeContext;
+    if (context === undefined)
+      return yield* Effect.die(new Error("Telemetry requires an Alchemy runtime"));
+    const bound = yield* context.get<unknown>(binding);
+    // Alchemy env props may arrive JSON-decoded; RuntimeContext.set uses a redacted marker.
+    const value = Redacted.isRedacted(bound) ? Redacted.value(bound) : bound;
+    const config = yield* Schema.decodeUnknownEffect(
+      Schema.Union([Schema.fromJsonString(TelemetryConfig), TelemetryConfig]),
+    )(value).pipe(Effect.catch(() => Effect.die(new Error("Invalid telemetry configuration"))));
+    return Telemetry.layer(telemetryLayer(config, "event"));
+  }),
+);

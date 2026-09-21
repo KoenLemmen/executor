@@ -1,0 +1,365 @@
+diff --git a/lib/Apply.js b/lib/Apply.js
+index c099d206676c04d44aa68d30f1178c31ce1a03f4..cad6f5823d2f7d3dba7239d8c19f4b63c8d4fb7e 100644
+--- a/lib/Apply.js
++++ b/lib/Apply.js
+@@ -391,13 +391,17 @@ const executeNode = (fqn, node, tracker, ready, readyStable, terminalStatuses, s
+         if (policyChanged && node.state.removalPolicy !== undefined) {
+             yield* scopedSession.note(`removal policy ${node.state.removalPolicy} → ${node.resource.RemovalPolicy}`);
+         }
+-        yield* signalReadyStable;
++        // Store before signalling. A dependent task released by
++        // `readyStable` reads `tracker[fqn]`, so signalling first lets it
++        // observe a missing output. Every other lifecycle path stores first.
++        // See https://github.com/alchemy-run/alchemy/issues/1717.
+         yield* storeAndSignal({
+             output: node.state.attr,
+             props: node.state.props,
+             bindings: node.state.bindings ?? [],
+             instanceId: node.state.instanceId,
+         });
++        yield* signalReadyStable;
+         return;
+     }
+     const allUpstreamFqns = () => {
+diff --git a/lib/Cloudflare/Hyperdrive/Connection.js b/lib/Cloudflare/Hyperdrive/Connection.js
+index ad4516d4ee17ed6dc1ef87db51f5f6c49fbc3f7b..a177d5327a1ff58facea17c9d74264de09a7c444 100644
+--- a/lib/Cloudflare/Hyperdrive/Connection.js
++++ b/lib/Cloudflare/Hyperdrive/Connection.js
+@@ -194,7 +194,7 @@ export const ProviderLive = () => Provider.succeed(Connection, {
+ export const ProviderLocal = () => Provider.succeed(Connection, {
+     stables: ["accountId"],
+     diff: Effect.fn(function* ({ news, output }) {
+-        const { accountId } = yield* yield* CloudflareEnvironment;
++        const accountId = output?.accountId ?? "local";
+         if (!output?.hyperdriveId)
+             return { action: "update" };
+         if (!isResolved(news))
+@@ -210,7 +210,7 @@ export const ProviderLocal = () => Provider.succeed(Connection, {
+         return output ?? undefined;
+     }),
+     reconcile: Effect.fn(function* ({ id, news, output }) {
+-        const { accountId } = yield* yield* CloudflareEnvironment;
++        const accountId = output?.accountId ?? "local";
+         return {
+             hyperdriveId: output?.hyperdriveId ?? generateLocalId(),
+             name: yield* createConfigName(id, news.name),
+diff --git a/lib/Cloudflare/R2/Bucket.js b/lib/Cloudflare/R2/Bucket.js
+index a87d74325befa35f68b297f1dd7ef0fbafe5362f..959ef148b7f37baabf2abb9beda7a71bd83f075d 100644
+--- a/lib/Cloudflare/R2/Bucket.js
++++ b/lib/Cloudflare/R2/Bucket.js
+@@ -858,7 +858,7 @@ export const ProviderLive = () => Provider.effect(Bucket, Effect.gen(function* (
+ export const ProviderLocal = () => Provider.succeed(Bucket, {
+     stables: ["accountId"],
+     diff: Effect.fn(function* ({ news = {}, output }) {
+-        const { accountId } = yield* yield* CloudflareEnvironment;
++        const accountId = output?.accountId ?? "local";
+         if (!output?.bucketName)
+             return { action: "update" };
+         if (!isResolved(news))
+@@ -873,7 +873,7 @@ export const ProviderLocal = () => Provider.succeed(Bucket, {
+         return output ?? undefined;
+     }),
+     reconcile: Effect.fn(function* ({ news = {}, output }) {
+-        const { accountId } = yield* yield* CloudflareEnvironment;
++        const accountId = output?.accountId ?? "local";
+         return {
+             bucketName: output?.bucketName ?? generateLocalId(),
+             storageClass: (news.storageClass ?? "Standard"),
+diff --git a/lib/Cloudflare/Workers/DurableObjectBridge.js b/lib/Cloudflare/Workers/DurableObjectBridge.js
+index d5e365c27c703aa143792cd6c786676a6a90c9de..724fec4eb9d6f7207805738c5459f60628baa694 100644
+--- a/lib/Cloudflare/Workers/DurableObjectBridge.js
++++ b/lib/Cloudflare/Workers/DurableObjectBridge.js
+@@ -33,10 +33,11 @@ export const makeDurableObjectBridge = (DurableObject, { entrypoint, stack, }) =
+         constructor(state, env) {
+             super(state, env);
+             this.#state = state;
++            const instanceScope = Scope.makeUnsafe();
+             this.#instance = state.blockConcurrencyWhile(() => build((promise) => void state.waitUntil?.(promise)).then(({ context, export: exported, telemetry }) => {
+                 const { constructor, services } = exported;
+-                const doContext = Layer.succeed(DurableObjectState, fromDurableObjectState(this.#state)).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(context)));
+-                return constructor.pipe(Effect.provide(doContext), Effect.flatMap((instance) => instance.pipe(Effect.provide(doContext))), Effect.map((instance) => ({
++                const doContext = Layer.mergeAll(Layer.succeed(DurableObjectState, fromDurableObjectState(this.#state)), Layer.succeed(Scope.Scope, instanceScope)).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(context)));
++                return constructor.pipe(Effect.provide(doContext), Effect.flatMap((instance) => instance.pipe(Effect.provide(doContext))), Effect.onExit((exit) => Exit.isFailure(exit) ? Scope.close(instanceScope, exit) : Effect.void), Effect.map((instance) => ({
+                     instance,
+                     services,
+                     context,
+diff --git a/lib/Cloudflare/Workers/HttpServer.js b/lib/Cloudflare/Workers/HttpServer.js
+index 53d2536b6c086fb167269e07f1c04a1a2d1f55b6..2d5c7f06be994c24691a4dc67186ad5fe7cf3516 100644
+--- a/lib/Cloudflare/Workers/HttpServer.js
++++ b/lib/Cloudflare/Workers/HttpServer.js
+@@ -1,6 +1,5 @@
+ import * as Deferred from "effect/Deferred";
+ import * as Effect from "effect/Effect";
+-import * as Layer from "effect/Layer";
+ import * as Option from "effect/Option";
+ import * as EffectHttp from "effect/unstable/http/HttpEffect";
+ import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
+@@ -22,10 +21,7 @@ export const makeRequestEffect = (webRequest, handler) => {
+                 raw: webRequest.body,
+             }),
+         });
+-        return yield* toHandledWebResponse(safeHandler).pipe(Effect.provide([
+-            Layer.succeed(HttpServerRequest.HttpServerRequest, request),
+-            Layer.succeed(Request, webRequest),
+-        ]));
++        return yield* toHandledWebResponse(safeHandler).pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request), Effect.provideService(Request, webRequest));
+     });
+ };
+ const toHandledWebResponse = (handler) => Effect.gen(function* () {
+@@ -38,7 +34,7 @@ const toHandledWebResponse = (handler) => Effect.gen(function* () {
+     HttpServerResponse.toWeb(EffectHttp.scopeTransferToStream(response), {
+         withoutBody: request.method === "HEAD",
+         context,
+-    })));
++    }))).pipe(Effect.forkScoped);
+     return yield* Deferred.await(webResponse);
+ });
+ export { isScopeEjected } from "../../Http.js";
+diff --git a/lib/Cloudflare/Workers/LocalWorkerProvider.js b/lib/Cloudflare/Workers/LocalWorkerProvider.js
+index 3eefe4f3d6a3d397fe64ced4fb1107aefaa687b2..b27c9684f6ced28d13c5ae524d077579565617d7 100644
+--- a/lib/Cloudflare/Workers/LocalWorkerProvider.js
++++ b/lib/Cloudflare/Workers/LocalWorkerProvider.js
+@@ -455,7 +455,7 @@ export const LocalWorkerProvider = () => LocalProvider.make(Worker, LOCAL_PROVID
+      * half of the old `buildConfig` — kept out of the hashed config.
+      */
+     const materializeWorkerBindings = Effect.fn(function* (config, selfUrl) {
+-        const { accountId } = yield* cloudflareEnv;
++        const { accountId } = yield* (Object.values(config.devRemote).some(Boolean) ? cloudflareEnv : Effect.succeed({ accountId: "local" }));
+         return yield* materializeRuntimeBindings({
+             ...config,
+             devAccess: config.dev.mode === "external" ? undefined : config.dev.access,
+@@ -927,7 +927,7 @@ export const LocalWorkerProvider = () => LocalProvider.make(Worker, LOCAL_PROVID
+         // The dev server and its workerd run in a child process rooted
+         // at the app.
+         const root = path.resolve(rootDir ?? process.cwd());
+-        const { accountId } = yield* cloudflareEnv;
++        const { accountId } = yield* (Object.values(worker.devRemote ?? {}).some(Boolean) ? cloudflareEnv : Effect.succeed({ accountId: "local" }));
+         // Queue-consumer wiring can change while the child is starting
+         // (a sibling `Consumer` reconcile), before the restart hook
+         // below exists to pick it up. We hold the serve lock, so a
+@@ -1076,14 +1076,17 @@ export const LocalWorkerProvider = () => LocalProvider.make(Worker, LOCAL_PROVID
+             const durableObjectNamespaces = {};
+             for (const { data } of bindings) {
+                 for (const binding of data?.bindings ?? []) {
+-                    if (binding.type === "durable_object_namespace") {
++                    // Foreign bindings may contain unresolved script-name Outputs during precreate.
++                    // Their namespace belongs to the host Worker and must not be declared here.
++                    if (binding.type === "durable_object_namespace" &&
++                        (!binding.scriptName || binding.scriptName === name)) {
+                         durableObjectNamespaces[binding.className] =
+                             binding.namespaceId ??
+                                 encodeURIComponent(`${binding.scriptName}-${binding.className}`);
+                     }
+                 }
+             }
+-            const { accountId } = yield* cloudflareEnv;
++            const { accountId } = yield* (bindings.some(({ data }) => Object.values(data?.devRemote ?? {}).some(Boolean)) ? cloudflareEnv : Effect.succeed({ accountId: "local" }));
+             const urls = news.dev?.mode === "external"
+                 ? // news.dev.url may be an unresolved output; avoid trying to resolve it here.
+                     []
+@@ -1111,7 +1114,7 @@ export const LocalWorkerProvider = () => LocalProvider.make(Worker, LOCAL_PROVID
+             };
+         }),
+         start: Effect.fn(function* ({ fqn, config, invalidate }) {
+-            const { accountId } = yield* cloudflareEnv;
++            const { accountId } = yield* (Object.values(config.devRemote).some(Boolean) ? cloudflareEnv : Effect.succeed({ accountId: "local" }));
+             // `dev: { mode: "external" }` opts out of running a local Worker
+             // entirely — typically because an external dev process
+             // (Command.Dev) is serving requests. The instance exists in the
+diff --git a/src/Apply.ts b/src/Apply.ts
+index 4e056c4e52c2a6f9b4d8ed08bb35d900171c4d07..c11421fffcc230058dae2f2acde96a0a761418e1 100644
+--- a/src/Apply.ts
++++ b/src/Apply.ts
+@@ -747,13 +747,17 @@ const executeNode = (
+           `removal policy ${node.state.removalPolicy} → ${node.resource.RemovalPolicy}`,
+         );
+       }
+-      yield* signalReadyStable;
++      // Store before signalling. A dependent task released by
++      // `readyStable` reads `tracker[fqn]`, so signalling first lets it
++      // observe a missing output. Every other lifecycle path stores first.
++      // See https://github.com/alchemy-run/alchemy/issues/1717.
+       yield* storeAndSignal({
+         output: node.state.attr,
+         props: node.state.props,
+         bindings: node.state.bindings ?? [],
+         instanceId: node.state.instanceId,
+       });
++      yield* signalReadyStable;
+       return;
+     }
+ 
+diff --git a/src/Cloudflare/Hyperdrive/Connection.ts b/src/Cloudflare/Hyperdrive/Connection.ts
+index 9a0aa1a8c503d2f84b7ee7bc3f93549dc11f501c..786e62070efa2e2c3965faf69bb5fa00adf64d35 100644
+--- a/src/Cloudflare/Hyperdrive/Connection.ts
++++ b/src/Cloudflare/Hyperdrive/Connection.ts
+@@ -338,7 +338,7 @@ export const ProviderLocal = () =>
+   Provider.succeed(Connection, {
+     stables: ["accountId"],
+     diff: Effect.fn(function* ({ news, output }) {
+-      const { accountId } = yield* yield* CloudflareEnvironment;
++      const accountId = output?.accountId ?? "local";
+       if (!output?.hyperdriveId) return { action: "update" } as const;
+       if (!isResolved(news)) return undefined;
+       if (output.accountId !== accountId) {
+@@ -352,7 +352,7 @@ export const ProviderLocal = () =>
+       return output ?? undefined;
+     }),
+     reconcile: Effect.fn(function* ({ id, news, output }) {
+-      const { accountId } = yield* yield* CloudflareEnvironment;
++      const accountId = output?.accountId ?? "local";
+       return {
+         hyperdriveId: output?.hyperdriveId ?? generateLocalId(),
+         name: yield* createConfigName(id, news.name),
+diff --git a/src/Cloudflare/R2/Bucket.ts b/src/Cloudflare/R2/Bucket.ts
+index a1f2df8a4ebbd5b31d500637ae30d5cd1688506f..2e33c9301b379e760a0804931c85f99b7628575b 100644
+--- a/src/Cloudflare/R2/Bucket.ts
++++ b/src/Cloudflare/R2/Bucket.ts
+@@ -1388,7 +1388,7 @@ export const ProviderLocal = () =>
+   Provider.succeed(Bucket, {
+     stables: ["accountId"],
+     diff: Effect.fn(function* ({ news = {}, output }) {
+-      const { accountId } = yield* yield* CloudflareEnvironment;
++      const accountId = output?.accountId ?? "local";
+       if (!output?.bucketName) return { action: "update" } as const;
+       if (!isResolved(news)) return undefined;
+       if (output.accountId !== accountId) {
+@@ -1401,7 +1401,7 @@ export const ProviderLocal = () =>
+       return output ?? undefined;
+     }),
+     reconcile: Effect.fn(function* ({ news = {}, output }) {
+-      const { accountId } = yield* yield* CloudflareEnvironment;
++      const accountId = output?.accountId ?? "local";
+       return {
+         bucketName: output?.bucketName ?? generateLocalId(),
+         storageClass: (news.storageClass ?? "Standard") as Bucket.StorageClass,
+diff --git a/src/Cloudflare/Workers/DurableObjectBridge.ts b/src/Cloudflare/Workers/DurableObjectBridge.ts
+index 83cc61f5870ee6e74bede2d3396e28050d9b793c..37e603734a192ae9351c459dda1b6358c4e23e32 100644
+--- a/src/Cloudflare/Workers/DurableObjectBridge.ts
++++ b/src/Cloudflare/Workers/DurableObjectBridge.ts
+@@ -60,14 +60,17 @@ export const makeDurableObjectBridge =
+       constructor(state: cf.DurableObjectState, env: any) {
+         super(state as any, env);
+         this.#state = state;
++        // Constructor resources belong to the object, not a transient Layer.provide scope.
++        // workerd has no teardown hook; failed construction must still release them.
++        const instanceScope = Scope.makeUnsafe();
+ 
+         this.#instance = state.blockConcurrencyWhile(() =>
+           build((promise) => void (state as any).waitUntil?.(promise)).then(
+             ({ context, export: exported, telemetry }) => {
+               const { constructor, services } = exported;
+-              const doContext = Layer.succeed(
+-                DurableObjectState,
+-                fromDurableObjectState(this.#state),
++              const doContext = Layer.mergeAll(
++                Layer.succeed(DurableObjectState, fromDurableObjectState(this.#state)),
++                Layer.succeed(Scope.Scope, instanceScope),
+               ).pipe(
+                 Layer.provideMerge(Layer.succeedContext(services)),
+                 Layer.provideMerge(Layer.succeedContext(context)),
+@@ -77,6 +80,9 @@ export const makeDurableObjectBridge =
+                 Effect.flatMap((instance) =>
+                   instance.pipe(Effect.provide(doContext)),
+                 ),
++                Effect.onExit((exit) =>
++                  Exit.isFailure(exit) ? Scope.close(instanceScope, exit) : Effect.void,
++                ),
+                 Effect.map((instance) => ({
+                   instance,
+                   services,
+diff --git a/src/Cloudflare/Workers/HttpServer.ts b/src/Cloudflare/Workers/HttpServer.ts
+index 73034de2da062d5b083e213aeb4a087ae7fa2989..9b6b1333196c1c266c1263771394bd89a7ac5cce 100644
+--- a/src/Cloudflare/Workers/HttpServer.ts
++++ b/src/Cloudflare/Workers/HttpServer.ts
+@@ -1,7 +1,6 @@
+ import type * as cf from "@cloudflare/workers-types";
+ import * as Deferred from "effect/Deferred";
+ import * as Effect from "effect/Effect";
+-import * as Layer from "effect/Layer";
+ import * as Option from "effect/Option";
+ import * as EffectHttp from "effect/unstable/http/HttpEffect";
+ import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
+@@ -44,10 +43,8 @@ export const makeRequestEffect = <Req = never>(
+     });
+ 
+     return yield* toHandledWebResponse(safeHandler).pipe(
+-      Effect.provide([
+-        Layer.succeed(HttpServerRequest.HttpServerRequest, request),
+-        Layer.succeed(Request, webRequest as any),
+-      ]),
++      Effect.provideService(HttpServerRequest.HttpServerRequest, request),
++      Effect.provideService(Request, webRequest as any),
+     );
+   }) as any;
+ };
+@@ -61,6 +58,8 @@ const toHandledWebResponse = <Req>(
+     const context = yield* Effect.context();
+     const webResponse = yield* Deferred.make<Response>();
+ 
++    // Return when the response callback fires. The event scope owns the
++    // uninterruptible HTTP cleanup fiber, and the bridge closes it via waitUntil.
+     yield* EffectHttp.toHandled(handler, (request, response) =>
+       Deferred.succeed(
+         webResponse,
+@@ -70,7 +69,7 @@ const toHandledWebResponse = <Req>(
+           context,
+         }),
+       ),
+-    );
++    ).pipe(Effect.forkScoped);
+     return yield* Deferred.await(webResponse);
+   });
+ 
+diff --git a/src/Cloudflare/Workers/LocalWorkerProvider.ts b/src/Cloudflare/Workers/LocalWorkerProvider.ts
+index 02757fb2cfd6cb7eb0c7af3ae4bc0ae2699e0b43..24e4d8049366a0725dd6e4b06c8cc08fbd265734 100644
+--- a/src/Cloudflare/Workers/LocalWorkerProvider.ts
++++ b/src/Cloudflare/Workers/LocalWorkerProvider.ts
+@@ -583,7 +583,7 @@ export const LocalWorkerProvider = () =>
+         config: WorkerConfig,
+         selfUrl: string | undefined,
+       ) {
+-        const { accountId } = yield* cloudflareEnv;
++        const { accountId } = yield* (Object.values(config.devRemote).some(Boolean) ? cloudflareEnv : Effect.succeed({ accountId: "local" }));
+         return yield* materializeRuntimeBindings(
+           {
+             ...config,
+@@ -1250,7 +1250,7 @@ export const LocalWorkerProvider = () =>
+               // The dev server and its workerd run in a child process rooted
+               // at the app.
+               const root = path.resolve(rootDir ?? process.cwd());
+-              const { accountId } = yield* cloudflareEnv;
++              const { accountId } = yield* (Object.values(worker.devRemote ?? {}).some(Boolean) ? cloudflareEnv : Effect.succeed({ accountId: "local" }));
+               // Queue-consumer wiring can change while the child is starting
+               // (a sibling `Consumer` reconcile), before the restart hook
+               // below exists to pick it up. We hold the serve lock, so a
+@@ -1457,7 +1457,10 @@ export const LocalWorkerProvider = () =>
+           const durableObjectNamespaces: Record<string, string> = {};
+           for (const { data } of bindings) {
+             for (const binding of data?.bindings ?? []) {
+-              if (binding.type === "durable_object_namespace") {
++              // Foreign bindings may contain unresolved script-name Outputs during precreate.
++              // Their namespace belongs to the host Worker and must not be declared here.
++              if (binding.type === "durable_object_namespace" &&
++                  (!binding.scriptName || binding.scriptName === name)) {
+                 durableObjectNamespaces[binding.className] =
+                   binding.namespaceId ??
+                   encodeURIComponent(
+@@ -1466,7 +1469,7 @@ export const LocalWorkerProvider = () =>
+               }
+             }
+           }
+-          const { accountId } = yield* cloudflareEnv;
++          const { accountId } = yield* (bindings.some(({ data }) => Object.values(data?.devRemote ?? {}).some(Boolean)) ? cloudflareEnv : Effect.succeed({ accountId: "local" }));
+           const urls =
+             news.dev?.mode === "external"
+               ? // news.dev.url may be an unresolved output; avoid trying to resolve it here.
+@@ -1498,7 +1501,7 @@ export const LocalWorkerProvider = () =>
+         }),
+ 
+         start: Effect.fn(function* ({ fqn, config, invalidate }) {
+-          const { accountId } = yield* cloudflareEnv;
++          const { accountId } = yield* (Object.values(config.devRemote).some(Boolean) ? cloudflareEnv : Effect.succeed({ accountId: "local" }));
+ 
+           // `dev: { mode: "external" }` opts out of running a local Worker
+           // entirely — typically because an external dev process

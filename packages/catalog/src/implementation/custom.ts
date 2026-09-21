@@ -1,0 +1,56 @@
+/** Translate custom import configuration to ordinary deployable source files. */
+import { Effect } from "effect";
+import type { CustomAppInput } from "../contracts/imports.ts";
+import { generateApp } from "./generate.ts";
+import { generateMcpApp } from "./mcp.ts";
+import { readApiDocument } from "./source.ts";
+import { generateRemoteApp, generateStdioApp, type RemoteAuth } from "@executor-js/app-templates";
+import { CatalogImportFailed } from "../contracts/catalog.ts";
+
+/** Account secrets are supplied later through the shared account connection flow. */
+export const generateCustomApp = (input: CustomAppInput) =>
+  Effect.gen(function* () {
+    if (input.kind === "mcp-stdio") return yield* generateStdioApp(input);
+    const entry = {
+      id: input.url,
+      kind: input.kind,
+      name: input.name,
+      domain: new URL(input.url).hostname,
+      description: "",
+      connectUrl: input.url,
+    };
+    if (input.kind === "openapi") {
+      return yield* generateApp(
+        entry,
+        yield* readApiDocument(input.url),
+        input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl },
+      );
+    }
+    if (input.auth.type === "auto") return yield* generateMcpApp(entry, "auto");
+    let auth: RemoteAuth;
+    switch (input.auth.type) {
+      case "none":
+        auth = {};
+        break;
+      case "apiKey":
+        auth = { apiKey: { header: input.auth.header, prefix: input.auth.prefix } };
+        break;
+      case "discoverOAuth":
+        auth = { oauth: { discover: input.url } };
+        break;
+      case "oauth":
+        auth = {
+          oauth: {
+            authorizationUrl: input.auth.authorizationUrl,
+            tokenUrl: input.auth.tokenUrl,
+            scopes: input.auth.scopes,
+          },
+        };
+        break;
+    }
+    return yield* generateRemoteApp(input.name, input.url, input.kind, auth);
+  }).pipe(
+    Effect.catchTag("TemplateError", (error) =>
+      Effect.fail(new CatalogImportFailed({ reason: error.reason })),
+    ),
+  );

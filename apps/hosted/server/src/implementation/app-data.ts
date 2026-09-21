@@ -1,0 +1,74 @@
+/** Product-owned authorization around the same SDK data operations used by local. */
+import { type AppDataInput } from "@executor-js/sdk/core";
+import { Effect, Stream } from "effect";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpServerRequest } from "effect/unstable/http";
+import { HostedApi } from "../contracts/api.ts";
+import { HostedExecutor } from "../contracts/executor.ts";
+import {
+  OrganizationForbidden,
+  CurrentOrganization,
+  organizationOwner,
+  type OrganizationId,
+} from "../contracts/organization.ts";
+import { Authentication, ApiAuthentication, Unauthorized } from "../contracts/auth.ts";
+import { adminOwner, currentOwner, selectedApp } from "./access.ts";
+
+/** Recheck both login and membership on long-lived streams; initial middleware is not a saved grant. */
+const currentAccess = (headers: Headers, organization: OrganizationId) =>
+  Effect.gen(function* () {
+    if (headers.has("authorization")) {
+      const api = yield* ApiAuthentication;
+      const grant = yield* api.authenticate(headers, organization);
+      if (grant.access.organization !== organization) return yield* new OrganizationForbidden();
+      return grant.access;
+    }
+    const auth = yield* Authentication;
+    if ((yield* auth.current(headers)) === null) return yield* new Unauthorized();
+    const membership = yield* auth.membership(headers, organization);
+    return { organization, owner: organizationOwner(organization), role: membership.role };
+  });
+/** Check app ownership and selected accounts before invoking author code. */
+export const executeAppData = (kind: "query" | "mutate", input: AppDataInput) =>
+  Effect.gen(function* () {
+    const owner = yield* kind === "mutate" ? adminOwner : currentOwner;
+    const executor = yield* Effect.flatten(HostedExecutor);
+    yield* selectedApp(executor, owner, input.app);
+    return yield* executor.appData[kind](input);
+  });
+/** Shared routes; the host supplies request-owned SDK and authentication services. */
+export const hostedAppDataHandlers = HttpApiBuilder.group(HostedApi, "appData", (handlers) =>
+  Effect.gen(function* () {
+    const auth = yield* Authentication;
+    const api = yield* ApiAuthentication;
+    return handlers
+      .handle("query", ({ params, payload }) =>
+        executeAppData("query", { app: params.app, ...payload }),
+      )
+      .handle("mutate", ({ params, payload }) =>
+        executeAppData("mutate", { app: params.app, ...payload }),
+      )
+      .handle("subscribe", ({ params, payload }) =>
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const headers = new Headers(request.headers);
+          const owner = yield* currentOwner;
+          const executor = yield* Effect.flatten(HostedExecutor);
+          yield* selectedApp(executor, owner, params.app);
+          const access = currentAccess(headers, (yield* CurrentOrganization).organization).pipe(
+            Effect.provideService(Authentication, auth),
+            Effect.provideService(ApiAuthentication, api),
+            Effect.tap((access) => selectedApp(executor, access.owner, params.app)),
+          );
+          const source = yield* executor.appData.subscribe({ app: params.app, ...payload });
+          return Stream.merge(
+            source.pipe(Stream.mapEffect((snapshot) => access.pipe(Effect.as(snapshot)))),
+            Stream.tick("5 seconds").pipe(
+              Stream.mapEffect(() => access),
+              Stream.drain,
+            ),
+          );
+        }),
+      );
+  }),
+);

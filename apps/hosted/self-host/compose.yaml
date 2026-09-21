@@ -1,0 +1,39 @@
+name: executor-next-hosted
+
+services:
+  server:
+    build:
+      context: ../../..
+      dockerfile: apps/hosted/self-host/Dockerfile
+    environment:
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set the dashboard origin}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set a stable secret of at least 32 characters}
+      SSO_DISCOVERY_URL: ${SSO_DISCOVERY_URL:-}
+      SSO_CLIENT_ID: ${SSO_CLIENT_ID:-}
+      SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET:-}
+      SSO_ALLOWED_DOMAINS: ${SSO_ALLOWED_DOMAINS:-}
+      EXECUTOR_ENCRYPTION_KEY: ${EXECUTOR_ENCRYPTION_KEY:?Set a stable 32-byte hexadecimal encryption key}
+      # Optional HTTPS app origin base. Localhost derives it from BETTER_AUTH_URL.
+      EXECUTOR_APP_UI_BASE_URL:
+      # Unset passthrough entries stay absent; the default is bundled Motel.
+      OTEL_EXPORTER_OTLP_ENDPOINT:
+      OTEL_EXPORTER_OTLP_HEADERS:
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS:
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:
+      OTEL_EXPORTER_OTLP_LOGS_HEADERS:
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:
+      OTEL_EXPORTER_OTLP_METRICS_HEADERS:
+      OTEL_EXPORTER_OTLP_METRICS_PROTOCOL:
+      EXECUTOR_BUILD_VERSION:
+      EXECUTOR_ENVIRONMENT: ${EXECUTOR_ENVIRONMENT:-self-host}
+    init: true
+    ports:
+      - "127.0.0.1:4400:4400"
+    volumes:
+      - pglite-data:/app/data
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  pglite-data:

@@ -1,0 +1,238 @@
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { sessionAtom } from "@executor-js/hosted-web/contracts/auth";
+import { SessionMenu } from "@executor-js/hosted-web/auth";
+import { organizationsAtom } from "@executor-js/hosted-web/contracts/organization";
+import { HostedEntry, HostedEntryLoading } from "@executor-js/hosted-web/entry";
+import { McpConsentLoading } from "@executor-js/ui/dashboard/mcp-consent";
+import { IconPicker } from "@executor-js/hosted-web/icon-picker";
+import {
+  selectOrganizationIconAtom,
+  OrganizationIconSelectionFailed,
+  type SelectedOrganizationIcon,
+} from "@executor-js/hosted-web/contracts/organization-icon";
+import { Button } from "@executor-js/ui/components/button";
+import { Input } from "@executor-js/ui/components/input";
+import { Link, Navigate, useLocation } from "@tanstack/react-router";
+import { Cause, Exit, Schema } from "effect";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { useState, type ReactNode } from "react";
+import {
+  OnboardingDraft,
+  OnboardingInvitation,
+  type TeamDetails,
+} from "../../../../src/contracts/onboarding.ts";
+import { prepareTeamAtom, createTeamAtom } from "../../contracts/onboarding.ts";
+
+/** Confirm first-team details at entry; exact invitation and organization links remain intact. */
+export function TeamSetupBoundary({ children }: { readonly children: ReactNode }) {
+  const session = useAtomValue(sessionAtom);
+  const { pathname } = useLocation();
+  if (
+    !AsyncResult.isSuccess(session) ||
+    session.value === null ||
+    (pathname !== "/" && pathname !== "/mcp/authorize")
+  )
+    return children;
+  return (
+    <OrganizationEntryGate
+      key={session.value.user.id}
+      userId={session.value.user.id}
+      mcp={pathname === "/mcp/authorize"}
+    >
+      {children}
+    </OrganizationEntryGate>
+  );
+}
+
+function OrganizationEntryGate({
+  userId,
+  mcp,
+  children,
+}: {
+  readonly userId: string;
+  readonly mcp: boolean;
+  readonly children: ReactNode;
+}) {
+  const organizations = useAtomValue(organizationsAtom);
+  const refresh = useAtomRefresh(organizationsAtom);
+  return AsyncResult.builder(organizations)
+    .onInitial(() => (mcp ? <McpConsentLoading /> : <HostedEntryLoading />))
+    .onFailure(() => (
+      <HostedEntry
+        title="Unable to load your organizations"
+        description="Try again to open your workspace."
+      >
+        <Button onClick={refresh}>Try again</Button>
+      </HostedEntry>
+    ))
+    .onSuccess((items) =>
+      items.length > 0 ? (
+        children
+      ) : (
+        <TeamEntry userId={userId} mcp={mcp}>
+          {children}
+        </TeamEntry>
+      ),
+    )
+    .exhaustive();
+}
+
+function TeamSetupPage({ children }: { readonly children: ReactNode }) {
+  return (
+    <main className="flex min-h-dvh flex-col items-center justify-center p-6">
+      {children}
+      <div className="mt-[18px] w-full max-w-[560px]">
+        <SessionMenu signOutLabel="Sign out" />
+      </div>
+    </main>
+  );
+}
+
+function TeamEntry({
+  userId,
+  mcp,
+  children,
+}: {
+  readonly userId: string;
+  readonly mcp: boolean;
+  readonly children: ReactNode;
+}) {
+  const prepared = useAtomValue(prepareTeamAtom(userId));
+  const created = useAtomValue(createTeamAtom(userId));
+  const refresh = useAtomRefresh(prepareTeamAtom(userId));
+  const reset = useAtomSet(createTeamAtom(userId));
+  const retry = () => {
+    reset(Atom.Reset);
+    refresh();
+  };
+  if (AsyncResult.isInitial(prepared))
+    return (
+      <HostedEntryLoading
+        title="Preparing your team"
+        description="Getting your team details ready…"
+        label="Preparing your team"
+      />
+    );
+  if (AsyncResult.isFailure(prepared))
+    return (
+      <TeamSetupPage>
+        <div className="flex min-h-[200px] flex-col items-center justify-center gap-4">
+          <p role="alert">Unable to open your workspace. Try again.</p>
+          <Button onClick={retry}>Try again</Button>
+        </div>
+      </TeamSetupPage>
+    );
+  const entry = AsyncResult.isSuccess(created) ? created.value : prepared.value;
+  if (Schema.is(OnboardingInvitation)(entry)) {
+    if (mcp)
+      return (
+        <TeamSetupPage>
+          <div className="flex min-h-[200px] flex-col items-center justify-center gap-4">
+            <p>Accept your invitation, then return here to connect.</p>
+            <Button asChild>
+              <Link to="/invite" search={{ invitation: entry.invitation }} target="_blank">
+                Open invitation
+              </Link>
+            </Button>
+            <Button variant="ghost" onClick={retry}>
+              Continue
+            </Button>
+          </div>
+        </TeamSetupPage>
+      );
+    return <Navigate to="/invite" search={{ invitation: entry.invitation }} replace />;
+  }
+  if (Schema.is(OnboardingDraft)(entry))
+    return <TeamForm userId={userId} suggestion={entry.suggestion} />;
+  return children;
+}
+
+function TeamForm({
+  userId,
+  suggestion,
+}: {
+  readonly userId: string;
+  readonly suggestion: TeamDetails;
+}) {
+  const create = useAtomSet(createTeamAtom(userId), { mode: "promiseExit" });
+  const state = useAtomValue(createTeamAtom(userId));
+  const [icon, setIcon] = useState<
+    SelectedOrganizationIcon | { readonly kind: "url"; readonly logo: string | null }
+  >({ kind: "url", logo: suggestion.logo });
+  const selectIcon = useAtomSet(selectOrganizationIconAtom(`signup:${userId}`), {
+    mode: "promiseExit",
+  });
+  const selection = useAtomValue(selectOrganizationIconAtom(`signup:${userId}`));
+  const pending = state.waiting || selection.waiting;
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <TeamSetupPage>
+      <section
+        className="w-full max-w-[560px] rounded-2xl border bg-card p-10 max-[600px]:p-6"
+        aria-labelledby="team-setup-title"
+      >
+        <header className="mb-9 flex items-center gap-3.5 [&_h1]:text-2xl [&_h1]:font-medium [&_h1]:tracking-[-0.04em]">
+          <IconPicker
+            name={suggestion.name}
+            preview={icon.kind === "file" ? icon.preview : icon.logo}
+            label="Upload team icon"
+            disabled={pending}
+            onRemove={() => setIcon({ kind: "url", logo: null })}
+            onSelect={async (file) => {
+              setError(null);
+              const result = await selectIcon(file);
+              if (Exit.isSuccess(result)) setIcon(result.value);
+              else {
+                const failure = Cause.squash(result.cause);
+                setError(
+                  failure instanceof OrganizationIconSelectionFailed
+                    ? failure.message
+                    : "This image could not be read. Choose another file.",
+                );
+              }
+            }}
+          />
+          <h1 id="team-setup-title">Create your team</h1>
+        </header>
+        <form
+          className="flex flex-col gap-2.5 [&_label]:text-sm [&_label]:text-muted-foreground [&_input]:h-12 [&_input]:px-3.5 [&_input]:text-base"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (pending) return;
+            setError(null);
+            const name = new FormData(event.currentTarget).get("name");
+            if (typeof name !== "string" || !name.trim()) {
+              setError("Enter a team name.");
+              return;
+            }
+            const result = await create({ name: name.trim(), logo: icon.logo });
+            if (Exit.isFailure(result)) setError("Unable to create your team. Try again.");
+          }}
+        >
+          <label htmlFor="team-name">Team name</label>
+          <Input
+            id="team-name"
+            name="name"
+            defaultValue={suggestion.name}
+            required
+            maxLength={120}
+            autoComplete="organization"
+            autoFocus
+            disabled={pending}
+          />
+          <span className="sr-only" role="status">
+            {selection.waiting ? "Reading icon" : icon.kind === "file" ? "Icon selected" : ""}
+          </span>
+          {error && (
+            <p className="auth-error text-[13px] text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <Button className="mt-[30px] min-h-12 w-full text-base" type="submit" loading={pending}>
+            Continue
+          </Button>
+        </form>
+      </section>
+    </TeamSetupPage>
+  );
+}

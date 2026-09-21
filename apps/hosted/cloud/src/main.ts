@@ -1,0 +1,237 @@
+import { HostedAppUiApi, hostedAppUi, appAddresses } from "@executor-js/hosted-server/app-ui";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { cloudAppUiBase } from "./contracts/app-ui.ts";
+import { BillingMeter } from "./contracts/billing-meter.ts";
+import { ExecutionAdmission } from "@executor-js/hosted-server";
+import { billingBindings } from "./infrastructure/billing.ts";
+/** Cloudflare composition edge. Alchemy owns the Effect runtime and request scopes. */
+import { executorSkillFiles } from "@executor-js/app-templates/executor";
+import authoring from "../.generated/executor-authoring.json" with { type: "json" };
+import {
+  browserTelemetry,
+  hostedOAuthCallback,
+  hostedWebhookCallback,
+  catalogLive,
+  requireUserLive,
+  requireOrganizationLive,
+  mcpProtectedResource,
+  mcpAuthorizationServer,
+  apiChallenge,
+  apiProtectedResource,
+} from "@executor-js/hosted-server";
+import * as Cloudflare from "alchemy/Cloudflare";
+import * as Command from "alchemy/Command";
+import * as Output from "alchemy/Output";
+import { AlchemyContext } from "alchemy/AlchemyContext";
+import { Config, Effect, Layer, Option, Path } from "effect";
+import { HttpRouter, HttpServer, HttpMiddleware, HttpServerResponse } from "effect/unstable/http";
+import { cloudAuth } from "./infrastructure/auth.ts";
+import { cloudOnboarding } from "./infrastructure/onboarding.ts";
+import { cloudMcp, McpSessionsLive } from "./infrastructure/mcp.ts";
+import { cloudApi } from "./implementation/api.ts";
+import { billingLive } from "./implementation/billing.ts";
+import { cloudExecutor } from "./infrastructure/executor.ts";
+import { cloudAuthDatabase } from "./infrastructure/auth-database.ts";
+import { cloudTelemetry, telemetryBindings } from "./infrastructure/telemetry.ts";
+import { cloudEmail } from "./infrastructure/email.ts";
+import { cloudWelcomeEmails } from "./infrastructure/welcome-email.ts";
+import { homepage } from "./implementation/homepage.ts";
+import { postHogBindings } from "./infrastructure/posthog.ts";
+import { cloudAnalytics } from "./implementation/product-analytics.ts";
+import { sentryWorkerBuild } from "./infrastructure/sentry-build.ts";
+import { sentryBindings } from "./infrastructure/sentry.ts";
+import { cloudErrorTunnel } from "./implementation/error-tunnel.ts";
+import { cloudSentry } from "./implementation/error-reporting.ts";
+import { cloudOrigin } from "./infrastructure/stage.ts";
+import { AppDataSupervisor, AppDataSupervisorLive } from "./infrastructure/app-data.ts";
+import { cloudDevelopment } from "./contracts/development.ts";
+import { requestServices } from "./implementation/request-services.ts";
+
+/** One native Effect Worker serves the API with the static marketing site and dashboard attached as assets. */
+export class Api extends Cloudflare.Worker<Api, {}, AppDataSupervisor>()("Api") {}
+
+export default Api.make(
+  Effect.gen(function* () {
+    // Native Worker props are also evaluated during runtime initialization.
+    // The build-time flag also lets Rolldown remove provisioning imports.
+    if (globalThis.__ALCHEMY_RUNTIME__) return { main: import.meta.url };
+    const { dev } = yield* AlchemyContext;
+    const path = yield* Path.Path;
+    const origin = dev ? undefined : new URL(yield* cloudOrigin.pipe(Effect.orDie));
+    const placementRegion = yield* Config.NonEmptyString("CLOUD_PLACEMENT_REGION").pipe(
+      Config.option,
+    );
+    const analytics = yield* postHogBindings;
+    const sentry = yield* sentryBindings;
+    const site = yield* Command.Build("Site", {
+      cwd: "../../..",
+      command: "bun run hosted:cloud:site:build",
+      outdir: "apps/hosted/cloud/.generated/site",
+      env: { ...analytics.build, ...sentry.build },
+    });
+    return {
+      main: import.meta.url,
+      env: {
+        ...(yield* telemetryBindings),
+        ...analytics.env,
+        ...sentry.env,
+        ...(yield* billingBindings),
+      },
+      build: sentryWorkerBuild,
+      // Auth callbacks and the dashboard share the configured canonical origin.
+      ...(origin === undefined ? {} : { domain: origin.hostname }),
+      // Opt in per deployment; the database's cloud region is a proximity hint,
+      // not a Cloudflare data center or a change to local development routing.
+      ...(dev
+        ? {}
+        : Option.match(placementRegion, {
+            onNone: () => ({}),
+            onSome: (region) => ({ placement: { region } }),
+          })),
+      compatibility: {
+        date: "2026-09-08",
+        flags: ["nodejs_compat", "global_fetch_strictly_public"],
+      },
+      dev: {
+        host: "127.0.0.1",
+        port: dev ? (yield* cloudDevelopment.pipe(Effect.orDie)).apiPort : 4411,
+        strictPort: true,
+      },
+      assets: {
+        // Resolve the dev asset root once before Alchemy hands it to workerd.
+        directory: dev
+          ? site.outdir.pipe(Output.map((directory) => path.resolve(directory)))
+          : site.outdir,
+        hash: site.hash.output,
+        notFoundHandling: "none",
+        // Preserve TanStack paths after an internal index.html rewrite.
+        htmlHandling: "none",
+        runWorkerFirst: [
+          "/",
+          "/api",
+          "/api/*",
+          "/health",
+          "/openapi.json",
+          "/mcp",
+          "/.well-known/*",
+        ],
+        // Vite emits _redirects from the TanStack route tree; Alchemy reads it.
+      },
+    };
+  }),
+  Effect.gen(function* () {
+    const analytics = yield* cloudAnalytics;
+    const reportErrors = yield* cloudSentry;
+    const errorTunnel = yield* cloudErrorTunnel;
+    const email = yield* cloudEmail.pipe(Effect.orDie);
+    const auth = yield* cloudAuth(email.send);
+    const welcomeEmails = yield* cloudWelcomeEmails(email.welcome);
+    const executor = yield* cloudExecutor(yield* AppDataSupervisor);
+    const appUi = hostedAppUi(appAddresses(auth.origin, yield* cloudAppUiBase.pipe(Effect.orDie)));
+    const mcp = yield* cloudMcp;
+    const billing = yield* billingLive.pipe(Effect.orDie);
+    const meter = yield* BillingMeter.pipe(Effect.provide(billing));
+    const billingEnabled =
+      (yield* Config.String("BILLING_MODE").pipe(Config.withDefault("emulator"))) !== "emulator";
+    // One established schedule owns both independent background jobs. Each job
+    // reports its own failure so billing cannot prevent optional email delivery.
+    yield* Cloudflare.Workers.cron("*/5 * * * *", () =>
+      Effect.all(
+        [
+          welcomeEmails.deliver,
+          billingEnabled
+            ? meter.reconcileSeats.pipe(
+                Effect.catch(() => Effect.logError("Billing seat reconciliation failed")),
+              )
+            : Effect.void,
+        ],
+        { concurrency: 2, discard: true },
+      ),
+    );
+
+    const onboarding = yield* cloudOnboarding.pipe(Effect.orDie);
+    const api = cloudApi.pipe(
+      HttpRouter.provideRequest(catalogLive(executorSkillFiles(authoring))),
+      Layer.provide(billing),
+      Layer.provide(Layer.succeed(ExecutionAdmission, meter.consume)),
+      Layer.provide(onboarding),
+      Layer.provide(requireUserLive),
+      Layer.provide(requireOrganizationLive),
+      HttpRouter.provideRequest(executor),
+      Layer.provide(auth.identity),
+      Layer.provide(auth.apiIdentity),
+    );
+    const mcpRoutes = Layer.mergeAll(
+      HttpRouter.add("*", "/mcp", mcp.http),
+      HttpRouter.add("GET", "/.well-known/oauth-protected-resource", mcpProtectedResource),
+      HttpRouter.add("GET", "/.well-known/oauth-protected-resource/mcp", mcpProtectedResource),
+      HttpRouter.add("GET", "/.well-known/oauth-authorization-server", mcpAuthorizationServer),
+      HttpRouter.add(
+        "GET",
+        "/.well-known/oauth-authorization-server/api/auth",
+        mcpAuthorizationServer,
+      ),
+    ).pipe(HttpRouter.provideRequest(auth.mcpIdentity));
+    const routes = Layer.mergeAll(
+      api,
+      HttpApiBuilder.layer(HostedAppUiApi).pipe(
+        Layer.provide(appUi.dashboard),
+        Layer.provide(requireUserLive),
+        Layer.provide(auth.identity),
+        Layer.provide(requestServices(auth.appSessions)),
+        HttpRouter.provideRequest(executor),
+      ),
+      HttpRouter.add("*", "/api/:channel/*", analytics.proxy),
+      HttpRouter.add("POST", "/api/:channel/submit", errorTunnel),
+      browserTelemetry.pipe(HttpRouter.provideRequest(auth.identity)),
+      HttpRouter.add("GET", "/", homepage(auth.cookiePrefix)),
+      HttpRouter.add("*", "/api/webhooks/:appId/:subscriptionId", hostedWebhookCallback).pipe(
+        HttpRouter.provideRequest(executor),
+      ),
+      HttpRouter.add("*", "/api/auth/*", auth.handler),
+      HttpRouter.add("*", "/api/email/unsubscribe", welcomeEmails.unsubscribe),
+      HttpRouter.add("GET", "/api/oauth/callback", hostedOAuthCallback).pipe(
+        HttpRouter.provideRequest(auth.identity),
+      ),
+      mcpRoutes,
+      Layer.mergeAll(
+        HttpRouter.add("GET", "/api/mcp/approvals/:requestId", mcp.approvals),
+        HttpRouter.add("POST", "/api/mcp/approvals/:requestId", mcp.approvals),
+      ).pipe(HttpRouter.provideRequest(auth.mcpIdentity)),
+      Layer.mergeAll(
+        HttpRouter.add("GET", "/api", apiChallenge),
+        HttpRouter.add("GET", "/.well-known/oauth-protected-resource/api", apiProtectedResource),
+      ).pipe(HttpRouter.provideRequest(auth.apiIdentity)),
+    );
+    // Routes are immutable per isolate; requestServices keeps live auth resources in each event.
+    const handle = yield* routes.pipe(
+      Layer.provide(HttpServer.layerServices),
+      HttpRouter.toHttpEffect,
+      Effect.provideService(Layer.CurrentMemoMap, yield* Layer.makeMemoMap),
+    );
+    return {
+      fetch: handle.pipe(
+        Effect.catchTag("AuthenticationUnavailable", () =>
+          Effect.succeed(HttpServerResponse.empty({ status: 503 })),
+        ),
+        // Unsubscribe links are bearer capabilities; keep them out of request spans.
+        Effect.provideService(
+          HttpMiddleware.TracerDisabledWhen,
+          (request) => request.url.split("?")[0] === "/api/email/unsubscribe",
+        ),
+        analytics.wrap,
+        reportErrors,
+      ),
+    };
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        AppDataSupervisorLive,
+        McpSessionsLive,
+        cloudAuthDatabase,
+        cloudTelemetry,
+        Cloudflare.Workers.CronEventSourceLive,
+      ),
+    ),
+  ),
+);

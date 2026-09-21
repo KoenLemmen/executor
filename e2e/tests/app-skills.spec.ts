@@ -1,0 +1,169 @@
+/** Static skills are tested through the real hosted API, with no app implementation imports. */
+import { expect, layer } from "@effect/vitest";
+import { Effect, Schema } from "effect";
+import { randomUUID } from "node:crypto";
+import { scenarios } from "../test-plan.ts";
+import { Actors } from "../support/actors.ts";
+import { Api, body } from "../support/api.ts";
+import { HostedLive, withCase } from "../support/case.ts";
+import { App } from "../support/contracts.ts";
+
+const Deployed = Schema.Struct({ ...App.fields, activeDeployment: Schema.String });
+const Catalog = Schema.Struct({
+  app: App,
+  deployment: Schema.String,
+  skills: Schema.Array(Schema.Struct({ name: Schema.String, description: Schema.String })),
+});
+const Document = Schema.Struct({
+  app: App,
+  deployment: Schema.String,
+  content: Schema.String,
+  files: Schema.Array(Schema.String),
+});
+const source = `import { defineApp, defineProvider, secrets, object, string } from "apps";
+const service = defineProvider({ name: "Skill fixture", auth: { key: secrets({ label: "API key", fields: object({ token: string() }) }) } });
+export default defineApp({ accounts: { service } }, async () => { throw new Error("Skills must not evaluate this factory"); });`;
+const document = (version: string) =>
+  `---\nname: search-messages\ndescription: Search cached messages.\nallowed-tools: queries.search\nmetadata:\n  version: "${version}"\n---\nRead [examples](references/examples.md).\n`;
+const files = (version: string) => [
+  { path: "index.ts", content: source },
+  { path: "private.txt", content: "Outside the skill directory" },
+  { path: "skills/search-messages/SKILL.md", content: document(version) },
+  { path: "skills/search-messages/references/examples.md", content: `Examples ${version}\r\n` },
+  { path: "skills/search-messages/scripts/example.ts", content: "throw new Error('Never run');" },
+  {
+    path: "skills/other/SKILL.md",
+    content: "---\nname: other\ndescription: Another skill\n---\nOther.",
+  },
+];
+
+layer(HostedLive, { excludeTestServices: true })("App skills", (it) => {
+  it.effect(scenarios.appSkills.title, (context) =>
+    withCase(
+      context,
+      Effect.gen(function* () {
+        const api = yield* Api,
+          actors = yield* Actors;
+        const prefix = `/api/organizations/${actors.organization.id}/apps`;
+        const deploy = (name: string) =>
+          Effect.gen(function* () {
+            const response = yield* api.request(actors.owner, "POST", `${prefix}/deploy`, {
+              name,
+              files: files("v1"),
+            });
+            expect(response.status).toBe(200);
+            const app = yield* body(Deployed, response);
+            yield* Effect.addFinalizer(() =>
+              api.request(actors.owner, "DELETE", `${prefix}/${app.id}`).pipe(Effect.orDie),
+            );
+            return app;
+          });
+        const app = yield* deploy(`Skill fixture ${randomUUID().slice(0, 8)}`);
+        const other = yield* deploy(`Other fixture ${randomUUID().slice(0, 8)}`);
+        const path = `${prefix}/${app.id}`;
+        const read = `${path}/skills/search-messages`;
+        expect((yield* api.request(actors.member, "GET", `${path}/tools`)).status).toBe(409);
+        const catalogResponse = yield* api.request(actors.member, "GET", `${path}/skills`);
+        expect(catalogResponse.status).toBe(200);
+        const catalog = yield* body(Catalog, catalogResponse);
+        expect(catalog.app.id).toBe(app.id);
+        expect(catalog.skills.map((skill) => skill.name)).toEqual(["other", "search-messages"]);
+        expect(JSON.stringify(catalogResponse.body)).not.toContain("Never run");
+        const doc = yield* body(Document, yield* api.request(actors.member, "GET", read));
+        expect(doc.content).toBe(document("v1"));
+        expect(doc.files).toContain("references/examples.md");
+        expect(doc.files).not.toContain("private.txt");
+        const script = yield* body(
+          Document,
+          yield* api.request(actors.member, "GET", `${read}?file=scripts%2Fexample.ts`),
+        );
+        expect(script.content).toBe("throw new Error('Never run');");
+        for (const file of [
+          "../private.txt",
+          "/index.ts",
+          "references/../../other/SKILL.md",
+          "references\\examples.md",
+        ]) {
+          expect(
+            (yield* api.request(actors.member, "GET", `${read}?file=${encodeURIComponent(file)}`))
+              .status,
+          ).toBe(400);
+        }
+        for (const file of ["private.txt", "index.ts", "skills/other/SKILL.md"]) {
+          expect(
+            (yield* api.request(actors.member, "GET", `${read}?file=${encodeURIComponent(file)}`))
+              .status,
+          ).toBe(404);
+        }
+        expect(
+          (yield* api.request(actors.member, "GET", `${read}?deployment=${other.activeDeployment}`))
+            .status,
+        ).toBe(404);
+        expect((yield* api.request(actors.member, "GET", `${path}/source`)).status).toBe(403);
+        const anonymous = yield* api.session();
+        expect((yield* api.request(anonymous, "GET", read)).status).toBe(401);
+        expect(
+          (yield* api.request(
+            actors.member,
+            "GET",
+            `/api/organizations/unrelated-organization/apps/${app.id}/skills`,
+          )).status,
+        ).toBe(403);
+
+        // Bad skills fail before building even when the executable source is invalid too.
+        for (const invalid of [
+          { path: "skills/search-messages/SKILL.md", content: "No frontmatter" },
+          {
+            path: "skills/search-messages/SKILL.md",
+            content: "---\nname: search-messages\nname: duplicate\ndescription: Example\n---\n",
+          },
+          {
+            path: "skills/search-messages/SKILL.md",
+            content: "---\nname: mismatch\ndescription: Example\n---\n",
+          },
+          { path: "skills/search-messages/reference.md", content: "Missing SKILL.md" },
+          { path: "skills/Bad-Name/SKILL.md", content: document("v1") },
+        ]) {
+          const rejected = yield* api.request(actors.owner, "POST", `${path}/deployments`, {
+            expectedDeployment: app.activeDeployment,
+            files: [{ path: "index.ts", content: "!invalid javascript" }, invalid],
+          });
+          expect(rejected.status).toBe(400);
+          expect(rejected.body).toMatchObject({ _tag: "SkillDefinitionInvalid" });
+          expect(
+            (yield* body(Document, yield* api.request(actors.member, "GET", read))).deployment,
+          ).toBe(app.activeDeployment);
+        }
+        const changed = yield* api.request(actors.owner, "POST", `${path}/deployments`, {
+          expectedDeployment: app.activeDeployment,
+          files: files("v2"),
+        });
+        expect(changed.status).toBe(200);
+        const updated = yield* body(Deployed, changed);
+        expect(
+          (yield* body(Document, yield* api.request(actors.member, "GET", read))).content,
+        ).toBe(document("v2"));
+        const reference = yield* body(
+          Document,
+          yield* api.request(
+            actors.member,
+            "GET",
+            `${read}?deployment=${doc.deployment}&file=references%2Fexamples.md`,
+          ),
+        );
+        expect(reference.content).toBe("Examples v1\r\n");
+        expect(
+          (yield* api.request(actors.owner, "POST", `${path}/activate`, {
+            deployment: app.activeDeployment,
+            expectedDeployment: updated.activeDeployment,
+          })).status,
+        ).toBe(200);
+        expect(
+          (yield* body(Document, yield* api.request(actors.member, "GET", read))).content,
+        ).toBe(document("v1"));
+        expect((yield* api.request(actors.owner, "DELETE", path)).status).toBe(200);
+        expect((yield* api.request(actors.member, "GET", read)).status).toBe(404);
+      }),
+    ),
+  );
+});
