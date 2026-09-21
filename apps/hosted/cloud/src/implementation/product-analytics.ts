@@ -1,4 +1,5 @@
-/** Request-owned analytics; only explicit product metadata enters PostHog. */
+/** Request-owned analytics and explicitly submitted feedback sent to PostHog. */
+import { FeedbackUnavailable, type Feedback } from "../contracts/feedback.ts";
 import type { Executor } from "@executor-js/sdk/core";
 import { CurrentUserId, CurrentOrganization } from "@executor-js/hosted-server";
 import { CurrentRuntimeContext } from "alchemy/RuntimeContext";
@@ -19,7 +20,11 @@ const Settings = Schema.Struct({
   release: Schema.String,
 });
 type Settings = typeof Settings.Type;
-type EventName = "tool_execution_completed" | "account_connected" | "app_deployed";
+type EventName =
+  | "tool_execution_completed"
+  | "account_connected"
+  | "app_deployed"
+  | "feedback_submitted";
 type Properties = Readonly<Record<string, string | number | boolean>>;
 interface Event {
   readonly event: EventName;
@@ -27,9 +32,30 @@ interface Event {
   readonly distinct_id: string;
   readonly timestamp: string;
 }
-const Analytics = Context.Reference<{ readonly add: (event: Event) => void }>("cloud/Analytics", {
-  defaultValue: () => ({ add: () => {} }),
+const Analytics = Context.Reference<{
+  readonly add: (event: Event) => void;
+  readonly submit: (event: Event) => Effect.Effect<void, FeedbackUnavailable>;
+}>("cloud/Analytics", {
+  defaultValue: () => ({
+    add: () => {},
+    submit: () => Effect.fail(new FeedbackUnavailable()),
+  }),
 });
+
+/** Submit only the declared feedback text, with identity derived from the authenticated request. */
+export const submitFeedback = (feedback: Feedback) =>
+  Effect.gen(function* () {
+    const actor = yield* CurrentUserId;
+    const organization = yield* CurrentOrganization;
+    if (actor === undefined) return yield* new FeedbackUnavailable();
+    const analytics = yield* Analytics;
+    yield* analytics.submit({
+      event: "feedback_submitted",
+      distinct_id: actor,
+      timestamp: new Date().toISOString(),
+      properties: { message: feedback.message, organization_id: organization.organization },
+    });
+  });
 
 const readSettings = (read: Effect.Effect<unknown>) =>
   Effect.gen(function* () {
@@ -69,41 +95,43 @@ const withProductAnalytics = <A, E, R>(
     if (!config) return yield* handler;
     const events: Event[] = [];
     const client = yield* HttpClient.HttpClient;
+    const send = (batch: readonly Event[]) =>
+      client
+        .execute(
+          HttpClientRequest.post(`${config.host}/batch/`).pipe(
+            HttpClientRequest.bodyJsonUnsafe({
+              api_key: config.token,
+              batch: batch.map((event) => ({
+                ...event,
+                properties: {
+                  ...event.properties,
+                  product_version: "v2",
+                  environment: config.environment,
+                  release: config.release,
+                  executor_test: config.environment.startsWith("test-"),
+                  $process_person_profile: false,
+                },
+              })),
+            }),
+          ),
+        )
+        .pipe(
+          Effect.flatMap((response) =>
+            response.status >= 200 && response.status < 300
+              ? Effect.void
+              : Effect.fail(response.status),
+          ),
+          Effect.timeout("3 seconds"),
+          Effect.asVoid,
+        );
     yield* Effect.addFinalizer(() =>
       events.length === 0
         ? Effect.void
-        : client
-            .execute(
-              HttpClientRequest.post(`${config.host}/batch/`).pipe(
-                HttpClientRequest.bodyJsonUnsafe({
-                  api_key: config.token,
-                  batch: events.map((event) => ({
-                    ...event,
-                    properties: {
-                      ...event.properties,
-                      product_version: "v2",
-                      environment: config.environment,
-                      release: config.release,
-                      executor_test: config.environment.startsWith("test-"),
-                      $process_person_profile: false,
-                    },
-                  })),
-                }),
-              ),
-            )
-            .pipe(
-              Effect.flatMap((response) =>
-                response.status >= 200 && response.status < 300
-                  ? Effect.void
-                  : Effect.fail(response.status),
-              ),
-              Effect.timeout("3 seconds"),
-              Effect.catch(() => Effect.logWarning("PostHog batch export failed")),
-              Effect.asVoid,
-            ),
+        : send(events).pipe(Effect.catch(() => Effect.logWarning("PostHog batch export failed"))),
     );
     return yield* handler.pipe(
       Effect.provideService(Analytics, {
+        submit: (event) => send([event]).pipe(Effect.mapError(() => new FeedbackUnavailable())),
         add: (event) => {
           if (events.length < 100) events.push(event);
         },

@@ -1,4 +1,5 @@
 import { billingHandlers } from "./billing.ts";
+import { feedbackHandlers } from "./feedback.ts";
 import { onboardingHandlers } from "./onboarding-handlers.ts";
 import { organizationRemovalHandlers } from "./organization-removal.ts";
 import { hostedHandlers } from "@executor-js/hosted-server";
@@ -18,6 +19,7 @@ export const cloudApi = (document: HostedApiDocument) =>
       Layer.mergeAll(
         hostedHandlers,
         billingHandlers,
+        feedbackHandlers,
         onboardingHandlers,
         organizationRemovalHandlers,
       ),

@@ -26,6 +26,15 @@ const cloudOnboarding = {
 
 /** Scenario names and applicability used by both test declarations and test selection. */
 export const scenarios = {
+  feedback: {
+    file: "feedback.spec.ts",
+    title: "Cloud feedback enforces its API contract and reports disabled ingestion",
+    targets: {
+      cloud: scheduled,
+      "self-host": na("PostHog feedback belongs to Cloud."),
+      local: na("PostHog feedback belongs to Cloud."),
+    },
+  },
   groupFormErrors: {
     file: "groups.spec.ts",
     title: "Group forms show field errors and retain drafts through failed saves",
