@@ -8,6 +8,11 @@ export class SiteAssetCollision extends Schema.TaggedError<SiteAssetCollision>()
   { asset: Schema.String, sources: Schema.Array(Schema.String) },
 ) {}
 
+export class SiteAssetNotPublishable extends Schema.TaggedError<SiteAssetNotPublishable>()(
+  "SiteAssetNotPublishable",
+  { asset: Schema.String },
+) {}
+
 type Asset = Readonly<{ source: string; relative: string }>;
 
 const siteBuild = Effect.gen(function* () {
@@ -24,6 +29,19 @@ const siteBuild = Effect.gen(function* () {
   const docsPrefix = "docs";
   const output = path.join(root, "apps/hosted/cloud/.generated/site");
 
+  // The asset root is public and unauthenticated. Both front-end builds set
+  // `sourcemap: "hidden"`, which writes .map files into dist for an error
+  // tracker to upload; the only thing that removes them is a Sentry plugin that
+  // runs solely when SENTRY_AUTH_TOKEN is set. Decide publication here instead
+  // of trusting that upstream step. Dot-entries are build metadata
+  // (.vite/manifest.json) or editor and OS leftovers (.DS_Store). `.well-known`
+  // is the one dot-directory the web expects to be served, so it is exempt.
+  const isPublishable = (relative: string) =>
+    !relative.endsWith(".map") &&
+    !relative
+      .split(path.sep)
+      .some((segment) => segment.startsWith(".") && segment !== ".well-known");
+
   const listAssets = (directory: string) =>
     Effect.gen(function* () {
       const entries = yield* fs.readDirectory(directory, { recursive: true });
@@ -31,7 +49,7 @@ const siteBuild = Effect.gen(function* () {
       for (const entry of entries) {
         const source = path.join(directory, entry);
         const info = yield* fs.stat(source);
-        if (info.type === "File") assets.push({ source, relative: entry });
+        if (info.type === "File" && isPublishable(entry)) assets.push({ source, relative: entry });
       }
       return assets;
     });
@@ -59,6 +77,13 @@ const siteBuild = Effect.gen(function* () {
   for (const asset of marketingAssets) addAsset(asset);
   for (const asset of dashboardAssets) addAsset(asset);
   for (const asset of docsAssets) addAsset(asset, path.join(docsPrefix, asset.relative));
+
+  // listAssets decides publication. addAsset renames and prefixes entries after
+  // that, so assert once that what actually ships still passes the same rule.
+  const notPublishable = [...assets.keys()].find((relative) => !isPublishable(relative));
+  if (notPublishable !== undefined) {
+    return yield* Effect.fail(new SiteAssetNotPublishable({ asset: notPublishable }));
+  }
 
   for (const [relative, matches] of assets) {
     if (matches.length > 1) {

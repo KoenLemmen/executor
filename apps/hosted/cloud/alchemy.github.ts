@@ -80,8 +80,10 @@ const releaseSecrets = [
 
 /**
  * Required status checks on `main`. These are the contexts reported by `ci.yml` calling
- * `checks.yml` (PR #246). `CI_RULESET_ENFORCEMENT` defaults to `evaluate` (log only) until
- * that workflow is on `main`; set it to `active` afterwards.
+ * `checks.yml` (PR #246). `CI_RULESET_ENFORCEMENT` defaults to `active`, so an apply that
+ * cannot create the ruleset fails loudly rather than leaving `main` silently unprotected.
+ * Rulesets need GitHub Pro on a private repository, which is the blocker today; `.env.ci.op`
+ * sets `disabled` until the plan allows them. `evaluate` is log only and blocks nothing.
  */
 const requiredStatusChecks = [
   "checks / check",
@@ -110,7 +112,7 @@ export default Alchemy.Stack(
     const enforcement = yield* Config.Literals(
       ["evaluate", "active", "disabled"],
       "CI_RULESET_ENFORCEMENT",
-    ).pipe(Config.withDefault("evaluate" as const));
+    ).pipe(Config.withDefault("active" as const));
 
     // The repository already exists. Alchemy observes it and converges these settings only;
     // every property it does not declare keeps its current value.
