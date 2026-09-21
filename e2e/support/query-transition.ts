@@ -3,8 +3,12 @@ import type { Route } from "playwright";
 import { Browser } from "./browser.ts";
 import { driver } from "./platform.ts";
 
-/** Hold one real GET until the scenario observes the UI; release it unchanged or fail its transport. */
-export const holdQuery = (paths: readonly string[], outcome: "continue" | "fail") =>
+/** Hold real reads until the scenario observes the UI; a refresh cycle can include concurrent requests. */
+export const holdQuery = (
+  paths: readonly string[],
+  outcome: "continue" | "fail",
+  options: { readonly method?: "GET" | "POST"; readonly allRequests?: boolean } = {},
+) =>
   Effect.gen(function* () {
     const browser = yield* Browser;
     const requested = yield* Deferred.make<string>();
@@ -15,7 +19,10 @@ export const holdQuery = (paths: readonly string[], outcome: "continue" | "fail"
     const intercept = (route: Route) => {
       const request = Effect.runPromise(
         Effect.gen(function* () {
-          if (claimed || route.request().method() !== "GET") {
+          if (
+            (claimed && !options.allRequests) ||
+            route.request().method() !== (options.method ?? "GET")
+          ) {
             yield* driver("Continue an unrelated request", () => route.fallback());
             return;
           }

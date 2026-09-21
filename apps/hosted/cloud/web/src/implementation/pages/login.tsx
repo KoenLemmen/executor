@@ -1,16 +1,48 @@
 import { PasskeyEnrollment } from "../components/passkey-enrollment.tsx";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { LoginLegalFooter, LoginPage, loginSearch } from "@executor-js/hosted-web/pages/login";
 import { AuthFailed, sessionAtom } from "@executor-js/hosted-web/contracts/auth";
 import { Button } from "@executor-js/ui/components/button";
 import { Input } from "@executor-js/ui/components/input";
-import { Cause, Exit } from "effect";
+import { Cause, Exit, Option } from "effect";
 import { useEffect, useState } from "react";
 import { passkeySignInAtom, sendCodeAtom, verifyCodeAtom } from "../../contracts/auth.ts";
 
 /** Cloud adds passkeys and verified email codes to the social sign-in choices. */
 export function CloudLoginPage(props: ReturnType<typeof loginSearch>) {
+  const session = useAtomValue(sessionAtom);
+  const refresh = useAtomRefresh(sessionAtom);
+  const current = Option.getOrUndefined(AsyncResult.value(session));
+  const verified = AsyncResult.isSuccess(session) && !session.waiting && session.value !== null;
+  // This is the displayed flow's identity, never session authority or a credential cache.
+  const [enrollmentUser, setEnrollmentUser] = useState<string>();
+  if (verified && enrollmentUser !== session.value.user.id)
+    setEnrollmentUser(session.value.user.id);
+  else if (current === null && enrollmentUser !== undefined) setEnrollmentUser(undefined);
+  if (current && (verified || enrollmentUser === current.user.id))
+    return (
+      <>
+        <PasskeyEnrollment key={current.user.id} userId={current.user.id} canSubmit={verified}>
+          <ContinueAfterSignIn redirect={props.redirect} verified={verified} />
+        </PasskeyEnrollment>
+        {AsyncResult.isFailure(session) && (
+          <div
+            role="alert"
+            className="fixed bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-background p-3 text-sm"
+          >
+            <p>Unable to check your session.</p>
+            <Button variant="outline" onClick={refresh}>
+              Try again
+            </Button>
+          </div>
+        )}
+      </>
+    );
+  return <CloudSignInForm {...props} />;
+}
+
+function CloudSignInForm(props: ReturnType<typeof loginSearch>) {
   const send = useAtomSet(sendCodeAtom, { mode: "promiseExit" });
   const verify = useAtomSet(verifyCodeAtom, { mode: "promiseExit" });
   const passkey = useAtomSet(passkeySignInAtom, { mode: "promiseExit" });
@@ -20,18 +52,11 @@ export function CloudLoginPage(props: ReturnType<typeof loginSearch>) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const session = useAtomValue(sessionAtom);
   const pending = sending.waiting || verifying.waiting || signing.waiting;
   const failure = (cause: Cause.Cause<AuthFailed>) => {
     const value = Cause.squash(cause);
     setError(value instanceof AuthFailed ? value.message : "Sign-in failed. Try again.");
   };
-  if (AsyncResult.isSuccess(session) && !session.waiting && session.value !== null)
-    return (
-      <PasskeyEnrollment userId={session.value.user.id}>
-        <ContinueAfterSignIn redirect={props.redirect} />
-      </PasskeyEnrollment>
-    );
   return (
     <LoginPage {...props}>
       <Button
@@ -118,9 +143,15 @@ export function CloudLoginPage(props: ReturnType<typeof loginSearch>) {
   );
 }
 
-function ContinueAfterSignIn({ redirect }: { readonly redirect: string }) {
+function ContinueAfterSignIn({
+  redirect,
+  verified,
+}: {
+  readonly redirect: string;
+  readonly verified: boolean;
+}) {
   useEffect(() => {
-    window.location.replace(redirect);
-  }, [redirect]);
+    if (verified) window.location.replace(redirect);
+  }, [redirect, verified]);
   return null;
 }

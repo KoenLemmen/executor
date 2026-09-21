@@ -15,13 +15,15 @@ import {
 export function PasskeyEnrollment({
   userId,
   children,
+  canSubmit = true,
 }: {
   readonly userId: string;
   readonly children: ReactNode;
+  readonly canSubmit?: boolean;
 }) {
   if (!hasPasskeyEnrollment(userId)) return children;
   return (
-    <Enrollment key={userId} userId={userId}>
+    <Enrollment key={userId} userId={userId} canSubmit={canSubmit}>
       {children}
     </Enrollment>
   );
@@ -30,9 +32,11 @@ export function PasskeyEnrollment({
 function Enrollment({
   userId,
   children,
+  canSubmit,
 }: {
   readonly userId: string;
   readonly children: ReactNode;
+  readonly canSubmit: boolean;
 }) {
   const enrollment = useAtomValue(passkeyEnrollmentAtom(userId));
   const add = useAtomSet(addPasskeyAtom, { mode: "promiseExit" });
@@ -61,9 +65,11 @@ function Enrollment({
         </h1>
         <p>Sign in faster with your fingerprint, face, or password manager.</p>
         <Button
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           loading={adding.waiting}
-          disabled={AsyncResult.isFailure(enrollment)}
+          aria-disabled={!canSubmit || AsyncResult.isFailure(enrollment) || undefined}
           onClick={async () => {
+            if (!canSubmit || AsyncResult.isFailure(enrollment)) return;
             setError(null);
             const result = await add("Passkey");
             if (Exit.isFailure(result))

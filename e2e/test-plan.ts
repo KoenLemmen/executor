@@ -36,7 +36,7 @@ export const scenarios = {
     },
   },
   passwordRefresh: {
-    file: "login-refresh.spec.ts",
+    file: "password-refresh.spec.ts",
     title: "Password sign-in retains its draft through tab-focus session checks",
     targets: {
       "self-host": scheduled,
@@ -45,7 +45,7 @@ export const scenarios = {
     },
   },
   emailCodeRefresh: {
-    file: "login-refresh.spec.ts",
+    file: "email-code-refresh.spec.ts",
     title: "Cloud sign-in retains its code through tab-focus session checks",
     targets: {
       cloud: scheduled,
@@ -458,6 +458,11 @@ export const scenarios = {
       "self-host": na("This test checks Cloud's email-code sign-in UI."),
       local: na("This test checks Cloud's hosted sign-in and viewer routes."),
     },
+  },
+  enrollmentRefresh: {
+    file: "enrollment-refresh.spec.ts",
+    title: "Cloud passkey enrollment retains errors and focus during session refresh",
+    targets: cloudOnboarding,
   },
 } as const satisfies Record<string, typeof TestPlan.Type>;
 
