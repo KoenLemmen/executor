@@ -1,12 +1,12 @@
 ---
 import RailLayout from "../../layouts/RailLayout.astro";
-import AppsDirectory from "../../components/apps-directory.tsx";
+import AppsDirectory, { AppsDirectoryLoading } from "../../components/apps-directory.tsx";
 ---
 
-<RailLayout title="Apps — Executor" description="Explore public apps and the source that powers them." current="apps">
-  <article class="py-12 max-[1023.98px]:px-6 max-[719.98px]:px-4 max-[719.98px]:py-8">
+<RailLayout title="Apps — Executor" description="Explore public apps and the source that powers them." current="apps" scroll="content">
+  <article class="min-h-0 flex-1 py-12 max-[1023.98px]:px-6 max-[719.98px]:px-4 max-[719.98px]:py-8">
     <AppsDirectory client:only="react">
-      <p slot="fallback" role="status" class="min-h-80 text-sm text-ink-2">Loading apps…</p>
+      <AppsDirectoryLoading slot="fallback" />
     </AppsDirectory>
   </article>
 </RailLayout>

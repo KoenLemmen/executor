@@ -9,12 +9,13 @@ interface Props {
   title: string;
   description: string;
   current?: "home" | "pricing" | "blog" | "docs" | "apps";
+  scroll?: "page" | "content";
 }
-const { title, description, current = "home" } = Astro.props;
+const { title, description, current = "home", scroll = "page" } = Astro.props;
 ---
 
 <Layout title={title} description={description}>
-  <RailFrame current={current}>
+  <RailFrame current={current} scroll={scroll}>
     <slot name="sidebar" slot="sidebar" />
     <slot />
   </RailFrame>

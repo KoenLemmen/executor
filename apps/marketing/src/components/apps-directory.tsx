@@ -30,23 +30,17 @@ function usePageTitle(title: string) {
 function RegistryQuery<A>({
   result,
   children,
-  label,
+  pending,
 }: {
   readonly result: AsyncResult.AsyncResult<A, RegistryError>;
   readonly children: (value: A) => ReactNode;
-  readonly label: string;
+  readonly pending: ReactNode;
 }) {
   const data = AsyncResult.value(result);
   return (
     <>
       {AsyncResult.isFailure(result) && <ReadFailure cause={result.cause} />}
-      {Option.isSome(data)
-        ? children(data.value)
-        : !AsyncResult.isFailure(result) && (
-            <p role="status" className="min-h-40 border-y border-rule py-8 text-sm text-ink-2">
-              {label}
-            </p>
-          )}
+      {Option.isSome(data) ? children(data.value) : !AsyncResult.isFailure(result) && pending}
     </>
   );
 }
@@ -92,35 +86,101 @@ export default function AppsDirectory() {
     </RegistryProvider>
   );
 }
+function DirectoryFrame({
+  search = "",
+  onSearch,
+  children,
+}: {
+  readonly search?: string;
+  readonly onSearch?: (value: string) => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="shrink-0">
+        <h1 className="text-[clamp(1.75rem,3vw,2.25rem)] font-semibold tracking-tight">Apps</h1>
+        <p className="mt-4 max-w-2xl text-base leading-7 text-ink-2">
+          Find a published app, view its source, and make a copy in Executor.
+        </p>
+        <div className="mb-4 mt-8 grid grid-cols-3 gap-4 max-[1100px]:grid-cols-2 max-[600px]:grid-cols-1">
+          <label className="min-w-0">
+            <span className="sr-only">Search apps</span>
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => onSearch?.(event.target.value)}
+              disabled={onSearch === undefined}
+              placeholder="Search apps…"
+              className="w-full rounded-md border border-rule-strong bg-surface px-3 py-2.5 text-sm text-ink outline-offset-2 focus-visible:outline-ink"
+            />
+          </label>
+        </div>
+      </header>
+      <section
+        aria-label="Apps"
+        tabIndex={0}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-0.5 -m-0.5 focus-visible:outline-ink"
+      >
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function Placeholder({ className }: { readonly className: string }) {
+  return (
+    <span aria-hidden className={`block rounded bg-rule motion-safe:animate-pulse ${className}`} />
+  );
+}
+
+function DirectoryCardsLoading() {
+  return (
+    <div role="status" aria-label="Loading apps">
+      <span className="sr-only">Loading apps…</span>
+      <div
+        aria-hidden
+        className="grid grid-cols-3 gap-4 max-[1100px]:grid-cols-2 max-[600px]:grid-cols-1"
+      >
+        {Array.from({ length: 3 }, (_, index) => (
+          <div
+            key={index}
+            className={`flex min-h-44 flex-col rounded-lg border border-rule p-5 ${index >= 2 ? "max-[1100px]:hidden" : index >= 1 ? "max-[600px]:hidden" : ""}`}
+          >
+            <Placeholder className="h-4 w-2/3" />
+            <div className="mt-4 space-y-2.5">
+              <Placeholder className="h-3 w-full" />
+              <Placeholder className="h-3 w-4/5" />
+            </div>
+            <Placeholder className="mt-auto h-3 w-16" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The static document and first client render use the same directory frame. */
+export function AppsDirectoryLoading() {
+  return (
+    <DirectoryFrame>
+      <DirectoryCardsLoading />
+    </DirectoryFrame>
+  );
+}
+
 function Directory() {
   usePageTitle("Apps");
   const result = useAtomValue(publicApps);
   const [search, setSearch] = useState("");
   return (
-    <>
-      <h1 className="text-[clamp(1.75rem,3vw,2.25rem)] font-semibold tracking-tight">Apps</h1>
-      <p className="mt-4 max-w-2xl text-base leading-7 text-ink-2">
-        Find a published app, view its source, and make a copy in Executor.
-      </p>
-      <div className="mb-4 mt-8 grid grid-cols-3 gap-4 max-[1100px]:grid-cols-2 max-[600px]:grid-cols-1">
-        <label className="min-w-0">
-          <span className="sr-only">Search apps</span>
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search apps…"
-            className="w-full rounded-md border border-rule-strong bg-surface px-3 py-2.5 text-sm text-ink outline-offset-2 focus-visible:outline-ink"
-          />
-        </label>
-      </div>
-      <RegistryQuery result={result} label="Loading apps…">
+    <DirectoryFrame search={search} onSearch={setSearch}>
+      <RegistryQuery result={result} pending={<DirectoryCardsLoading />}>
         {(publications) => {
           const matching = publications.filter((item) =>
             `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase()),
           );
           return matching.length === 0 ? (
-            <p className="border-y border-rule py-10 text-sm text-ink-2">
+            <p className="flex min-h-44 items-center justify-center rounded-lg border border-rule p-8 text-center text-sm text-ink-2">
               {publications.length === 0
                 ? "No apps have been published yet."
                 : "No matching apps. Try another search."}
@@ -131,7 +191,7 @@ function Directory() {
                 <a
                   key={publication.name}
                   href={registryPublicationPath(publication.name)}
-                  className="min-w-0 rounded-lg border border-rule p-5 transition-colors hover:border-rule-strong hover:bg-surface-2 focus-visible:outline-ink"
+                  className="flex min-h-44 min-w-0 flex-col rounded-lg border border-rule p-5 transition-colors hover:border-rule-strong hover:bg-surface-2 focus-visible:outline-ink"
                 >
                   <h2 className="break-words text-sm font-semibold">{publication.name}</h2>
                   {publication.description && (
@@ -139,7 +199,7 @@ function Directory() {
                       {publication.description}
                     </p>
                   )}
-                  <span className="mt-5 inline-block text-xs text-ink-2">
+                  <span className="mt-auto inline-block pt-5 text-xs text-ink-2">
                     View app <span aria-hidden>↗</span>
                   </span>
                 </a>
@@ -148,7 +208,7 @@ function Directory() {
           );
         }}
       </RegistryQuery>
-    </>
+    </DirectoryFrame>
   );
 }
 function AppPage({ name }: { readonly name: string }) {
@@ -156,13 +216,8 @@ function AppPage({ name }: { readonly name: string }) {
   const result = useAtomValue(publicApp(name));
   return (
     <>
-      <a
-        href="/apps"
-        className="mb-7 inline-flex min-h-9 items-center text-sm text-ink-2 hover:text-ink"
-      >
-        ← All apps
-      </a>
-      <RegistryQuery result={result} label="Loading app…">
+      <BackToApps />
+      <RegistryQuery result={result} pending={<PublicationLoading name={name} />}>
         {(publications) => {
           const publication = publications.find((item) => item.name === name);
           return publication === undefined ? (
@@ -180,6 +235,91 @@ function AppPage({ name }: { readonly name: string }) {
     </>
   );
 }
+function BackToApps() {
+  return (
+    <a
+      href="/apps"
+      className="mb-7 inline-flex min-h-9 items-center text-sm text-ink-2 hover:text-ink"
+    >
+      ← All apps
+    </a>
+  );
+}
+
+/** Published app URLs receive their own first-paint layout before JavaScript loads. */
+export function PublishedAppLoading() {
+  return (
+    <>
+      <BackToApps />
+      <PublicationLoading />
+    </>
+  );
+}
+
+function PublicationLoading({ name }: { readonly name?: string }) {
+  return (
+    <div role="status" aria-label="Loading app">
+      <div className="flex flex-wrap items-start justify-between gap-5">
+        <div className="min-w-0 flex-1">
+          {name ? (
+            <h1 className="break-words text-[clamp(1.4rem,2.5vw,2rem)] font-semibold tracking-tight">
+              {name}
+            </h1>
+          ) : (
+            <Placeholder className="h-10 w-2/3 max-w-96" />
+          )}
+          <div className="mt-4 max-w-2xl space-y-3">
+            <Placeholder className="h-4 w-full" />
+            <Placeholder className="h-4 w-2/3" />
+          </div>
+        </div>
+        <Placeholder className="h-9 w-24" />
+      </div>
+      <Placeholder className="mt-5 h-6 w-64 max-w-full" />
+      <section className="mt-9" aria-label="Published source">
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <h2 className="text-sm font-medium">Published source</h2>
+          <Placeholder className="h-3 w-14" />
+        </div>
+        <PublishedFilesLoading />
+      </section>
+      <span className="sr-only">Loading app…</span>
+    </div>
+  );
+}
+
+function PublishedFilesLoading() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading published files"
+      className="grid min-h-96 grid-cols-[11rem_minmax(0,1fr)] overflow-hidden rounded-lg border border-rule max-[719.98px]:grid-cols-1"
+    >
+      <div
+        aria-hidden
+        className="space-y-5 border-r border-rule bg-surface-2 p-4 max-[719.98px]:hidden"
+      >
+        <Placeholder className="h-3 w-3/4" />
+        <Placeholder className="h-3 w-1/2" />
+        <Placeholder className="h-3 w-2/3" />
+      </div>
+      <div aria-hidden className="min-w-0">
+        <div className="border-b border-rule px-4 py-3">
+          <Placeholder className="h-4 w-24" />
+        </div>
+        <div className="min-h-80 space-y-3 p-5">
+          <Placeholder className="h-3 w-3/5" />
+          <Placeholder className="h-3 w-4/5" />
+          <Placeholder className="h-3 w-2/5" />
+          <Placeholder className="h-3 w-3/4" />
+          <Placeholder className="h-3 w-1/2" />
+        </div>
+      </div>
+      <span className="sr-only">Loading published files…</span>
+    </div>
+  );
+}
+
 function AppPublication({ publication }: { readonly publication: typeof Publication.Type }) {
   const source = useAtomValue(publicAppFiles(publication.name, publication.commit));
   const [copyLabel, setCopyLabel] = useState("Copy link");
@@ -224,7 +364,7 @@ function AppPublication({ publication }: { readonly publication: typeof Publicat
             {publication.commit.slice(0, 7)}
           </code>
         </div>
-        <RegistryQuery result={source} label="Loading published files…">
+        <RegistryQuery result={source} pending={<PublishedFilesLoading />}>
           {(snapshot) => (
             <PublishedFiles key={snapshot.publication.commit} files={snapshot.files} />
           )}
