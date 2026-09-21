@@ -1,12 +1,17 @@
 import { PasskeyEnrollment } from "../components/passkey-enrollment.tsx";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { LoginLegalFooter, LoginPage, loginSearch } from "@executor-js/hosted-web/pages/login";
+import {
+  ContinueAfterSignIn,
+  LoginLegalFooter,
+  LoginPage,
+  loginSearch,
+} from "@executor-js/hosted-web/pages/login";
 import { AuthFailed, sessionAtom } from "@executor-js/hosted-web/contracts/auth";
 import { Button } from "@executor-js/ui/components/button";
 import { Input } from "@executor-js/ui/components/input";
 import { Cause, Exit, Option } from "effect";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { passkeySignInAtom, sendCodeAtom, verifyCodeAtom } from "../../contracts/auth.ts";
 
 /** Cloud adds passkeys and verified email codes to the social sign-in choices. */
@@ -24,7 +29,7 @@ export function CloudLoginPage(props: ReturnType<typeof loginSearch>) {
     return (
       <>
         <PasskeyEnrollment key={current.user.id} userId={current.user.id} canSubmit={verified}>
-          <ContinueAfterSignIn redirect={props.redirect} verified={verified} />
+          <ContinueAfterSignIn redirect={props.redirect} userId={current.user.id} />
         </PasskeyEnrollment>
         {AsyncResult.isFailure(session) && (
           <div
@@ -141,17 +146,4 @@ function CloudSignInForm(props: ReturnType<typeof loginSearch>) {
       <LoginLegalFooter privacyUrl="/privacy" termsUrl="/terms" />
     </LoginPage>
   );
-}
-
-function ContinueAfterSignIn({
-  redirect,
-  verified,
-}: {
-  readonly redirect: string;
-  readonly verified: boolean;
-}) {
-  useEffect(() => {
-    if (verified) window.location.replace(redirect);
-  }, [redirect, verified]);
-  return null;
 }

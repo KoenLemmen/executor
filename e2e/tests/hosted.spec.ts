@@ -1,3 +1,4 @@
+import { holdOrganizationEntry } from "../support/organization-entry.ts";
 import { scenarios } from "../test-plan.ts";
 import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, Result, Schedule, Schema } from "effect";
@@ -37,9 +38,28 @@ layer(HostedLive, { excludeTestServices: true })("Self-host", (it) => {
           yield* browser.use("Enter synthetic password", (page) =>
             page.getByLabel("Password", { exact: true }).fill(password),
           );
+          const list = yield* holdOrganizationEntry;
           yield* browser.use("Sign in", (page) =>
             page.getByRole("button", { name: "Sign in", exact: true }).click(),
           );
+          yield* list.requested;
+          expect(
+            yield* browser.use(
+              "Resolve the password sign-in destination before navigating",
+              (page) => Promise.resolve(new URL(page.url()).pathname),
+            ),
+          ).toBe("/login");
+          expect(
+            yield* browser.use("Password sign-in shows the shared dashboard skeleton", (page) =>
+              page.locator(".shell").count(),
+            ),
+          ).toBe(1);
+          yield* browser.use("Password sign-in loads apps in place", (page) =>
+            page
+              .getByRole("status", { name: "Loading apps", exact: true })
+              .waitFor({ state: "visible" }),
+          );
+          yield* list.release;
           yield* browser.use("Return to the organization", (page) =>
             page.waitForURL(`**/org/${actors.organization.slug}/apps`),
           );

@@ -4,7 +4,7 @@ import { OrganizationId } from "@executor-js/hosted-server/organization";
 /** History marks only automatic root restoration; explicit links keep their own targets. */
 export const OrganizationResume = Schema.Struct({
   organization: OrganizationId,
-  // The URL reference used for the restored visit; a handle, not the stored ID.
+  // The initial URL reference used for the restored visit.
   reference: Schema.optionalKey(Schema.NonEmptyString),
   userId: Schema.NonEmptyString,
 });
@@ -63,3 +63,7 @@ export function hostedPageTitle(
     return action === "disconnect" ? "Disconnect account" : item ? "Account" : "Accounts";
   return "Dashboard";
 }
+
+/** Return providers through sign-in completion without changing the encoded final destination. */
+export const signInCallback = (redirect: string): string =>
+  `/login?redirect=${encodeURIComponent(redirect)}`;

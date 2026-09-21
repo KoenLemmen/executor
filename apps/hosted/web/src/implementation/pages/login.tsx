@@ -1,10 +1,12 @@
+import { ContinueAfterSignIn } from "../components/sign-in.tsx";
+export { ContinueAfterSignIn } from "../components/sign-in.tsx";
 import { browserReturnTo } from "@executor-js/hosted-server/browser/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Cause, Exit, Option } from "effect";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { GithubIcon } from "@hugeicons/core-free-icons";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { AuthFailed, sessionAtom, signInAtom } from "../../contracts/auth.ts";
 import { Button } from "@executor-js/ui/components/button";
 import { Spinner } from "@executor-js/ui/components/spinner";
@@ -68,10 +70,6 @@ export function LoginPage({
   // Keep child form fields mounted during revalidation of a signed-out session.
   const signedOut = Option.isSome(lastSession) && lastSession.value === null;
   const signedIn = AsyncResult.isSuccess(session) && !session.waiting && session.value !== null;
-  // A signed OAuth return URL must not be parsed and reserialized by the router.
-  useEffect(() => {
-    if (signedIn) window.location.replace(redirect);
-  }, [signedIn, redirect]);
   if (AsyncResult.isFailure(session) && !signedOut)
     return (
       <div className="auth-pending min-h-dvh flex items-center justify-center gap-4">
@@ -81,7 +79,8 @@ export function LoginPage({
         </Button>
       </div>
     );
-  if (signedIn || (session.waiting && !signedOut) || AsyncResult.isInitial(session))
+  if (signedIn) return <ContinueAfterSignIn redirect={redirect} userId={session.value.user.id} />;
+  if ((session.waiting && !signedOut) || AsyncResult.isInitial(session))
     return (
       <div className="auth-pending min-h-dvh flex items-center justify-center gap-4">
         <Spinner />

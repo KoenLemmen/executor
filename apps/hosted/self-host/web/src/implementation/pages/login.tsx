@@ -1,18 +1,21 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AuthFailed, sessionAtom } from "@executor-js/hosted-web/contracts/auth";
-import { loginSearch } from "@executor-js/hosted-web/pages/login";
+import {
+  ContinueAfterSignIn,
+  LoginLegalFooter,
+  loginSearch,
+} from "@executor-js/hosted-web/pages/login";
 import { Button } from "@executor-js/ui/components/button";
 import { Input } from "@executor-js/ui/components/input";
 import { Spinner } from "@executor-js/ui/components/spinner";
 import { Cause, Exit, Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   configurationAtom,
   selfHostSignInAtom,
   type SelfHostSignIn,
 } from "../../contracts/auth.ts";
-import { LoginLegalFooter } from "@executor-js/hosted-web/pages/login";
 import { productTitle, useDocumentTitle } from "@executor-js/ui/hooks/document-title";
 
 /** Password login and first-run setup; only an operator-configured SSO button is shown. */
@@ -33,9 +36,6 @@ export function SelfHostLoginPage({
   // A background check must not unmount a form shown after confirmed sign-out.
   const signedOut = Option.isSome(lastSession) && lastSession.value === null;
   const signedIn = AsyncResult.isSuccess(session) && !session.waiting && session.value !== null;
-  useEffect(() => {
-    if (signedIn) window.location.replace(registered ? "/apps" : redirect);
-  }, [signedIn, redirect, registered]);
   if (AsyncResult.isFailure(session) && !signedOut)
     return (
       <div className="auth-pending min-h-dvh flex items-center justify-center gap-4">
@@ -45,8 +45,11 @@ export function SelfHostLoginPage({
         </Button>
       </div>
     );
+  if (signedIn)
+    return (
+      <ContinueAfterSignIn redirect={registered ? "/" : redirect} userId={session.value.user.id} />
+    );
   if (
-    signedIn ||
     (session.waiting && !signedOut) ||
     AsyncResult.isInitial(session) ||
     AsyncResult.isInitial(config)

@@ -131,10 +131,17 @@ export function PageSkeleton({
 }
 
 /** Match the list frame even while its route bundle has not arrived. */
-export function InventoryPageSkeleton({ kind }: { readonly kind: "apps" | "accounts" }) {
+export function InventoryPageSkeleton({
+  kind,
+  action,
+}: {
+  readonly kind: "apps" | "accounts";
+  readonly action?: ReactNode;
+}) {
   const apps = kind === "apps";
   return (
     <PageFrame
+      action={action}
       title={apps ? "Apps" : "Accounts"}
       description={
         apps
@@ -149,7 +156,14 @@ export function InventoryPageSkeleton({ kind }: { readonly kind: "apps" | "accou
             : "mb-4"
         }
       >
-        <Skeleton className="h-8.75 w-full max-w-85" />
+        <Skeleton
+          aria-label={apps ? "Loading app search" : "Loading account search"}
+          className={
+            apps
+              ? "h-8.75 w-full max-[740px]:h-11"
+              : "h-8.75 w-full max-w-85 max-[740px]:h-11 max-[740px]:max-w-none"
+          }
+        />
       </div>
       {apps ? <AppCardsSkeleton /> : <AccountRowsSkeleton />}
     </PageFrame>

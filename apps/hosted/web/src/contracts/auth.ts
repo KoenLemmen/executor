@@ -1,3 +1,4 @@
+import { signInCallback } from "./navigation.ts";
 import { BrowserSession } from "@executor-js/hosted-server/browser/contracts";
 import {
   clearSessionHint,
@@ -109,7 +110,7 @@ export const signInAtom = BrowserAtoms.fn(
       authClient.signIn.social(
         {
           provider: input.provider,
-          callbackURL: input.redirect,
+          callbackURL: signInCallback(input.redirect),
           errorCallbackURL: `/login?redirect=${encodeURIComponent(input.redirect)}`,
         },
         options,

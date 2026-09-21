@@ -2,6 +2,7 @@ import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { TestLive, withCase } from "../support/case.ts";
 import { Browser } from "../support/browser.ts";
+import { holdOrganizationEntry } from "../support/organization-entry.ts";
 import { Onboarding } from "../support/onboarding.ts";
 import { scenarios } from "../test-plan.ts";
 
@@ -17,7 +18,33 @@ layer(TestLive, { excludeTestServices: true })("Cloud onboarding", (it) => {
         expect(yield* onboarding.suggestedTeamName).toBe(identity.companyName);
         expect(yield* onboarding.organizations).toEqual([]);
         const name = yield* onboarding.prepareTeam;
-        yield* onboarding.confirmTeam(name);
+        const team = yield* onboarding.confirmTeam(name);
+        const browser = yield* Browser;
+        yield* onboarding.signOut;
+        const list = yield* holdOrganizationEntry;
+        yield* browser.use("Return to Google sign-in without saved organization history", (page) =>
+          page.goto("/login"),
+        );
+        yield* browser.use("Sign in again with Google", (page) =>
+          page.getByRole("button", { name: "Continue with Google", exact: true }).click(),
+        );
+        yield* browser.use("Select the existing synthetic Google identity", (page) =>
+          page.getByRole("button").filter({ hasText: identity.email }).click(),
+        );
+        yield* list.requested;
+        expect(
+          yield* browser.use(
+            "The Google return resolves its destination before leaving sign-in",
+            (page) => Promise.resolve(new URL(page.url()).pathname),
+          ),
+        ).toBe("/login");
+        yield* browser.checkpoint(
+          "Google sign-in resolves the existing organization before navigation",
+        );
+        yield* list.release;
+        yield* browser.use("Google returns directly to the existing team's Apps", (page) =>
+          page.waitForURL(`**/org/${team.slug}/apps`),
+        );
       }).pipe(Effect.provide(Onboarding.layer)),
     ),
   );

@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
 import { useId } from "react";
+import { Button } from "@executor-js/ui/components/button";
+import { InventoryPageSkeleton, PageFrame } from "@executor-js/ui/dashboard/loading";
+import {
+  DashboardFrame,
+  DashboardNavigation,
+  OrganizationSwitcherSkeleton,
+} from "./dashboard-frame.tsx";
 import { Skeleton } from "@executor-js/ui/components/skeleton";
 import { SessionMenu } from "./auth.tsx";
 
@@ -57,5 +64,42 @@ export function HostedEntryLoading({
         <span className="sr-only">{label}</span>
       </div>
     </HostedEntry>
+  );
+}
+
+/** Prefer the signed-in dashboard shape while its organization is being resolved. */
+export function DashboardEntryPending({
+  children,
+  pathname,
+}: { readonly children?: ReactNode; readonly pathname?: string } = {}) {
+  const pendingPage = pathname?.split("/")[3] ?? "apps";
+  return (
+    <DashboardFrame
+      organization={<OrganizationSwitcherSkeleton />}
+      navigation={<DashboardNavigation pendingPage={pendingPage} />}
+      pendingPage={pendingPage}
+    >
+      {children ?? (
+        <InventoryPageSkeleton
+          kind="apps"
+          action={<Skeleton className="h-9 w-22 rounded-md" aria-label="Loading app actions" />}
+        />
+      )}
+    </DashboardFrame>
+  );
+}
+
+/** An unresolved organization keeps its dashboard frame and offers an explicit retry. */
+export function OrganizationLookupError({ retry }: { readonly retry: () => void }) {
+  return (
+    <PageFrame title="Apps" description="Your installed apps and their selected accounts.">
+      <div role="alert" className="space-y-3 rounded-lg border p-4 text-sm">
+        <h2 className="font-medium">Unable to load your organizations</h2>
+        <p>Try again to open your workspace.</p>
+        <Button variant="outline" onClick={retry}>
+          Try again
+        </Button>
+      </div>
+    </PageFrame>
   );
 }

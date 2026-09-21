@@ -2,7 +2,12 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { sessionAtom } from "@executor-js/hosted-web/contracts/auth";
 import { SessionMenu } from "@executor-js/hosted-web/auth";
 import { organizationsAtom } from "@executor-js/hosted-web/contracts/organization";
-import { HostedEntry, HostedEntryLoading } from "@executor-js/hosted-web/entry";
+import {
+  HostedEntry,
+  OrganizationLookupError,
+  HostedEntryLoading,
+  DashboardEntryPending,
+} from "@executor-js/hosted-web/entry";
 import { McpConsentLoading } from "@executor-js/ui/dashboard/mcp-consent";
 import { IconPicker } from "@executor-js/hosted-web/icon-picker";
 import {
@@ -56,15 +61,18 @@ function OrganizationEntryGate({
   const organizations = useAtomValue(organizationsAtom);
   const refresh = useAtomRefresh(organizationsAtom);
   return AsyncResult.builder(organizations)
-    .onInitial(() => (mcp ? <McpConsentLoading /> : <HostedEntryLoading />))
-    .onFailure(() => (
-      <HostedEntry
-        title="Unable to load your organizations"
-        description="Try again to open your workspace."
-      >
-        <Button onClick={refresh}>Try again</Button>
-      </HostedEntry>
-    ))
+    .onInitial(() => (mcp ? <McpConsentLoading /> : <DashboardEntryPending />))
+    .onFailure(() =>
+      mcp ? (
+        <HostedEntry title="Unable to load your organizations" description="Try again to connect.">
+          <Button onClick={refresh}>Try again</Button>
+        </HostedEntry>
+      ) : (
+        <DashboardEntryPending>
+          <OrganizationLookupError retry={refresh} />
+        </DashboardEntryPending>
+      ),
+    )
     .onSuccess((items) =>
       items.length > 0 ? (
         children

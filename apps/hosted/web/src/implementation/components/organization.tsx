@@ -1,7 +1,6 @@
 import { OrganizationSlug, OrganizationReference } from "@executor-js/hosted-server/organization";
 import { organizationTargetAtom } from "../../contracts/organization-reference.ts";
 import { PageFrame, PageSkeleton } from "@executor-js/ui/dashboard/loading";
-import { Skeleton } from "@executor-js/ui/components/skeleton";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { Empty } from "@executor-js/ui/components/empty";
 import { RegistryContext, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
@@ -46,7 +45,8 @@ import { Input } from "@executor-js/ui/components/input";
 import { Spinner } from "@executor-js/ui/components/spinner";
 
 import { HostedDashboard } from "./dashboard-bindings.tsx";
-import { HostedEntry, HostedEntryLoading } from "./entry.tsx";
+import { OrganizationSwitcherSkeleton } from "./dashboard-frame.tsx";
+import { HostedEntry, DashboardEntryPending, OrganizationLookupError } from "./entry.tsx";
 
 const OrganizationContext = createContext<
   | (OrganizationAccess & {
@@ -224,11 +224,7 @@ export function OrganizationResumeBoundary({ children }: { readonly children: Re
   );
 }
 
-/**
- * Resolve the remembered ID to its current handle before the first navigation.
- * Restoring through an ID URL would load the page twice: the canonical redirect
- * below changes the route reference, and every page query starts again.
- */
+/** A saved ID is enough to enter; membership and sidebar metadata resolve in the destination. */
 function ResumeOrganization({
   userId,
   children,
@@ -237,29 +233,30 @@ function ResumeOrganization({
   readonly children: ReactNode;
 }) {
   const [organization] = useState(() => readLastOrganization(userId));
-  const organizations = useAtomValue(organizationsAtom);
-  const known =
-    organization !== undefined && AsyncResult.isSuccess(organizations)
-      ? organizations.value.find((item) => item.id === organization)
-      : undefined;
-  const missing =
-    organization !== undefined &&
-    known === undefined &&
-    AsyncResult.isSuccess(organizations) &&
-    !organizations.waiting;
-  useEffect(() => {
-    if (missing && organization !== undefined) forgetOrganization(userId, organization);
-  }, [missing, organization, userId]);
-  // The host's own entry view owns this wait; it already shows a neutral loading frame.
-  if (organization === undefined || known === undefined) return children;
-  return (
+  return organization === undefined ? (
+    children
+  ) : (
     <Navigate
       to="/org/$organizationSlug/apps"
-      params={{ organizationSlug: known.slug }}
-      state={{ organizationResume: { organization, reference: known.slug, userId } }}
+      params={{ organizationSlug: organization }}
+      state={{ organizationResume: { organization, reference: organization, userId } }}
       replace
     />
   );
+}
+
+/** Keep query keys unchanged when verified aliases identify the same organization. */
+function useOrganizationQueryReference(routeReference: OrganizationReference) {
+  const [retained, setRetained] = useState(routeReference);
+  const retainedTarget = useAtomValue(organizationTargetAtom(retained));
+  const routeTarget = useAtomValue(organizationTargetAtom(routeReference));
+  const sameOrganization =
+    routeReference === retained || (retainedTarget !== undefined && retainedTarget === routeTarget);
+  const reference = sameOrganization ? retained : routeReference;
+  // A different or unknown destination resets before children render. A canonical
+  // URL replacement keeps the existing atoms and their in-flight requests.
+  if (reference !== retained) setRetained(reference);
+  return reference;
 }
 
 /** Start page reads from the URL immediately. Access and organization controls resolve alongside them. */
@@ -270,7 +267,9 @@ export function OrganizationBoundary({
   readonly slug: string;
   readonly children: ReactNode;
 }) {
-  const reference = Schema.decodeUnknownSync(OrganizationReference)(slug);
+  const reference = useOrganizationQueryReference(
+    Schema.decodeUnknownSync(OrganizationReference)(slug),
+  );
   const access = useAtomValue(accessAtom(reference));
   const session = useAtomValue(sessionAtom);
   const snapshot = useAtomValue(organizationPresentation(reference));
@@ -381,7 +380,7 @@ export function OrganizationBoundary({
           logo: organization.logo ?? null,
         }
       : null;
-  if (rejectedResume) return <HostedEntryLoading />;
+  if (rejectedResume) return <DashboardEntryPending />;
   return (
     <OrganizationRouteContext
       value={{
@@ -410,15 +409,12 @@ export function OrganizationEntry({ allowCreate = true }: { readonly allowCreate
   const organizations = useAtomValue(organizationsAtom);
   const navigate = useNavigate();
   const refresh = useAtomRefresh(organizationsAtom);
-  if (AsyncResult.isInitial(organizations)) return <HostedEntryLoading />;
+  if (AsyncResult.isInitial(organizations)) return <DashboardEntryPending />;
   if (AsyncResult.isFailure(organizations))
     return (
-      <HostedEntry
-        title="Unable to load your organizations"
-        description="Try again to open your workspace."
-      >
-        <Button onClick={refresh}>Try again</Button>
-      </HostedEntry>
+      <DashboardEntryPending>
+        <OrganizationLookupError retry={refresh} />
+      </DashboardEntryPending>
     );
   const only = organizations.value.length === 1 ? organizations.value[0] : undefined;
   if (only)
@@ -519,14 +515,7 @@ export function OrganizationSwitcher({ allowCreate = true }: { readonly allowCre
       </Button>
     );
   if (!organization || !AsyncResult.isSuccess(organizations))
-    return (
-      <div className="organization-switcher min-w-0 pb-2">
-        <div className="flex min-h-10 items-center gap-2 p-1.5" aria-label="Loading organization">
-          <Skeleton className="size-6 rounded-[5px]" />
-          <Skeleton className="h-3 w-28" />
-        </div>
-      </div>
-    );
+    return <OrganizationSwitcherSkeleton />;
   return (
     <div className="organization-switcher min-w-0 [padding:0_0_8px] [&_.auth-error]:mt-2 [&_.auth-error]:text-[12px] max-[640px]:pb-2">
       <DropdownMenu open={open} onOpenChange={setOpen}>

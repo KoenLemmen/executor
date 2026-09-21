@@ -196,8 +196,8 @@ test("restoring the last organization opens its canonical URL and loads apps onc
     assert.equal(tab.router.state.location.pathname, "/org/alpha/apps");
     assert.deepEqual(
       requests.slice(before).filter((path) => path.endsWith("/inventory")),
-      ["/api/organizations/alpha/inventory"],
-      "Restoring the last organization loads its apps once, on the canonical URL",
+      ["/api/organizations/org_alpha/inventory"],
+      "Restoring by stable ID keeps one inventory read when the URL becomes canonical",
     );
   } finally {
     await tab.close();

@@ -1,3 +1,4 @@
+import { signInCallback } from "@executor-js/hosted-web/contracts/navigation";
 import { BrowserAtoms } from "@executor-js/hosted-web/contracts/telemetry";
 import { AuthFailed, authRequest, sessionAtom } from "@executor-js/hosted-web/contracts/auth";
 import { createAuthClient } from "better-auth/client";
@@ -50,7 +51,7 @@ export const selfHostSignInAtom = BrowserAtoms.fn((input: SelfHostSignIn, get) =
             authClient.signIn.social(
               {
                 provider: "sso",
-                callbackURL: input.redirect,
+                callbackURL: signInCallback(input.redirect),
                 errorCallbackURL: `/login?redirect=${encodeURIComponent(input.redirect)}`,
               },
               options,

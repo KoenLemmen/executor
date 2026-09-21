@@ -7,7 +7,11 @@ import { HostedLive, withCase } from "../support/case.ts";
 import { Organization } from "../support/contracts.ts";
 import { Evidence } from "../support/evidence.ts";
 import { Onboarding } from "../support/onboarding.ts";
-import { holdOrganizationEntry, waitForLastOrganization } from "../support/organization-entry.ts";
+import {
+  holdOrganizationEntry,
+  trackOrganizationInventory,
+  waitForLastOrganization,
+} from "../support/organization-entry.ts";
 import { scenarios } from "../test-plan.ts";
 
 layer(HostedLive, { excludeTestServices: true })("Root entry loading", (it) => {
@@ -63,30 +67,59 @@ layer(HostedLive, { excludeTestServices: true })("Root entry loading", (it) => {
         yield* loaded;
         yield* browser.checkpoint("Existing organization opens without team preparation");
 
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            const list = yield* holdOrganizationEntry;
-            yield* browser.use("Reopen root before the organization list is available", (page) =>
-              page.goto("/"),
-            );
-            yield* list.requested;
-            yield* browser.use("The saved stable ID opens immediately", (page) =>
-              page.waitForURL(`**/org/${actors.organization.id}/apps`),
-            );
-            yield* browser.use("Apps load without waiting for the organization list", (page) =>
-              page.locator(".app-card").first().waitFor({ state: "visible" }),
-            );
-            expect(
-              yield* browser.use(
-                "No organization chooser blocks the remembered destination",
-                (page) =>
-                  page.getByRole("heading", { name: "Opening Executor", exact: true }).count(),
-              ),
-            ).toBe(0);
-            yield* browser.checkpoint("Remembered organization loads while its list is held");
-            yield* list.release;
-            yield* loaded;
-          }),
+        const restored = yield* Effect.forEach(
+          [
+            { name: "Desktop", width: 864, height: 720 },
+            { name: "Mobile", width: 390, height: 844 },
+          ],
+          (viewport) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                yield* browser.use(`${viewport.name}: set the viewport`, (page) =>
+                  page.setViewportSize({ width: viewport.width, height: viewport.height }),
+                );
+                const list = yield* holdOrganizationEntry;
+                const inventory = yield* trackOrganizationInventory;
+                yield* browser.use(
+                  `${viewport.name}: reopen root with the organization list held`,
+                  (page) => page.goto("/"),
+                );
+                yield* list.requested;
+                yield* browser.use(
+                  "The cookie routes immediately by stable organization ID",
+                  (page) =>
+                    page.waitForURL(`**/org/${actors.organization.id}/apps`, { timeout: 10_000 }),
+                );
+                yield* browser.use("Apps load while the organization list is still held", (page) =>
+                  page.locator(".app-card").first().waitFor({ state: "visible" }),
+                );
+                expect(
+                  yield* browser.use("No entry card or chooser interrupts restoration", (page) =>
+                    page
+                      .getByRole("heading", { name: /^(Opening Executor|Choose an organization)$/ })
+                      .count(),
+                  ),
+                ).toBe(0);
+                yield* browser.use("Type a search before the readable URL is known", (page) =>
+                  page.getByPlaceholder("Search apps…", { exact: true }).fill("Executor"),
+                );
+                yield* browser.checkpoint(
+                  `${viewport.name}: Apps usable while organization list is held`,
+                );
+                yield* list.release;
+                yield* loaded;
+                expect(
+                  yield* browser.use("Canonical navigation keeps the search draft", (page) =>
+                    page.getByPlaceholder("Search apps…", { exact: true }).inputValue(),
+                  ),
+                ).toBe("Executor");
+                expect(inventory).toEqual([
+                  `/api/organizations/${actors.organization.id}/inventory`,
+                ]);
+                yield* browser.checkpoint(`${viewport.name}: canonical URL without a second load`);
+                return { viewport: viewport.name, inventory: [...inventory] };
+              }),
+            ),
         );
 
         for (const viewport of [
@@ -101,31 +134,21 @@ layer(HostedLive, { excludeTestServices: true })("Root entry loading", (it) => {
                 page.setViewportSize({ width: viewport.width, height: viewport.height }),
               );
               const list = yield* holdOrganizationEntry;
-              yield* browser.use(
-                `${viewport.name}: open root with a slow organization list`,
-                (page) => page.goto("/"),
+              yield* browser.use("A fresh session has no remembered organization", (page) =>
+                page.goto("/"),
               );
               yield* list.requested;
-              yield* browser.use("The entry panel explains what is loading", (page) =>
+              yield* browser.use("Only entry without history waits for organizations", (page) =>
                 page
-                  .getByRole("heading", { name: "Opening Executor", exact: true })
-                  .waitFor({ state: "visible" }),
-              );
-              yield* browser.use("Organization loading stays inside the entry panel", (page) =>
-                page
-                  .getByRole("status", { name: "Loading organizations", exact: true })
-                  .waitFor({ state: "visible" }),
-              );
-              yield* browser.use("Sign out stays available", (page) =>
-                page
-                  .getByRole("button", { name: "Sign out", exact: true })
+                  .getByRole("status", { name: "Loading apps", exact: true })
                   .waitFor({ state: "visible" }),
               );
               expect(yield* preparation.wasRequested).toBe(false);
-              yield* browser.checkpoint(`${viewport.name}: organization entry panel`);
+              yield* browser.checkpoint(
+                `${viewport.name}: fresh session resolves its first destination`,
+              );
               yield* list.release;
               yield* loaded;
-              yield* browser.checkpoint(`${viewport.name}: existing apps loaded`);
             }),
           );
         }
@@ -154,7 +177,9 @@ layer(HostedLive, { excludeTestServices: true })("Root entry loading", (it) => {
           existingOrganizations: organizations.length,
           preparationRequested: false,
           rememberedDestinationLoadsBeforeOrganizationList: true,
-          heldRequest: "/api/onboarding/prepare",
+          canonicalNavigationKeepsInventoryAndDraft: true,
+          restored,
+          heldRequests: ["/api/auth/organization/list", "/api/onboarding/prepare"],
           organizationLoadingVerified: true,
           retryVerified: true,
           responseReplaced: false,

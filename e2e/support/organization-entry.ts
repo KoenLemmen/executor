@@ -1,5 +1,5 @@
 import { Deferred, Effect } from "effect";
-import type { Route } from "playwright";
+import type { Frame, Request, Route } from "playwright";
 import { Browser } from "./browser.ts";
 import { driver } from "./platform.ts";
 
@@ -27,7 +27,7 @@ export const waitForLastOrganization = (organization: string) =>
     ),
   );
 
-/** Hold real organization reads so the entry panel can be inspected before a destination exists. */
+/** Hold real organization reads so the pending view can be inspected before a destination exists. */
 export const holdOrganizationEntry = Effect.gen(function* () {
   const browser = yield* Browser;
   const arrived = yield* Deferred.make<void>();
@@ -64,4 +64,46 @@ export const holdOrganizationEntry = Effect.gen(function* () {
     requested: Deferred.await(arrived).pipe(Effect.timeout("30 seconds")),
     release: Deferred.succeed(released, undefined),
   };
+});
+
+/** Observe real inventory reads across root restoration and canonical URL replacement. */
+export const trackOrganizationInventory = Effect.gen(function* () {
+  const browser = yield* Browser;
+  const paths: string[] = [];
+  const requested = (request: Request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "GET" && /^\/api\/organizations\/[^/]+\/inventory$/.test(path))
+      paths.push(path);
+  };
+  yield* browser.use("Observe inventory requests", (page) =>
+    Promise.resolve(page.on("request", requested)),
+  );
+  yield* Effect.addFinalizer(() =>
+    browser
+      .use("Stop observing inventory requests", (page) =>
+        Promise.resolve(page.off("request", requested)),
+      )
+      .pipe(Effect.orDie),
+  );
+  return paths;
+});
+
+/** Observe browser destinations, including SPA navigation, without changing any response. */
+export const trackEntryNavigations = Effect.gen(function* () {
+  const browser = yield* Browser;
+  const paths: string[] = [];
+  const navigated = (frame: Frame) => {
+    if (frame.parentFrame() === null) paths.push(new URL(frame.url()).pathname);
+  };
+  yield* browser.use("Observe entry destinations", (page) =>
+    Promise.resolve(page.on("framenavigated", navigated)),
+  );
+  yield* Effect.addFinalizer(() =>
+    browser
+      .use("Stop observing entry destinations", (page) =>
+        Promise.resolve(page.off("framenavigated", navigated)),
+      )
+      .pipe(Effect.orDie),
+  );
+  return paths;
 });

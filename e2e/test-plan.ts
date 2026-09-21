@@ -112,9 +112,15 @@ export const scenarios = {
     title: "Last active organization survives entry and rename while stale destinations recover",
     targets: cloudOnboarding,
   },
+  signInEntry: {
+    file: "sign-in-entry.spec.ts",
+    title: "First sign-in resolves the organization before entering the dashboard",
+    targets: cloudOnboarding,
+  },
   rootEntryLoading: {
     file: "root-entry-loading.spec.ts",
-    title: "Signed-in root opens existing organizations without first-team preparation",
+    title:
+      "Signed-in root restores Apps before organization lookup without reloading on canonical navigation",
     targets: cloudOnboarding,
   },
   localQueryState: {
