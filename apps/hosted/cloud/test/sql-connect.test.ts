@@ -2,9 +2,10 @@
 import assert from "node:assert/strict";
 import { createServer, type Socket } from "node:net";
 import { test } from "node:test";
-import { PgConnection, PgPool } from "@effect/sql-pg";
+import { PgClient, PgConnection, PgPool } from "@effect/sql-pg";
 import { Cause, Deferred, Effect, Exit, Match, Option, Redacted, Schema, Tracer } from "effect";
 import { SqlError } from "effect/unstable/sql/SqlError";
+import { sqlTracing } from "../src/implementation/sql-tracing.ts";
 
 const ready = (socket: Socket, processId: number) => {
   const key = Buffer.alloc(13);
@@ -101,6 +102,130 @@ const outcome = (span: Tracer.NativeSpan) =>
     Match.tag("Started", () => assert.fail("Connection span did not end")),
     Match.exhaustive,
   ).exit;
+
+test(
+  "SQL comments and wire parents identify the same statement without changing parameters",
+  { timeout: 5_000 },
+  () =>
+    withPeer(
+      (socket, processId) => {
+        ready(socket, processId);
+        socket.once("data", (frame) => {
+          assert.ok(Buffer.isBuffer(frame));
+          assert.equal(frame[0], 80); // Extended protocol Parse
+          const sql = frame.subarray(6, frame.indexOf(0, 6)).toString();
+          assert.match(sql, /^SELECT \$1\n\/\*traceparent='00-[0-9a-f]{32}-[0-9a-f]{16}-01'\*\/$/);
+          assert.doesNotMatch(sql, /synthetic-private-value/);
+          assert.ok(frame.includes(Buffer.from("synthetic-private-value")));
+          socket.write(
+            Buffer.concat([
+              Buffer.from([49, 0, 0, 0, 4, 50, 0, 0, 0, 4, 110, 0, 0, 0, 4]),
+              Buffer.from([67, 0, 0, 0, 13]),
+              Buffer.from("SELECT 0\0"),
+              Buffer.from([90, 0, 0, 0, 5, 73]),
+            ]),
+          );
+        });
+      },
+      async (peer) => {
+        const trace = recording();
+        await Effect.runPromise(
+          Effect.gen(function* () {
+            const sql = yield* PgClient.PgClient;
+            yield* sql`SELECT ${"synthetic-private-value"}`;
+          }).pipe(
+            Effect.provide(PgClient.layer(peer.options)),
+            Effect.provide(sqlTracing),
+            Effect.provideService(Tracer.Tracer, trace.tracer),
+          ),
+        );
+        const statement = trace.spans.find((span) => span.name === "sql.execute");
+        const wire = trace.spans.find((span) => span.name === "sql.wire");
+        assert.ok(statement && wire);
+        assert.equal(Option.getOrUndefined(wire.parent)?.spanId, statement.spanId);
+        assert.equal(wire.traceId, statement.traceId);
+        assert.equal(
+          statement.attributes.get("db.query.text"),
+          `SELECT $1\n/*traceparent='00-${statement.traceId}-${statement.spanId}-01'*/`,
+        );
+      },
+    ),
+);
+
+test(
+  "wire spans distinguish first response from protocol completion without recording values",
+  { timeout: 5_000 },
+  () =>
+    withPeer(
+      (socket, processId) => {
+        ready(socket, processId);
+        socket.once("data", () => {
+          setTimeout(() => {
+            socket.write(
+              Buffer.concat([
+                Buffer.from([49, 0, 0, 0, 4]), // ParseComplete
+                Buffer.from([50, 0, 0, 0, 4]), // BindComplete
+                Buffer.from([110, 0, 0, 0, 4]), // NoData
+                Buffer.from([67, 0, 0, 0, 13]),
+                Buffer.from("SELECT 0\0"),
+              ]),
+            );
+            setTimeout(() => socket.write(Buffer.from([90, 0, 0, 0, 5, 73])), 25);
+          }, 25);
+        });
+      },
+      async (peer) => {
+        const trace = recording();
+        const result = await Effect.runPromise(
+          Effect.gen(function* () {
+            const connection = yield* PgConnection.make(peer.options);
+            return yield* connection.query("SELECT $1", ["synthetic-private-value"]);
+          }).pipe(Effect.scoped, Effect.provideService(Tracer.Tracer, trace.tracer)),
+        );
+        assert.equal(result.rowCount, 0);
+        const wire = trace.spans.find((span) => span.name === "sql.wire");
+        assert.ok(wire);
+        assert.ok(Exit.isSuccess(outcome(wire)));
+        const first = wire.attributes.get("db.wire.first_message_ms");
+        const complete = wire.attributes.get("db.wire.command_complete_ms");
+        const readyAt = wire.attributes.get("db.wire.ready_ms");
+        assert.ok(typeof first === "number" && first >= 15);
+        assert.ok(typeof complete === "number" && complete >= first);
+        assert.ok(typeof readyAt === "number" && readyAt >= complete + 15);
+        assert.ok(Number(wire.attributes.get("db.wire.request_bytes")) > 0);
+        assert.doesNotMatch(
+          JSON.stringify([...wire.attributes]),
+          /SELECT|synthetic-private-value|synthetic-user|synthetic-password/,
+        );
+      },
+    ),
+);
+
+test("wire failure ends the span and retains the driver connection error", { timeout: 5_000 }, () =>
+  withPeer(
+    (socket, processId) => {
+      ready(socket, processId);
+      socket.once("data", () => socket.destroy());
+    },
+    async (peer) => {
+      const trace = recording();
+      const result = await Effect.runPromiseExit(
+        Effect.gen(function* () {
+          const connection = yield* PgConnection.make(peer.options);
+          return yield* connection.query("SELECT $1", ["synthetic-private-value"]);
+        }).pipe(Effect.scoped, Effect.provideService(Tracer.Tracer, trace.tracer)),
+      );
+      assert.ok(Exit.isFailure(result));
+      assert.ok(Schema.is(SqlError)(Cause.squash(result.cause)));
+      const wire = trace.spans.find((span) => span.name === "sql.wire");
+      assert.ok(wire);
+      const exit = outcome(wire);
+      assert.ok(Exit.isFailure(exit));
+      assert.equal(Cause.squash(exit.cause), Cause.squash(result.cause));
+      assert.doesNotMatch(JSON.stringify([...wire.attributes]), /synthetic-private-value/);
+    },
+  ),
+);
 
 test("physical connection spans preserve lazy pool reuse and replacement", { timeout: 5_000 }, () =>
   withPeer(ready, async (peer) => {

@@ -91,6 +91,24 @@ export const scenarios = {
       local: na("Local has no organizations or groups."),
     },
   },
+  cloudCatalogInstall: {
+    file: "cloud-compiler.spec.ts",
+    title: "Cloud catalog installs Axiom through the browser and reaches account setup",
+    targets: {
+      cloud: scheduled,
+      "self-host": na("This scenario measures the Cloud catalog installation path."),
+      local: na("This scenario measures the Cloud catalog installation path."),
+    },
+  },
+  cloudCompilerDependencies: {
+    file: "cloud-compiler.spec.ts",
+    title: "Cloud compiler installs imported packages and preserves source manifests",
+    targets: {
+      cloud: scheduled,
+      "self-host": na("This scenario exercises the Cloud compiler dependency resolver."),
+      local: na("This scenario exercises the Cloud compiler dependency resolver."),
+    },
+  },
   requestTiming: {
     file: "request-timing.spec.ts",
     title: "Cloud request timings correlate browser resources with the server trace",

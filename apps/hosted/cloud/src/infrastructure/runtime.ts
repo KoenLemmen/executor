@@ -109,16 +109,18 @@ export const cloudRuntime = Effect.fn(function* (
             (controller) => Effect.sync(() => controller.abort()),
           );
           // The identity includes app, build and current credentials. Reuse never crosses account contexts.
-          const worker = yield* loader.get(identity, () => ({
-            mainModule: "__executor_rpc.js",
-            modules: {
-              ...workerModules(bundle.modules),
-              "__executor_rpc.js": appRpcBridge(bundle.mainModule),
-            },
-            compatibilityDate: "2026-07-30",
-            // Same-zone URLs must use their public Worker routes, not the underlying origin.
-            compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
-          }));
+          const worker = yield* loader
+            .get(identity, () => ({
+              mainModule: "__executor_rpc.js",
+              modules: {
+                ...workerModules(bundle.modules),
+                "__executor_rpc.js": appRpcBridge(bundle.mainModule),
+              },
+              compatibilityDate: "2026-07-30",
+              // Same-zone URLs must use their public Worker routes, not the underlying origin.
+              compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
+            }))
+            .pipe(Effect.withSpan("runtime.cloud.worker.load"));
           // Workers RPC structured-clones its arguments; Effect headers carry a prototype it rejects.
           const headers = Object.fromEntries(Object.entries(yield* traceHeaders));
           // Native RPC carries the live callback; the fetch payload remains the existing portable protocol.
@@ -155,6 +157,7 @@ export const cloudRuntime = Effect.fn(function* (
             }).pipe(
               Effect.flatMap(Schema.decodeUnknownEffect(AppRpcInvocation)),
               Effect.mapError(protocolFailed),
+              Effect.withSpan("runtime.cloud.rpc.start"),
             ),
             (call) =>
               Effect.promise(async () => {
@@ -163,12 +166,15 @@ export const cloudRuntime = Effect.fn(function* (
                 } finally {
                   call[Symbol.dispose]();
                 }
-              }).pipe(Effect.catchCause(() => Effect.void)),
+              }).pipe(
+                Effect.withSpan("runtime.cloud.rpc.release"),
+                Effect.catchCause(() => Effect.void),
+              ),
           );
           const body = yield* Effect.tryPromise({
             try: () => invocation.result(),
             catch: protocolFailed,
-          });
+          }).pipe(Effect.withSpan("runtime.cloud.rpc.result"));
           yield* collect(body, build);
           const envelope = yield* Schema.decodeUnknownEffect(HostResponse)(body).pipe(
             Effect.mapError((cause) => protocolFailed(cause)),
@@ -301,6 +307,7 @@ export const cloudRuntime = Effect.fn(function* (
           const { bundle, ui } = yield* compiler.compile(files, headers).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(CompiledCloudApp)),
             Effect.catchTag("SchemaError", (cause) => Effect.fail(failed("compile", cause))),
+            Effect.withSpan("runtime.cloud.compiler.request"),
           );
           const build = BuildId.make(`bld_${crypto.randomUUID()}`);
           const requirements = yield* dispatch(
@@ -311,7 +318,10 @@ export const cloudRuntime = Effect.fn(function* (
             HostRequirementsError,
             build,
             `declaration:${build}`,
-          ).pipe(Effect.mapError((cause) => failed("declaration", cause)));
+          ).pipe(
+            Effect.mapError((cause) => failed("declaration", cause)),
+            Effect.withSpan("runtime.cloud.requirements"),
+          );
           const assets = yield* retainCloudBuild(
             build,
             {

@@ -30,10 +30,12 @@ export const retainWorkerBuild = (
       ...bundle,
       ...(metadata === undefined ? {} : { ui: metadata }),
     });
-    yield* blobs.put(
-      yield* key(`${build}.json`),
-      new TextEncoder().encode(JSON.stringify(encoded)),
-    );
+    const body = new TextEncoder().encode(JSON.stringify(encoded));
+    yield* Effect.annotateCurrentSpan({
+      "executor.build.retained_bytes": body.byteLength,
+      "executor.build.module_count": Object.keys(bundle.modules).length,
+    });
+    yield* blobs.put(yield* key(`${build}.json`), body);
     return metadata;
   }).pipe(
     Effect.mapError(() => new RuntimeBuildFailed({ stage: "retain" })),

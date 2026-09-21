@@ -9,6 +9,7 @@ import { WorkerBundle } from "../contracts/worker-build.ts";
 import { appBridge } from "./worker-bridge.ts";
 import { browserBuild } from "./worker-browser-build.ts";
 import { wasmBuild } from "./worker-wasm-build.ts";
+import { workerDependencies } from "./worker-dependencies.ts";
 /** Host-owned framework snapshots; authored dependencies never replace these exports. */
 export interface WorkerFramework {
   readonly server: Readonly<Record<string, string>>;
@@ -58,10 +59,12 @@ export const compileWorkerApp = (files: SourceFiles, framework: WorkerFramework)
         ? undefined
         : yield* browserBuild(files, filesystem, plan, framework.browser);
     const wasm = wasmBuild(filesystem, yield* Path.Path);
+    const dependencies = yield* workerDependencies(filesystem);
     const compiled = yield* Effect.tryPromise({
       try: () =>
         createApp({
           files: filesystem,
+          installDependencies: false,
           server: "__executor_worker.ts",
           externals: frameworkExports,
           minify: true,
@@ -70,6 +73,7 @@ export const compileWorkerApp = (files: SourceFiles, framework: WorkerFramework)
           ...(plan === undefined ? {} : { client: [...plan.entries] }),
           __dangerouslyUseEsBuildPluginsDoNotUseOrYouWillBeFired: [
             quietCompiler,
+            dependencies,
             wasm.plugin,
             ...(browser === undefined ? [] : [browser.plugin]),
           ],

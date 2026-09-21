@@ -12,6 +12,7 @@ import * as Telemetry from "alchemy/Telemetry";
 import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
 import { testStage } from "./stage.ts";
 import { InvocationTelemetry } from "./invocation-telemetry.ts";
+import { sqlTracing } from "../implementation/sql-tracing.ts";
 
 const binding = "EXECUTOR_TELEMETRY";
 
@@ -133,6 +134,6 @@ export const cloudTelemetry = Layer.unwrap(
     const config = yield* Schema.decodeUnknownEffect(
       Schema.Union([Schema.fromJsonString(TelemetryConfig), TelemetryConfig]),
     )(value).pipe(Effect.catch(() => Effect.die(new Error("Invalid telemetry configuration"))));
-    return Telemetry.layer(telemetryLayer(config, "event"));
+    return Telemetry.layer(Layer.mergeAll(telemetryLayer(config, "event"), sqlTracing));
   }),
 );

@@ -1,3 +1,6 @@
+diff --git a/packages/sdk/node_modules/@cloudflare/worker-bundler/.bun-tag-1459c4987287a8e b/.bun-tag-1459c4987287a8e
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/dist/file-system-ZXKe_fv7.d.ts b/dist/file-system-ZXKe_fv7.d.ts
 index fa559109c179700e47dd94029abea7d76a00fb50..aa562a81a15e168b321e063ce668d85f582ca1bf 100644
 --- a/dist/file-system-ZXKe_fv7.d.ts
@@ -20,8 +23,21 @@ index fa559109c179700e47dd94029abea7d76a00fb50..aa562a81a15e168b321e063ce668d85f
    delete(path: string): void;
    list(prefix?: string): string[];
    flush(): Promise<void>;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 53dd55f4cd0292a11050505c4824afe0cac15d33..a8971aabe4e5f4e6ece280392a79d169f113020a 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -331,6 +331,8 @@ declare function handleAssetRequest(
+  * Options for createApp
+  */
+ interface CreateAppOptions {
++  /** Set false when an import resolver owns dependency installation. */
++  installDependencies?: boolean;
+   /**
+    * Input files — keys are paths relative to project root, values are file contents.
+    * Accepts a plain object (which is wrapped in an InMemoryFileSystem automatically)
 diff --git a/dist/index.js b/dist/index.js
-index 9ddcbac086bbd60fece6571299c86f92d33412a6..46727ffd97873af8cd01398b520a23fd6e53d5dd 100644
+index 9ddcbac086bbd60fece6571299c86f92d33412a6..7effd675905218351cf4aa9431146fc673db9a7e 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -857,7 +857,12 @@ var InMemoryFileSystem = class {
@@ -38,6 +54,9 @@ index 9ddcbac086bbd60fece6571299c86f92d33412a6..46727ffd97873af8cd01398b520a23fd
  	}
  	write(path, content) {
  		this.files.set(path, content);
+@@ -1519 +1524 @@ async function createApp(options) {
+-	if (hasDependencies(fileSystem)) {
++	if (options.installDependencies !== false && hasDependencies(fileSystem)) {
 diff --git a/dist/installer-DDvaMqav.js b/dist/installer-DDvaMqav.js
 index 5ed55da1726ab87d1c11932262f972cf39c3dd45..a78c56c97b2d7f4743c17fcd601b207e9cbd546d 100644
 --- a/dist/installer-DDvaMqav.js
