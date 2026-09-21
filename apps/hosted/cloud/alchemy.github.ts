@@ -160,6 +160,8 @@ export default Alchemy.Stack(
           effect: "allow",
           permissionGroups: [
             "Workers Scripts Write",
+            // Request timing provisions a private native trace export destination.
+            "Workers Observability Write",
             "Workers R2 Storage Write",
             "Hyperdrive Write",
             "Account Settings Read",
