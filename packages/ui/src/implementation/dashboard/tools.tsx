@@ -63,10 +63,10 @@ export function ToolBrowser<E>({
               </div>
             </>
           ) : (
-            <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)] overflow-hidden max-[740px]:grid-cols-1">
+            <div className="grid min-h-0 flex-1 grid-cols-[var(--app-tools-list-width)_minmax(0,1fr)] overflow-hidden max-[740px]:grid-cols-1">
               <aside
                 className={cn(
-                  "flex min-h-0 flex-col border-r bg-muted/15 max-[740px]:border-0",
+                  "flex min-h-0 flex-col bg-muted/15",
                   inspecting && "max-[740px]:hidden",
                 )}
               >
@@ -114,7 +114,7 @@ export function ToolBrowser<E>({
               </aside>
               <div
                 className={cn(
-                  "tool-detail flex min-h-0 min-w-0 flex-col max-[740px]:hidden",
+                  "tool-detail flex min-h-0 min-w-0 flex-col border-l max-[740px]:hidden max-[740px]:border-0",
                   inspecting && "max-[740px]:flex",
                 )}
               >
@@ -185,14 +185,9 @@ export function ToolBrowserLoading({
     <div
       role="status"
       aria-label={label}
-      className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)] max-[740px]:grid-cols-1"
+      className="grid min-h-0 flex-1 grid-cols-[var(--app-tools-list-width)_minmax(0,1fr)] max-[740px]:grid-cols-1"
     >
-      <div
-        className={cn(
-          "border-r max-[740px]:border-r-0",
-          selected !== undefined && "max-[740px]:hidden",
-        )}
-      >
+      <div className={cn(selected !== undefined && "max-[740px]:hidden")}>
         <AppSectionHeader>
           <AppSectionTitle>Tools</AppSectionTitle>
         </AppSectionHeader>
@@ -206,7 +201,10 @@ export function ToolBrowserLoading({
         </div>
       </div>
       <div
-        className={cn("min-w-0 max-[740px]:hidden", selected !== undefined && "max-[740px]:block")}
+        className={cn(
+          "min-w-0 border-l max-[740px]:hidden max-[740px]:border-0",
+          selected !== undefined && "max-[740px]:block",
+        )}
       >
         <AppSectionHeader>
           {selected !== undefined && (

@@ -59,7 +59,7 @@ export function AppDetailLayout({
   const provider = app && Object.values(app.requirements.accounts)[0]?.definition;
   useDocumentTitle(productTitle(app?.name ?? "App"));
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col [--app-tools-list-width:260px]">
       <header className="shrink-0 px-7 pb-7 pt-5 max-[740px]:px-4 max-[740px]:pb-5 max-[740px]:pt-2">
         <div className="mb-5 w-fit text-xs text-muted-foreground [&_a]:inline-flex [&_a]:min-h-7 [&_a]:items-center [&_a]:gap-2 [&_a:hover]:text-foreground max-[740px]:mb-2 max-[740px]:[&_a]:min-h-11">
           {back}
@@ -115,6 +115,9 @@ export function AppDetailLayout({
             .map((section) => {
               const classes = cn(
                 "relative flex min-h-11 shrink-0 items-center gap-2 rounded-t-lg border border-transparent px-4 text-[13px] text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground focus-visible:outline-ring focus-visible:-outline-offset-4 max-[740px]:px-3",
+                // Reserve the list width minus the nav's left padding and two gaps.
+                (section.view === "overview" || section.view === "accounts") &&
+                  "min-[740px]:w-[calc((var(--app-tools-list-width)-2.25rem)/2)]",
                 (view === section.view || (view === "history" && section.view === "source")) &&
                   "border-border border-b-background bg-background font-medium text-foreground hover:bg-background",
               );
