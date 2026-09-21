@@ -30,26 +30,32 @@ import {
 import { OrganizationMembers } from "../components/organization-members.tsx";
 import { productTitle, useDocumentTitle } from "@executor-js/ui/hooks/document-title";
 
-/** Hosts may compose extra admin settings; omitted children render nothing. */
+/** Hosts may compose extra admin settings and a footer below the members list. */
 export function OrganizationPage({
   emailInvitations = false,
   children,
+  footer,
 }: {
   readonly emailInvitations?: boolean;
   readonly children?: ReactNode;
+  readonly footer?: ReactNode;
 }) {
   return (
     <OrganizationDetailsBoundary>
-      <OrganizationSettings emailInvitations={emailInvitations}>{children}</OrganizationSettings>
+      <OrganizationSettings emailInvitations={emailInvitations} footer={footer}>
+        {children}
+      </OrganizationSettings>
     </OrganizationDetailsBoundary>
   );
 }
 function OrganizationSettings({
   emailInvitations,
   children,
+  footer,
 }: {
   readonly emailInvitations: boolean;
   readonly children?: ReactNode;
+  readonly footer?: ReactNode;
 }) {
   const organization = useOrganization();
   const renaming = useAtomValue(renameOrganizationAtom(organization.organization));
@@ -74,6 +80,7 @@ function OrganizationSettings({
         </div>
       )}
       <OrganizationMembers emailInvitations={emailInvitations} />
+      {organization.role !== "member" && footer && <div className="mt-6">{footer}</div>}
     </section>
   );
 }

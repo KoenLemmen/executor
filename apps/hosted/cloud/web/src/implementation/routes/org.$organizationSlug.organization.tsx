@@ -11,12 +11,11 @@ import {
   CardTitle,
 } from "@executor-js/ui/components/card";
 
-/** Cloud composes its billing settings into the shared organization page. */
+/** Cloud adds billing settings and owner-only removal to the shared organization page. */
 export const Route = createFileRoute("/org/$organizationSlug/organization")({
   component: () => (
-    <OrganizationPage emailInvitations>
+    <OrganizationPage emailInvitations footer={<DeleteOrganization />}>
       <BillingSettings />
-      <DeleteOrganization />
     </OrganizationPage>
   ),
 });
