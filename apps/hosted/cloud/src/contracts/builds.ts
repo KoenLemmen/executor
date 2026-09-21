@@ -1,20 +1,15 @@
 /** Retained Worker code and optional private browser asset metadata. */
 import { UiAsset, type RuntimeBuildFailed, type SourceFiles } from "@executor-js/sdk/core";
+import { WorkerBundle } from "@executor-js/app-data/worker-bundle";
 import { Schema, type Effect } from "effect";
 
 /** Executable modules are separate from browser bytes and product authentication. */
-export const CloudBundle = Schema.Struct({
-  mainModule: Schema.NonEmptyString,
-  modules: Schema.Record(
-    Schema.String,
-    Schema.Union([Schema.String, Schema.Struct({ js: Schema.String })]),
-  ),
-});
+export const CloudBundle = WorkerBundle;
 export type CloudBundle = typeof CloudBundle.Type;
 
 /** Private compiler RPC result; no storage handles or caller credentials cross this boundary. */
 export const CompiledCloudApp = Schema.Struct({
-  bundle: CloudBundle,
+  bundle: Schema.toType(CloudBundle),
   ui: Schema.UndefinedOr(
     Schema.Array(
       Schema.Struct({

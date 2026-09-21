@@ -264,6 +264,22 @@ export const nodeRuntime = (options: NodeRuntimeOptions): Runtime<NodeRuntimeSer
                   {
                     name: "host-framework",
                     setup(builder) {
+                      builder.onResolve({ filter: /\.wasm$/ }, (args) => ({
+                        path: args.path.startsWith(".")
+                          ? path.resolve(args.resolveDir, args.path)
+                          : path.join(staging, "node_modules", args.path),
+                        namespace: "executor-wasm",
+                      }));
+                      builder.onLoad({ filter: /.*/, namespace: "executor-wasm" }, (args) =>
+                        Effect.runPromise(
+                          fs.readFile(args.path).pipe(
+                            Effect.map((bytes): import("esbuild").OnLoadResult => ({
+                              contents: `export default new WebAssembly.Module(Buffer.from(${JSON.stringify(Buffer.from(bytes).toString("base64"))}, "base64"));`,
+                              loader: "js",
+                            })),
+                          ),
+                        ),
+                      );
                       builder.onResolve(
                         { filter: /^(apps|effect|@effect\/platform-node)(\/.*)?$/ },
                         (args) => {

@@ -1,17 +1,12 @@
 /** Workerd edge: one supervisor per configured app; code changes preserve the isolated facet database. */
+import { WorkerBundle, workerModules } from "./contracts/worker-bundle.ts";
 import type { DurableObjectState, WorkerLoader, WebSocket } from "@cloudflare/workers-types";
 import { Clock, Deferred, Effect, Result, Schema, Semaphore } from "effect";
 import { fingerprint } from "./implementation/cursor.ts";
 import { AppDatabaseError } from "./contracts/database.ts";
 
 /** Executable bytes, supplied by the trusted build store rather than a browser request. */
-export const FacetBundle = Schema.Struct({
-  mainModule: Schema.String,
-  modules: Schema.Record(
-    Schema.String,
-    Schema.Union([Schema.String, Schema.Struct({ js: Schema.String })]),
-  ),
-});
+export const FacetBundle = WorkerBundle;
 /** The outer host has already authorized this exact app invocation. No credentials are persisted here. */
 export const FacetInvocation = Schema.Struct({
   id: Schema.NonEmptyString,
@@ -95,6 +90,7 @@ export const makeFacetSupervisor = (state: DurableObjectState, loader: Pick<Work
                     `${state.id.toString()}:${invocation.identity}`,
                     () => ({
                       ...invocation.bundle,
+                      modules: workerModules(invocation.bundle.modules),
                       compatibilityDate: "2026-07-30",
                       // Same-zone URLs must use their public Worker routes, not the underlying origin.
                       compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
@@ -239,9 +235,9 @@ export const makeFacetSupervisor = (state: DurableObjectState, loader: Pick<Work
       ) =>
         Effect.scoped(
           Effect.gen(function* () {
-            const invocation = yield* Schema.decodeUnknownEffect(FacetInvocation)(input).pipe(
-              Effect.mapError(failed),
-            );
+            const invocation = yield* Schema.decodeUnknownEffect(Schema.toType(FacetInvocation))(
+              input,
+            ).pipe(Effect.mapError(failed));
             const handle = {
               cancel: yield* Deferred.make<void>(),
               done: yield* Deferred.make<void>(),

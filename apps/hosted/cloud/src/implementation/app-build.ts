@@ -2,10 +2,11 @@
 import { createApp, InMemoryFileSystem } from "@cloudflare/worker-bundler";
 import { RuntimeBuildFailed, type SourceFiles } from "@executor-js/sdk/core";
 import { prepareUiBuild } from "@executor-js/sdk/ui-build";
-import { Effect, Schema } from "effect";
+import { Effect, Path, Schema } from "effect";
 import type { Plugin } from "esbuild";
 import { CloudBundle } from "../contracts/builds.ts";
 import { appBridge } from "./app-bridge.ts";
+import { wasmBuild } from "./wasm-build.ts";
 import { browserBuild } from "./browser-build.ts";
 import framework from "../../.generated/framework.json" with { type: "json" };
 
@@ -48,6 +49,7 @@ export const compileCloudApp = (files: SourceFiles) =>
     });
     const plan = yield* prepareUiBuild(files);
     const browser = plan === undefined ? undefined : yield* browserBuild(files, filesystem, plan);
+    const wasm = wasmBuild(filesystem, yield* Path.Path);
     const compiled = yield* Effect.tryPromise({
       try: () =>
         createApp({
@@ -60,15 +62,16 @@ export const compileCloudApp = (files: SourceFiles) =>
           ...(plan === undefined ? {} : { client: [...plan.entries] }),
           __dangerouslyUseEsBuildPluginsDoNotUseOrYouWillBeFired: [
             quietCompiler,
+            wasm.plugin,
             ...(browser === undefined ? [] : [browser.plugin]),
           ],
         }),
       catch: () => new RuntimeBuildFailed({ stage: "compile" }),
     });
-    const bundle = yield* Schema.decodeUnknownEffect(CloudBundle)({
+    const bundle = yield* Schema.decodeUnknownEffect(Schema.toType(CloudBundle))({
       ...compiled,
-      modules: { ...compiled.modules, ...frameworkModules },
+      modules: { ...compiled.modules, ...frameworkModules, ...wasm.modules },
     }).pipe(Effect.mapError(() => new RuntimeBuildFailed({ stage: "compile" })));
     const ui = browser === undefined ? undefined : yield* browser.finish();
     return { bundle, ui };
-  }).pipe(Effect.withSpan("runtime.cloud.compile"));
+  }).pipe(Effect.provide(Path.layer), Effect.withSpan("runtime.cloud.compile"));

@@ -30,11 +30,13 @@ export const retainCloudBuild = (
         { concurrency: 8, discard: true },
       );
     const metadata = ui?.map(({ path, contentType }) => ({ path, contentType }));
+    const encoded = yield* Schema.encodeEffect(RetainedCloudBuild)({
+      ...bundle,
+      ...(metadata === undefined ? {} : { ui: metadata }),
+    });
     yield* blobs.put(
       yield* key(`${build}.json`),
-      new TextEncoder().encode(
-        JSON.stringify({ ...bundle, ...(metadata === undefined ? {} : { ui: metadata }) }),
-      ),
+      new TextEncoder().encode(JSON.stringify(encoded)),
     );
     return metadata;
   }).pipe(

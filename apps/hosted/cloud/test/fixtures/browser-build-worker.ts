@@ -1,3 +1,4 @@
+import { workerModules } from "@executor-js/app-data/worker-bundle";
 /** Test-only Worker exposing compilation and retained-object reads against real workerd/R2. */
 import type { R2Bucket, WorkerLoader } from "@cloudflare/workers-types";
 import {
@@ -76,7 +77,7 @@ export default {
         if (url.pathname === "/invoke") {
           const worker = env.LOADER.get(null, () => ({
             mainModule: bundle.mainModule,
-            modules: { ...bundle.modules },
+            modules: workerModules(bundle.modules),
             compatibilityDate: "2026-07-30",
             compatibilityFlags: ["nodejs_compat"],
           }));

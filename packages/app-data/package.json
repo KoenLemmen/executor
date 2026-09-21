@@ -7,6 +7,7 @@
     "./contracts": "./src/contracts/database.ts",
     "./schema": "./src/implementation/schema.ts",
     "./node": "./src/node.ts",
+    "./worker-bundle": "./src/contracts/worker-bundle.ts",
     "./cloudflare": "./src/cloudflare.ts"
   },
   "dependencies": {

@@ -1,0 +1,54 @@
+diff --git a/dist/file-system-ZXKe_fv7.d.ts b/dist/file-system-ZXKe_fv7.d.ts
+index fa559109c179700e47dd94029abea7d76a00fb50..aa562a81a15e168b321e063ce668d85f582ca1bf 100644
+--- a/dist/file-system-ZXKe_fv7.d.ts
++++ b/dist/file-system-ZXKe_fv7.d.ts
+@@ -37,6 +37,8 @@ interface FileSystem {
+  */
+ declare class InMemoryFileSystem implements FileSystem {
+   private files;
++  /** Read an installed binary asset without text decoding. */
++  readBinary(path: string): Uint8Array<ArrayBuffer> | null;
+   /**
+    * @param files Optional initial file contents. Accepts either a plain object
+    * (keys are paths, values are file contents) or a `Map`. Defaults to an
+@@ -44,7 +46,7 @@ declare class InMemoryFileSystem implements FileSystem {
+    */
+   constructor(files?: Record<string, string> | Map<string, string>);
+   read(path: string): string | null;
+-  write(path: string, content: string): void;
++  write(path: string, content: FileEntry): void;
+   delete(path: string): void;
+   list(prefix?: string): string[];
+   flush(): Promise<void>;
+diff --git a/dist/index.js b/dist/index.js
+index 9ddcbac086bbd60fece6571299c86f92d33412a6..46727ffd97873af8cd01398b520a23fd6e53d5dd 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -857,7 +857,12 @@ var InMemoryFileSystem = class {
+ 		this.files = files instanceof Map ? files : new Map(Object.entries(files));
+ 	}
+ 	read(path) {
+-		return this.files.get(path) ?? null;
++		const value = this.files.get(path);
++		return typeof value === "string" ? value : null;
++	}
++	readBinary(path) {
++		const value = this.files.get(path);
++		return typeof value === "object" && value !== null ? value.data : null;
+ 	}
+ 	write(path, content) {
+ 		this.files.set(path, content);
+diff --git a/dist/installer-DDvaMqav.js b/dist/installer-DDvaMqav.js
+index 5ed55da1726ab87d1c11932262f972cf39c3dd45..a78c56c97b2d7f4743c17fcd601b207e9cbd546d 100644
+--- a/dist/installer-DDvaMqav.js
++++ b/dist/installer-DDvaMqav.js
+@@ -544,6 +544,9 @@ function parseTar(data) {
+ 		offset += 512;
+ 		const isRegularFile = typeFlag === 48 || typeFlag === 0;
+ 		if (isRegularFile && filePath !== "") regularFilePaths.push(filePath);
++		if (isRegularFile && size > 0 && filePath.endsWith(".wasm")) {
++			textFiles.set(filePath, { data: data.slice(offset, offset + size) });
++		}
+ 		if (isRegularFile && size > 0 && isTextFile(filePath)) {
+ 			const content = data.slice(offset, offset + size);
+ 			try {

@@ -31,6 +31,7 @@ import { facetIdentity } from "@executor-js/app-data/cloudflare";
 import type { AppDataSupervisor } from "./app-data.ts";
 import { dataChanges } from "../implementation/data-changes.ts";
 import type { DurableObjectNamespace } from "@cloudflare/workers-types";
+import { workerModules } from "@executor-js/app-data/worker-bundle";
 import type { CloudBundle } from "../contracts/builds.ts";
 import { CompiledCloudApp } from "../contracts/builds.ts";
 import { AppCompiler } from "./compiler.ts";
@@ -109,7 +110,10 @@ export const cloudRuntime = Effect.fn(function* (
           // The identity includes app, build and current credentials. Reuse never crosses account contexts.
           const worker = yield* loader.get(identity, () => ({
             mainModule: "__executor_rpc.js",
-            modules: { ...bundle.modules, "__executor_rpc.js": appRpcBridge(bundle.mainModule) },
+            modules: {
+              ...workerModules(bundle.modules),
+              "__executor_rpc.js": appRpcBridge(bundle.mainModule),
+            },
             compatibilityDate: "2026-07-30",
             // Same-zone URLs must use their public Worker routes, not the underlying origin.
             compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
