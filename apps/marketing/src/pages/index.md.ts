@@ -73,11 +73,11 @@ MCP server + ${appExtensions.join(" + ")}
 
 ## How it works
 
-1. Pick an MCP server, or make something of your own.
-2. Deploy it to Executor.
-3. Connect your accounts and put it to work.
+1. Pick something you want your agent to do.
+2. Bring a tool or have your agent build one.
+3. Use it from all of your agents.
 
-## What can apps do?
+## Small tools can become whole apps.
 
 ${appDefinition}
 

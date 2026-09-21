@@ -3,7 +3,7 @@
 import Testimonials from "./testimonials.astro";
 import IntroSteps from "./intro-steps.astro";
 import CopyPrompt from "./copy-prompt.astro";
-import { tagline, introduction, appDefinition } from "../../content/site-copy";
+import { tagline, appDefinition } from "../../content/site-copy";
 import { AgentReuse, ChatThreadComposer } from "../app-visuals";
 import { AppPieces } from "../app-pieces";
 // Avatar goes through Vite so it ships as a hashed asset; new /public files
@@ -21,9 +21,7 @@ const { gh } = Astro.props;
   {/* ── Intro ── */}
     <header class="doc__intro min-[1024px]:max-w-180 max-[1023.98px]:text-center">
       <h1 class="doc__title text-[clamp(1.6rem,_2.6vw,_2.1rem)] font-semibold tracking-[-0.02em] leading-[1.22] text-ink [text-wrap:pretty] mb-[1rem] max-[719.98px]:text-[1.75rem]">{tagline}</h1>
-      <p class="doc__lede text-[17px] leading-[1.6] [color:var(--color-ink-2)] [text-wrap:pretty] mb-[1.6rem]">{introduction}</p>
       <IntroSteps />
-      <p class="doc__subhead text-[17px] leading-[1.5] [color:var(--color-ink-2)] mb-[1.5rem] max-[719.98px]:text-[16px]">Start small. Deploy it. Make it yours.</p>
       <div class="doc__actions flex flex-wrap items-center gap-[0.6rem_0.9rem] mb-[1.1rem] max-[719.98px]:flex-col max-[719.98px]:items-stretch max-[1023.98px]:justify-center">
         <a href="/login" class="btn-primary bg-ink text-surface rounded-[8px] py-[0.65rem] px-[1.1rem] font-medium text-[0.9rem] tracking-[-0.005em] [transition:background_0.15s_ease] hover:bg-[#1f1f24] [.doc\_\_way-a_&]:text-[13.5px] [.doc\_\_way-a_&]:py-[0.55rem] [.doc\_\_way-a_&]:px-[0.95rem] [.doc\_\_section_a&]:no-underline [.doc\_\_section_a&]:text-surface max-[719.98px]:[.doc\_\_actions_>_&]:w-full max-[719.98px]:[.doc\_\_actions_>_&]:justify-center max-[719.98px]:[.doc\_\_actions_>_&]:text-center max-[719.98px]:[.doc\_\_way-a_&]:w-full max-[719.98px]:[.doc\_\_way-a_&]:justify-center max-[719.98px]:[.doc\_\_way-a_&]:text-center [.pricing\_\_card_>_&]:self-start [.pricing\_\_card_>_&]:mb-[1.4rem]">Deploy an app</a>
         <CopyPrompt />
@@ -34,7 +32,7 @@ const { gh } = Astro.props;
     </header>
 
   <section id="apps" class="doc__section scroll-mt-14 min-[1024px]:scroll-mt-0 min-[1024px]:[&_>_:not(.doc\_\_fig--wide):not(.testi)]:max-w-180 border-t border-t-rule mt-[3.25rem] pt-[2.25rem] [&_>_p]:text-[16px] [&_>_p]:leading-[1.65] [&_>_p]:[color:var(--color-ink-2)] [&_>_p]:[text-wrap:pretty] [&_>_p_+_p]:mt-[1rem] [&_a]:text-ink [&_a]:underline [&_a]:underline-offset-[3px] [&_a]:[text-decoration-color:var(--color-rule-strong)] [&_a:hover]:[text-decoration-color:var(--color-ink)] max-[719.98px]:mt-[2.5rem] max-[719.98px]:pt-[1.75rem]">
-    <h2 class="doc__h text-[22px] font-semibold tracking-[-0.015em] text-ink mb-[1rem] max-[719.98px]:text-[20px]">What can apps do?</h2>
+    <h2 class="doc__h text-[22px] font-semibold tracking-[-0.015em] text-ink mb-[1rem] max-[719.98px]:text-[20px]">Small tools can become whole apps.</h2>
     <p>{appDefinition}</p>
     <AppPieces client:visible />
   </section>

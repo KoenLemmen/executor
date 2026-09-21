@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css'
+import { tagline, introduction } from '../content/site-copy'
 
 interface Props {
   title?: string
@@ -7,8 +8,8 @@ interface Props {
 }
 
 const {
-  title = 'Executor — Your agent’s cloud.',
-  description = 'Deploy personal software for your agents. Start with an MCP server, a tool, or a skill.'
+  title = `Executor — ${tagline}`,
+  description = introduction
 } = Astro.props
 
 const ogImage = new URL('/og-image.png', Astro.site ?? Astro.url).toString()

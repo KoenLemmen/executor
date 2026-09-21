@@ -29,7 +29,7 @@ Docs: https://executor.sh/docs`;
 export const GITHUB_URL = "https://github.com/UsefulSoftwareCo/executor";
 
 /** One-line description of the product, used as the Markdown tagline. */
-export const tagline = "Your agent’s cloud.";
+export const tagline = "Give your agents more to work with.";
 
 /** Shared introduction for the landing page and its Markdown representation. */
 export const introduction =
@@ -37,7 +37,7 @@ export const introduction =
 
 /** Plain definition shared by the illustrated section and Markdown overview. */
 export const appDefinition =
-  "Small tools or full apps. Your agent can build, change, and run them.";
+  "Start with one useful thing. Add more tools, skills, or a UI as your needs grow.";
 
 /** Simple starting points and optional extensions shared across page formats. */
 export const mission = [
