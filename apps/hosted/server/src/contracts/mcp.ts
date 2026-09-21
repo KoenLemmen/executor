@@ -1,10 +1,10 @@
-import { Grant, GrantId } from "@executor-js/mcp-auth";
+import { Grant, GrantId, type ApprovalMode } from "@executor-js/mcp-auth";
 import { Context, Schema } from "effect";
 import type { Effect } from "effect";
 import { OrganizationAccess } from "./organization.ts";
 import { AuthenticationUnavailable } from "./auth.ts";
 
-/** OAuth identity and current membership. Tokens never become browser sessions. */
+/** MCP authority from OAuth or a PAT and current membership. Tokens never become browser sessions. */
 export const McpAccess = Schema.Struct({
   userId: Schema.NonEmptyString,
   clientId: Schema.NonEmptyString,
@@ -25,6 +25,7 @@ export class McpAuthentication extends Context.Service<
     readonly origin: string;
     readonly authenticate: (
       headers: Headers,
+      mode?: ApprovalMode,
     ) => Effect.Effect<McpAccess, McpUnauthorized | McpForbidden | AuthenticationUnavailable>;
     readonly browserGrant: (
       headers: Headers,

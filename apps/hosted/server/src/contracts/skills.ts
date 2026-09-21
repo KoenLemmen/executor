@@ -1,3 +1,4 @@
+import { RequiredAction } from "./authorization.ts";
 /** Organization-scoped skill reads expose only the skill directory, never general app source. */
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
@@ -24,7 +25,7 @@ export const HostedSkills = HttpApiGroup.make("skills")
       query: version,
       success: AppSkillCatalog,
       error: AppSkillErrors,
-    }),
+    }).annotate(RequiredAction, "discover"),
   )
   .add(
     HttpApiEndpoint.get("read", `${prefix}/:name`, {
@@ -32,6 +33,6 @@ export const HostedSkills = HttpApiGroup.make("skills")
       query: { ...version, file: Schema.optional(SourceFilePath) },
       success: AppSkillDocument,
       error: [...AppSkillErrors, AppSkillNotFound],
-    }),
+    }).annotate(RequiredAction, "discover"),
   )
   .middleware(RequireOrganization);

@@ -1,6 +1,6 @@
 ---
 title: Add an MCP client
-description: "Connect Claude Code, Cursor, Codex or any other MCP client to your Executor endpoint, on hosted, self-host or a local server with an API key."
+description: "Connect an MCP client with browser sign-in, a personal access token, or a local server key."
 ---
 
 The dashboard's **Connect an agent** page shows these commands with your own
@@ -14,6 +14,8 @@ The endpoint is your origin plus `/mcp`:
 | Hosted | `https://v2.executor.sh/mcp` |
 | Self-host | `<your origin>/mcp` |
 | Local | `http://127.0.0.1:4312/mcp` |
+
+You can also connect with a [personal access token](/api-keys#connect-an-mcp-client) by setting the Authorization and X-Executor-Organization headers.
 
 Most clients load MCP servers only at startup. After you add Executor, restart
 the client or open a new session before its tools appear.

@@ -1,3 +1,5 @@
+import { CurrentAuthorization } from "../contracts/authorization.ts";
+import { fullAuthority } from "@executor-js/authorization";
 /** Hosted policy around the shared app browser protocol and retained asset renderer. */
 import {
   AccountRequired,
@@ -277,6 +279,7 @@ export const hostedAppUi = (addresses: ReturnType<typeof appAddresses>) => {
       const { current, input } = yield* dataInput(payload);
       return yield* executeAppData(kind, input).pipe(
         Effect.provideService(CurrentOrganization, current.access),
+        Effect.provideService(CurrentAuthorization, fullAuthority),
         Effect.mapError(dataFailure),
       );
     });

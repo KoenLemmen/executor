@@ -27,6 +27,7 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
+    "@executor-js/authorization": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@types/proper-lockfile": "4.1.4"
   }

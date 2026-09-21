@@ -1,3 +1,5 @@
+import { CurrentAuthorization } from "../contracts/authorization.ts";
+import { permitsAction, permitsApp } from "@executor-js/authorization";
 /** Product-owned authorization around the same SDK data operations used by local. */
 import { type AppDataInput } from "@executor-js/sdk/core";
 import { Effect, Stream } from "effect";
@@ -15,12 +17,17 @@ import { Authentication, ApiAuthentication, Unauthorized } from "../contracts/au
 import { adminOwner, currentOwner, selectedApp } from "./access.ts";
 
 /** Recheck both login and membership on long-lived streams; initial middleware is not a saved grant. */
-const currentAccess = (headers: Headers, organization: OrganizationId) =>
+const currentAccess = (headers: Headers, organization: OrganizationId, app: AppDataInput["app"]) =>
   Effect.gen(function* () {
     if (headers.has("authorization")) {
       const api = yield* ApiAuthentication;
       const grant = yield* api.authenticate(headers, organization);
-      if (grant.access.organization !== organization) return yield* new OrganizationForbidden();
+      if (
+        grant.access.organization !== organization ||
+        !permitsAction(grant.policy, "data") ||
+        !permitsApp(grant.policy, app)
+      )
+        return yield* new OrganizationForbidden();
       return grant.access;
     }
     const auth = yield* Authentication;
@@ -31,6 +38,9 @@ const currentAccess = (headers: Headers, organization: OrganizationId) =>
 /** Check app ownership and selected accounts before invoking author code. */
 export const executeAppData = (kind: "query" | "mutate", input: AppDataInput) =>
   Effect.gen(function* () {
+    const policy = yield* CurrentAuthorization;
+    if (!permitsAction(policy, "data") || !permitsApp(policy, input.app))
+      return yield* new OrganizationForbidden();
     const owner = yield* kind === "mutate" ? adminOwner : currentOwner;
     const executor = yield* Effect.flatten(HostedExecutor);
     yield* selectedApp(executor, owner, input.app);
@@ -55,7 +65,11 @@ export const hostedAppDataHandlers = HttpApiBuilder.group(HostedApi, "appData", 
           const owner = yield* currentOwner;
           const executor = yield* Effect.flatten(HostedExecutor);
           yield* selectedApp(executor, owner, params.app);
-          const access = currentAccess(headers, (yield* CurrentOrganization).organization).pipe(
+          const access = currentAccess(
+            headers,
+            (yield* CurrentOrganization).organization,
+            params.app,
+          ).pipe(
             Effect.provideService(Authentication, auth),
             Effect.provideService(ApiAuthentication, api),
             Effect.tap((access) => selectedApp(executor, access.owner, params.app)),

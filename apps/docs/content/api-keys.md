@@ -1,0 +1,79 @@
+---
+title: API keys
+description: "Create a personal access token for a script or agent. Tokens use your current permissions and can be expired or revoked independently."
+---
+
+## Personal access tokens
+
+Executor API keys are personal access tokens (PATs). A token authenticates as you
+and uses your current permissions in the organization targeted by each request.
+There are no extra permission or tool-selection settings for tokens in v1.
+
+1. Open **API keys** and select **Create token**.
+2. Give the token a name and, optionally, an expiry.
+3. Copy the token into your script's secret manager. It is shown only once.
+
+Use a separate token for each script so you can revoke access independently.
+Keep tokens out of browser code and source control.
+
+## Use a token
+
+The page provides an example for the organization you are viewing:
+
+```sh
+curl '<your-origin>/api/organizations/<organization-id>/inventory' \
+  --header "Authorization: Bearer $EXECUTOR_API_KEY"
+```
+
+The same token can access your other organizations. Each request checks your
+current membership and role. Changing the organization URL does not grant access
+to an organization you do not belong to. Tool approval rules still apply.
+
+For `GET /api/context`, supply the `X-Executor-Organization` header instead.
+Invalid, expired, or revoked tokens return `401`. Insufficient access returns `403`.
+
+## Expiry and revocation
+
+Signing out does not revoke tokens. Removing an organization membership stops
+access to that organization, and role changes apply to subsequent requests.
+
+To replace a token, create another, update your script, then revoke the old one.
+Revocation prevents new requests. Requests already running may finish. Revoking
+one token does not affect other tokens. The saved Executor app credential uses
+the same key system and appears as **Executor app**. Revoking that key also stops
+the saved connection. Revoked tokens are removed from the list.
+
+## Connect an MCP client
+
+Use your PAT as the bearer token and choose the organization with a header:
+
+```json
+{
+  "mcpServers": {
+    "executor": {
+      "type": "http",
+      "url": "https://v2.executor.sh/mcp",
+      "headers": {
+        "Authorization": "Bearer <YOUR_PAT>",
+        "X-Executor-Organization": "<organization-id-or-slug>"
+      }
+    }
+  }
+}
+```
+
+The **API keys** page fills in your server URL and current organization. For
+self-host, use your own origin. Keep the token in your client's private config
+or secret store. The organization header selects where calls run; it does not
+limit the token to that organization.
+
+The same token works with model, native, and browser approval delivery. Add
+`?elicitation_mode=native` or `?elicitation_mode=browser` to the MCP URL when
+needed. Tool approval rules still apply. Browser approvals require the token
+owner to sign in. Revocation or expiry stops new MCP calls and continuations,
+including on already-connected clients.
+
+PATs do not require an OAuth sign-in flow. The existing [browser OAuth flow](/mcp-clients)
+remains available. PATs do not create browser sessions; manage them from your
+signed-in browser. Both methods use the same authorization checks and current
+organization roles.

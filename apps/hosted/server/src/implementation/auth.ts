@@ -1,4 +1,4 @@
-import { userApiKeyPlugin } from "./user-api-key.ts";
+import { apiKeys, apiKeyManagement } from "./api-keys.ts";
 import { explicitOrganizationAuth } from "./organization-auth.ts";
 import { mcpOAuthPlugins } from "./mcp-oauth.ts";
 import type { BetterAuthOptions } from "better-auth";
@@ -62,10 +62,11 @@ export const authOptions = (
     onAPIError: { errorURL: `${settings.url}/login` },
     plugins: [
       explicitOrganizationAuth,
-      userApiKeyPlugin(settings.url),
+      apiKeys,
       organization({ disableOrganizationDeletion: true }),
       ...mcpOAuthPlugins(settings.url),
     ],
+    hooks: { before: apiKeyManagement },
     session: { cookieCache: { enabled: false } },
     rateLimit: { enabled: true, storage: "database" },
     advanced: { cookiePrefix: "executor-hosted", ipAddress: { ipAddressHeaders } },

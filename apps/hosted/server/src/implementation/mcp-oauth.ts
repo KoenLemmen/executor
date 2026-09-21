@@ -1,6 +1,9 @@
+import { ApiKeyId } from "../contracts/api-keys.ts";
+import { grantAuthorization } from "@executor-js/mcp-auth";
+import { browserPersonalTokenAccess, apiKeyAccess, isApiKey } from "./api-keys.ts";
 import { resolveOrganizationReference } from "./organization-reference.ts";
-import { apiKeyUser, userApiKeyPrefix } from "./user-api-key.ts";
-import { GrantId, mcpOAuthResources } from "@executor-js/mcp-auth";
+import { ApprovalMode, GrantId, mcpOAuthResources } from "@executor-js/mcp-auth";
+
 /** Hosted membership composes with the shared OAuth grant lifecycle. */
 import type { BetterAuthPlugin, GenericEndpointContext } from "@better-auth/core";
 import { APIError, createAuthEndpoint, isAPIError } from "better-auth/api";
@@ -82,6 +85,43 @@ const hostedGrantOAuth = (origin: string) =>
       ),
   });
 
+const PatGrant = Schema.Struct({
+  token: ApiKeyId,
+  organization: OrganizationId,
+  mode: ApprovalMode,
+});
+const patGrantPrefix = "pat:";
+const patGrantId = (value: typeof PatGrant.Type) =>
+  GrantId.make(patGrantPrefix + encodeURIComponent(JSON.stringify(value)));
+const parsePatGrant = (id: GrantId) =>
+  Effect.try({
+    try: () => decodeURIComponent(id.slice(patGrantPrefix.length)),
+    catch: () => new APIError("UNAUTHORIZED"),
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(PatGrant))),
+    Effect.mapError(() => new APIError("UNAUTHORIZED")),
+  );
+/** Stable metadata identifies the PAT/organization/mode partition; it is never a credential. */
+const projectPatAccess = (
+  ctx: GenericEndpointContext,
+  identity: Effect.Success<ReturnType<typeof apiKeyAccess>>,
+  organization: OrganizationId,
+  mode: ApprovalMode,
+) =>
+  Effect.gen(function* () {
+    const member = yield* membership(ctx.context, identity.userId, organization);
+    return McpAccess.make({
+      userId: identity.userId,
+      clientId: `pat:${identity.key.id}`,
+      grant: {
+        id: patGrantId({ token: identity.key.id, organization, mode }),
+        policy: { kind: "all" },
+        target: { kind: "mcp", mode },
+      },
+      access: { organization, owner: organizationOwner(organization), role: member.role },
+    });
+  });
+
 /** Provision the host's fixed resources before serving OAuth requests. */
 export const provisionHostedOAuthResources = (origin: string, context: OAuthResourceSeedContext) =>
   hostedGrantOAuth(origin).provisionResources(context);
@@ -117,13 +157,53 @@ export const mcpOAuthPlugins = (origin: string) => {
         },
         (ctx) =>
           runAuth(
-            oauth.lookupBrowser(ctx).pipe(Effect.flatMap((grant) => projectAccess(ctx, grant))),
+            Effect.gen(function* () {
+              if (!ctx.body.id.startsWith(patGrantPrefix))
+                return yield* oauth
+                  .lookupBrowser(ctx)
+                  .pipe(Effect.flatMap((grant) => projectAccess(ctx, grant)));
+              const target = yield* parsePatGrant(ctx.body.id);
+              const identity = yield* browserPersonalTokenAccess(ctx, origin, target.token);
+              return yield* projectPatAccess(ctx, identity, target.organization, target.mode);
+            }),
           ),
       ),
       getMcpAccess: createAuthEndpoint(
         "/mcp/access",
-        { method: "GET", requireHeaders: true, metadata: { SERVER_ONLY: true } },
-        (ctx) => runAuth(access(ctx, "mcp")),
+        {
+          method: "GET",
+          requireHeaders: true,
+          metadata: { SERVER_ONLY: true },
+          query: Schema.toStandardSchemaV1(
+            Schema.optional(Schema.Struct({ mode: Schema.optional(ApprovalMode) })),
+          ),
+        },
+        (ctx) =>
+          runAuth(
+            Effect.gen(function* () {
+              const token = ctx.headers.get("authorization")?.match(/^Bearer ([^\s]+)$/i)?.[1];
+              if (token === undefined || !isApiKey(token)) return yield* access(ctx, "mcp");
+              const identity = yield* apiKeyAccess(ctx, Redacted.make(token));
+              const reference = yield* Schema.decodeUnknownEffect(OrganizationReference)(
+                ctx.headers.get("x-executor-organization"),
+              ).pipe(
+                Effect.mapError(
+                  () =>
+                    new APIError("FORBIDDEN", {
+                      message:
+                        "Set X-Executor-Organization when using a personal access token with MCP.",
+                    }),
+                ),
+              );
+              const organization = yield* resolveReference(ctx.context, reference);
+              return yield* projectPatAccess(
+                ctx,
+                identity,
+                organization,
+                ctx.query?.mode ?? "model",
+              );
+            }),
+          ),
       ),
       getApiAccess: createAuthEndpoint(
         "/executor-api/access",
@@ -140,15 +220,17 @@ export const mcpOAuthPlugins = (origin: string) => {
             Effect.gen(function* () {
               const token = ctx.headers.get("authorization")?.match(/^Bearer ([^\s]+)$/i)?.[1];
               const identity = yield* Effect.gen(function* () {
-                if (token?.startsWith(userApiKeyPrefix)) {
-                  const userId = yield* apiKeyUser(ctx, Redacted.make(token));
+                if (token !== undefined && isApiKey(token)) {
+                  const identity = yield* apiKeyAccess(ctx, Redacted.make(token));
                   const reference = yield* Schema.decodeUnknownEffect(OrganizationReference)(
                     ctx.query.organization ?? ctx.headers.get("x-executor-organization"),
                   ).pipe(Effect.mapError(() => new APIError("FORBIDDEN")));
                   const organization = yield* resolveReference(ctx.context, reference);
-                  const member = yield* membership(ctx.context, userId, organization);
+                  const member = yield* membership(ctx.context, identity.userId, organization);
                   return {
-                    userId,
+                    userId: identity.userId,
+                    key: identity.key,
+                    policy: identity.policy,
                     access: {
                       organization,
                       owner: organizationOwner(organization),
@@ -163,7 +245,11 @@ export const mcpOAuthPlugins = (origin: string) => {
                     (yield* resolveReference(ctx.context, ctx.query.organization))
                 )
                   return yield* Effect.fail(new APIError("FORBIDDEN"));
-                return { userId: grant.userId, access: grant.access };
+                return {
+                  userId: grant.userId,
+                  access: grant.access,
+                  policy: grantAuthorization(grant.grant.policy),
+                };
               });
               const value = yield* authCall(() =>
                 ctx.context.adapter.findOne({

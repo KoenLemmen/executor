@@ -1,3 +1,4 @@
+import { RequiredAction } from "./authorization.ts";
 import { AppWorkflowsActive } from "@executor-js/sdk/core";
 import { AppWebhooksActive } from "@executor-js/sdk/core";
 /** App installation and configuration. Owners always come from authenticated organization context. */
@@ -64,7 +65,7 @@ export const HostedApps = HttpApiGroup.make("apps")
       payload: InstallApp,
       success: App,
       error: [...deployErrors, CatalogImportFailed, CatalogUnavailable],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.post("importCustom", `${prefix}/import`, {
@@ -72,7 +73,7 @@ export const HostedApps = HttpApiGroup.make("apps")
       payload: Schema.Struct({ source: RemoteCustomAppInput }),
       success: App,
       error: [...deployErrors, CatalogImportFailed],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.post("deploy", `${prefix}/deploy`, {
@@ -80,14 +81,14 @@ export const HostedApps = HttpApiGroup.make("apps")
       payload: DeployApp,
       success: App,
       error: deployErrors,
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.get("get", `${prefix}/:app`, {
       params: app,
       success: App,
       error: [StorageError, AppNotFound],
-    }),
+    }).annotate(RequiredAction, "discover"),
   )
   .add(
     HttpApiEndpoint.patch("selectAccounts", `${prefix}/:app/accounts`, {
@@ -101,21 +102,21 @@ export const HostedApps = HttpApiGroup.make("apps")
         AccountSelectionInvalid,
         OrganizationForbidden,
       ],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.delete("remove", `${prefix}/:app`, {
       params: app,
       success: Schema.Struct({ app: AppId }),
       error: [StorageError, AppWebhooksActive, AppWorkflowsActive, OrganizationForbidden],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.get("deployments", `${prefix}/:app/deployments`, {
       params: app,
       success: Schema.Array(DeploymentSummary),
       error: [StorageError, AppNotFound, OrganizationForbidden],
-    }),
+    }).annotate(RequiredAction, "read"),
   )
   .add(
     HttpApiEndpoint.get("source", `${prefix}/:app/source`, {
@@ -123,7 +124,7 @@ export const HostedApps = HttpApiGroup.make("apps")
       query: { deployment: Schema.optional(DeploymentId) },
       success: Deployment,
       error: [StorageError, AppNotFound, DeploymentNotFound, OrganizationForbidden],
-    }),
+    }).annotate(RequiredAction, "read"),
   )
   .add(
     HttpApiEndpoint.post("update", `${prefix}/:app/deployments`, {
@@ -131,7 +132,7 @@ export const HostedApps = HttpApiGroup.make("apps")
       payload: UpdateApp,
       success: App,
       error: deployErrors,
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.post("activate", `${prefix}/:app/activate`, {
@@ -147,7 +148,7 @@ export const HostedApps = HttpApiGroup.make("apps")
         AccountSelectionInvalid,
         OrganizationForbidden,
       ],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.patch("rename", `${prefix}/:app/name`, {
@@ -155,6 +156,6 @@ export const HostedApps = HttpApiGroup.make("apps")
       payload: Schema.Struct({ name: AppName }),
       success: App,
       error: [StorageError, AppNotFound, AppNameTaken, AppSlugTaken, OrganizationForbidden],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .middleware(RequireOrganization);

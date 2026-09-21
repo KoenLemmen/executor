@@ -123,7 +123,7 @@ export const organizationDefaults = (
           (saved.provider !== requirement.provider || saved.method !== "apiKey")
         )
           return yield* new StorageError();
-        // Managed keys are stable for the user's lifetime. An existing account needs no secret rewrite.
+        // Existing saved accounts keep their credential; setup does not mint replacement keys.
         // Read current SQL metadata on every call; this is not an isolate-local result cache.
         if (
           state.deployment === current.activeDeployment &&
@@ -134,7 +134,7 @@ export const organizationDefaults = (
           return;
         // Better Auth reads through its own database adapter. Resolve the key
         // before the SDK transaction, which otherwise blocks that read on PGlite.
-        const token = yield* user.key;
+        const token = saved === undefined ? yield* user.key : undefined;
         // Build/network work finished above. Only account creation or selection repair needs the lock.
         yield* storage
           .orm("1.9.1")
@@ -161,14 +161,17 @@ export const organizationDefaults = (
               )
                 return yield* new StorageError();
               const account =
-                saved ??
-                (yield* executor.accounts.add({
-                  owner,
-                  provider: requirement.provider,
-                  method: "apiKey",
-                  label: user.name,
-                  fields: Redacted.make({ token: Redacted.value(token), organization }),
-                }));
+                saved !== undefined
+                  ? saved
+                  : token !== undefined
+                    ? yield* executor.accounts.add({
+                        owner,
+                        provider: requirement.provider,
+                        method: "apiKey",
+                        label: user.name,
+                        fields: Redacted.make({ token: Redacted.value(token.key), organization }),
+                      })
+                    : yield* new StorageError();
               // Shared app selection remains the current hosted model; per-user selection is deferred.
               const selected = locked.accounts.service;
               const automatic = automaticSelection(selected, state.accounts);
@@ -182,9 +185,14 @@ export const organizationDefaults = (
             coalesce(metadata::jsonb, '{}'::jsonb), '{executorKeyAccounts}', ${accounts}::jsonb),
             '{executorDefaults}', jsonb_build_object('installed', true, 'app', ${app.id}::text, 'deployment', ${current.activeDeployment}::text)
           )::text where id = ${organization}`.pipe(Effect.mapError(() => new StorageError()));
+              return saved === undefined;
             }),
           )
-          .pipe(Effect.catchTag("SqlError", () => Effect.fail(new StorageError())));
-      }),
+          .pipe(
+            Effect.catchTag("SqlError", () => Effect.fail(new StorageError())),
+            Effect.tap((created) => (created && token !== undefined ? token.retain : Effect.void)),
+            Effect.uninterruptible,
+          );
+      }).pipe(Effect.scoped),
     );
   });

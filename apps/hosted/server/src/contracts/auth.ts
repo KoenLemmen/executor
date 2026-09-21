@@ -1,5 +1,7 @@
+import type { ApiKeyId } from "./api-keys.ts";
+import type { AuthorizationPolicy } from "@executor-js/authorization";
 import type { OrganizationAccess, OrganizationReference } from "./organization.ts";
-import { Context, Effect, Schema, type Redacted } from "effect";
+import { Context, Effect, Schema, type Redacted, type Scope } from "effect";
 import { HttpApiMiddleware } from "effect/unstable/httpapi";
 import type { OrganizationId, OrganizationRole, OrganizationForbidden } from "./organization.ts";
 
@@ -35,6 +37,10 @@ export interface ApiAccess {
   readonly userId: string;
   readonly access: OrganizationAccess;
   readonly organizationSlug: string;
+  readonly policy: AuthorizationPolicy;
+  readonly key?: {
+    readonly id: typeof ApiKeyId.Type;
+  };
 }
 
 /** Organization API grants; browser sessions and bearer grants never fall back to one another. */
@@ -49,17 +55,24 @@ export class ApiAuthentication extends Context.Service<
   }
 >()("hosted/ApiAuthentication") {}
 
+/** A new native key is revoked on scope exit until its saved account commits. */
+export interface AccountApiKey {
+  readonly key: Redacted.Redacted<string>;
+  readonly retain: Effect.Effect<void>;
+}
+
 /** Host-specific session lookup. Refresh belongs to Better Auth's browser endpoint. */
 export class Authentication extends Context.Service<
   Authentication,
   {
     readonly origin: string;
-    /** Return the signed-in user's managed key through the first-party auth endpoint. */
+    /** Issue a native key only when creating a saved Executor account. */
     readonly apiKey: (
       headers: Headers,
     ) => Effect.Effect<
-      Redacted.Redacted<string>,
-      Unauthorized | OrganizationForbidden | AuthenticationUnavailable
+      AccountApiKey,
+      Unauthorized | OrganizationForbidden | AuthenticationUnavailable,
+      Scope.Scope
     >;
     /** Optional provider callback relay; the browser still returns to the canonical dashboard origin. */
     readonly oauthRedirectUri?: string | undefined;

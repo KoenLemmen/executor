@@ -32,6 +32,11 @@ const apiContext = HttpApiBuilder.group(HostedApi, "context", (handlers) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const grant = yield* auth.authenticate(new Headers(request.headers));
+        if (grant.key !== undefined)
+          yield* Effect.annotateCurrentSpan({
+            "executor.api_key.id": grant.key.id,
+            "executor.user.id": grant.userId,
+          });
         return {
           organization: grant.access.organization,
           slug: grant.organizationSlug,

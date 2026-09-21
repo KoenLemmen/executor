@@ -213,9 +213,36 @@ export const scenarios = {
       local: na("Local uses its configured instance API key."),
     },
   },
+  sharedAuthorization: {
+    file: "shared-authorization.spec.ts",
+    title: "MCP and API authorization share exact tool selection and live grant restrictions",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("This scenario checks hosted API and MCP parity."),
+    },
+  },
+  patMcp: {
+    file: "pat-mcp.spec.ts",
+    title: "PATs authenticate MCP with current access, approvals and live revocation",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Local uses its instance credential."),
+    },
+  },
+  namedApiKeys: {
+    file: "named-api-keys.spec.ts",
+    title: "Personal access tokens inherit user permissions and support expiry and revocation",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Local uses its instance key."),
+    },
+  },
   userApiKey: {
     file: "user-api-key.spec.ts",
-    title: "User API keys are stable, private and independent of dashboard sessions",
+    title: "User API keys are private and independent of dashboard sessions",
     targets: {
       "self-host": scheduled,
       cloud: {

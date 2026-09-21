@@ -8,6 +8,7 @@ import { cloudAuthOptions, cloudAuthSettings } from "../implementation/auth-opti
 /** Native Alchemy auth binding, shared by the HTTP Worker and MCP session objects. */
 import {
   Authentication,
+  accountApiKey,
   AuthenticationUnavailable,
   McpAuthentication,
   sessionPrincipal,
@@ -105,18 +106,12 @@ export const cloudAuth = (send: SendAuthEmail) =>
             return auth.auth.pipe(
               Effect.provide(RuntimeContext.phantom),
               Effect.flatMap((native) =>
-                Effect.tryPromise({
-                  try: () => native.api.ensureExecutorApiKey({ headers: internal, body: {} }),
-                  catch: apiAuthenticationError,
-                }),
-              ),
-              Effect.flatMap(
-                Schema.decodeUnknownEffect(
-                  Schema.Struct({ key: Schema.RedactedFromValue(Schema.NonEmptyString) }),
+                accountApiKey(
+                  () =>
+                    native.api.createApiKey({ headers: internal, body: { name: "Executor app" } }),
+                  (keyId) => native.api.deleteApiKey({ headers: internal, body: { keyId } }),
                 ),
               ),
-              Effect.map(({ key }) => key),
-              Effect.catchTag("SchemaError", () => Effect.fail(new AuthenticationUnavailable())),
             );
           },
           oauthRedirectUri: Option.getOrUndefined(settings.oauthRedirectUri),
@@ -179,13 +174,13 @@ export const cloudAuth = (send: SendAuthEmail) =>
       Effect.gen(function* () {
         return McpAuthentication.of({
           origin: settings.url,
-          authenticate: (headers) =>
+          authenticate: (headers, mode) =>
             auth.auth
               .pipe(
                 Effect.provide(RuntimeContext.phantom),
                 Effect.flatMap((native) =>
                   Effect.tryPromise({
-                    try: () => native.api.getMcpAccess({ headers }),
+                    try: () => native.api.getMcpAccess({ headers, query: { mode } }),
                     catch: mcpAuthenticationError,
                   }),
                 ),

@@ -1,3 +1,4 @@
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 /** Official MCP client adapter. Only public wire traffic crosses the application boundary. */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -11,13 +12,32 @@ const make = Effect.gen(function* () {
   const target = yield* Target,
     evidence = yield* Evidence;
   return {
-    connect: (accessToken: Redacted.Redacted<string>, label: string) =>
+    connect: (
+      accessToken: Redacted.Redacted<string>,
+      label: string,
+      options: {
+        readonly organization?: string;
+        readonly mode?: "model" | "native" | "browser";
+      } = {},
+    ) =>
       Effect.gen(function* () {
         const requests: { method: string; protocol: string | null; status: number }[] = [];
         const client = yield* Effect.acquireRelease(
-          Effect.sync(() => new Client({ name: "executor-e2e", version: "1" })),
+          Effect.sync(
+            () =>
+              new Client(
+                { name: "executor-e2e", version: "1" },
+                options.mode === "native" ? { capabilities: { elicitation: { form: {} } } } : {},
+              ),
+          ),
           (client) => driver("close MCP client", () => client.close()).pipe(Effect.orDie),
         );
+        let elicitationCount = 0;
+        if (options.mode === "native")
+          client.setRequestHandler(ElicitRequestSchema, () => {
+            elicitationCount += 1;
+            return Promise.resolve({ action: "accept" as const, content: {} });
+          });
         // Record methods, revisions and timing only. OAuth headers and tool arguments are excluded.
         const observedFetch: typeof fetch = (input, init) =>
           Effect.runPromise(
@@ -66,15 +86,19 @@ const make = Effect.gen(function* () {
               return response;
             }),
           );
-        const transport = new StreamableHTTPClientTransport(
-          new URL(`${target.metadata.origin}/mcp`),
-          {
-            requestInit: {
-              headers: { authorization: `Bearer ${Redacted.value(accessToken)}` },
+        const endpoint = new URL(`${target.metadata.origin}/mcp`);
+        if (options.mode !== undefined) endpoint.searchParams.set("elicitation_mode", options.mode);
+        const transport = new StreamableHTTPClientTransport(endpoint, {
+          requestInit: {
+            headers: {
+              authorization: `Bearer ${Redacted.value(accessToken)}`,
+              ...(options.organization === undefined
+                ? {}
+                : { "X-Executor-Organization": options.organization }),
             },
-            fetch: observedFetch,
           },
-        );
+          fetch: observedFetch,
+        });
         // SDK's optional sessionId getter includes undefined; its Transport declaration omits it.
         const compatible: Omit<StreamableHTTPClientTransport, "sessionId"> = transport;
         yield* Effect.addFinalizer(() =>
@@ -87,6 +111,7 @@ const make = Effect.gen(function* () {
         );
         yield* driver("initialize MCP client", () => client.connect(compatible));
         return {
+          elicitationCount: Effect.sync(() => elicitationCount),
           use: <A>(
             operation: string,
             action: (client: Client, signal: AbortSignal) => Promise<A>,

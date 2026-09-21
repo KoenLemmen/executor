@@ -1,3 +1,4 @@
+import { RequiredAction } from "./authorization.ts";
 /** Authored app operations, scoped to an explicit hosted organization and configured app. */
 import { AppDataErrors, AppDataSnapshot, AppId, DeploymentId, Json } from "@executor-js/sdk/core";
 import { Schema } from "effect";
@@ -30,7 +31,7 @@ export const HostedAppData = HttpApiGroup.make("appData")
       payload,
       success: Json,
       error: errors,
-    }),
+    }).annotate(RequiredAction, "data"),
   )
   .add(
     HttpApiEndpoint.post("mutate", `${prefix}/mutate`, {
@@ -38,7 +39,7 @@ export const HostedAppData = HttpApiGroup.make("appData")
       payload,
       success: Json,
       error: errors,
-    }),
+    }).annotate(RequiredAction, "data"),
   )
   .add(
     HttpApiEndpoint.post("subscribe", `${prefix}/subscribe`, {
@@ -46,6 +47,6 @@ export const HostedAppData = HttpApiGroup.make("appData")
       payload,
       success: HttpApiSchema.StreamSse({ data: AppDataSnapshot, error: Schema.Union(errors) }),
       error: errors,
-    }),
+    }).annotate(RequiredAction, "data"),
   )
   .middleware(RequireOrganization);

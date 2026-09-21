@@ -10,6 +10,7 @@ const allowed = new Set([
   "@effect/vitest",
   "@kitlangton/terminal-control",
   "@modelcontextprotocol/sdk/client/index.js",
+  "@modelcontextprotocol/sdk/types.js",
   "@modelcontextprotocol/sdk/client/streamableHttp.js",
   "vitest",
   "vitest/config",

@@ -1,19 +1,20 @@
 /** Apply one grant at every shared MCP operation; hosts retain their existing resource checks. */
 import type { McpBackend } from "@executor-js/mcp";
 import { ElicitationFailed, type AppId } from "@executor-js/sdk/core";
-import { Effect, Match } from "effect";
-import { GrantForbidden, permitsApp, permitsTool, type Grant } from "../contracts/grant.ts";
+import { Effect } from "effect";
+import { permitsApp, permitsTool, permittedAppIds } from "@executor-js/authorization";
+import { GrantForbidden, grantAuthorization, type Grant } from "../contracts/grant.ts";
 
 /** Re-read authority per operation, including while an execution resumes within one HTTP call. */
 export const restrictMcpBackend = <E extends Error, G extends Error>(
   backend: McpBackend<E>,
   current: Effect.Effect<Grant, G>,
 ): McpBackend<E | G | GrantForbidden> => {
-  const authority = current;
+  const authority = current.pipe(Effect.map((grant) => grantAuthorization(grant.policy)));
   const check = (app: AppId, tool?: Parameters<typeof permitsTool>[2]) =>
     authority.pipe(
       Effect.flatMap((grant) =>
-        (tool === undefined ? permitsApp(grant.policy, app) : permitsTool(grant.policy, app, tool))
+        (tool === undefined ? permitsApp(grant, app) : permitsTool(grant, app, tool))
           ? Effect.void
           : Effect.fail(new GrantForbidden()),
       ),
@@ -24,24 +25,7 @@ export const restrictMcpBackend = <E extends Error, G extends Error>(
     listApps: (input) =>
       Effect.gen(function* () {
         const grant = yield* authority;
-        const ids = Match.value(grant.policy).pipe(
-          Match.when({ kind: "all" }, () => input?.ids),
-          Match.when({ kind: "tools" }, ({ apps }) => {
-            const requested = input?.ids === undefined ? undefined : new Set(input.ids);
-            return [
-              ...new Set(
-                apps
-                  .filter(
-                    ({ app, tools }) =>
-                      (tools.kind === "all" || tools.names.length > 0) &&
-                      (requested === undefined || requested.has(app)),
-                  )
-                  .map(({ app }) => app),
-              ),
-            ];
-          }),
-          Match.exhaustive,
-        );
+        const ids = permittedAppIds(grant, input?.ids);
         return yield* backend.listApps({ ids });
       }),
     listTools: (input) =>
@@ -51,7 +35,7 @@ export const restrictMcpBackend = <E extends Error, G extends Error>(
         const grant = yield* authority;
         return {
           ...page,
-          items: page.items.filter((tool) => permitsTool(grant.policy, input.app, tool.name)),
+          items: page.items.filter((tool) => permitsTool(grant, input.app, tool.name, "discover")),
         };
       }),
     callTool: (input, options) =>

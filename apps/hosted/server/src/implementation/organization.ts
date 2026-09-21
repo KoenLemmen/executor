@@ -1,3 +1,12 @@
+import { RequiredAction, CurrentAuthorization } from "../contracts/authorization.ts";
+import {
+  fullAuthority,
+  permitsAction,
+  permitsApp,
+  permittedAppIds,
+} from "@executor-js/authorization";
+import { AppId } from "@executor-js/sdk/core";
+import { Context } from "effect";
 import { readOrganizationIconUpload } from "./organization-icons.ts";
 import { requireOrganizationAdmin } from "./access.ts";
 import { CurrentPrincipal, CurrentUserId } from "../contracts/auth.ts";
@@ -66,7 +75,7 @@ export const requireOrganizationLive = Layer.effect(
   Effect.gen(function* () {
     const auth = yield* Authentication;
     const api = yield* ApiAuthentication;
-    return (response) =>
+    return (response, { endpoint }) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const headers = new Headers(request.headers);
@@ -78,9 +87,24 @@ export const requireOrganizationLive = Layer.effect(
           if (request.headers.origin !== undefined && request.headers.origin !== auth.origin)
             return yield* new Forbidden();
           const grant = yield* api.authenticate(headers, reference);
+          const action = Context.getOrUndefined(endpoint.annotations, RequiredAction);
+          if (!permitsAction(grant.policy, action)) return yield* new OrganizationForbidden();
+          if (params.app !== undefined) {
+            const app = yield* Schema.decodeUnknownEffect(AppId)(params.app).pipe(
+              Effect.mapError(() => new OrganizationForbidden()),
+            );
+            if (!permitsApp(grant.policy, app)) return yield* new OrganizationForbidden();
+          }
+          if (grant.key !== undefined) {
+            yield* Effect.annotateCurrentSpan({
+              "executor.api_key.id": grant.key.id,
+              "executor.user.id": grant.userId,
+            });
+          }
           return (yield* response.pipe(
             Effect.provideService(CurrentOrganization, grant.access),
             Effect.provideService(CurrentUserId, grant.userId),
+            Effect.provideService(CurrentAuthorization, grant.policy),
           )).pipe(HttpServerResponse.setHeader("cache-control", "no-store"));
         }
         if (
@@ -101,6 +125,7 @@ export const requireOrganizationLive = Layer.effect(
         return (yield* response.pipe(
           Effect.provideService(CurrentOrganization, access),
           Effect.provideService(CurrentUserId, principal.userId),
+          Effect.provideService(CurrentAuthorization, fullAuthority),
           Effect.provideService(CurrentPrincipal, principal),
         )).pipe(
           HttpServerResponse.mergeCookies(Cookies.fromSetCookie(membership.headers.getSetCookie())),
@@ -114,10 +139,18 @@ export const requireOrganizationLive = Layer.effect(
 export const inventory = (owner: OwnerId) =>
   Effect.gen(function* () {
     const executor = yield* Effect.flatten(HostedExecutor);
-    return yield* Effect.all({
-      apps: executor.apps.list({ owner }),
-      accounts: executor.accounts.list({ owner }),
-    });
+    const policy = yield* CurrentAuthorization;
+    const apps = yield* executor.apps.list({ owner, ids: permittedAppIds(policy) });
+    const accounts = permitsAction(policy, "read") ? yield* executor.accounts.list({ owner }) : [];
+    if (policy.tools.kind === "all") return { apps, accounts };
+    const selected = new Set(
+      apps.flatMap((app) =>
+        Object.values(app.accounts).flatMap((value) =>
+          typeof value === "string" ? [value] : value,
+        ),
+      ),
+    );
+    return { apps, accounts: accounts.filter((account) => selected.has(account.id)) };
   });
 /** Organization routes do not own app/account operations. */
 export const hostedOrganizationHandlers = HttpApiBuilder.group(
@@ -160,22 +193,23 @@ export const hostedOrganizationHandlers = HttpApiBuilder.group(
               !headers.has("cookie")
                 ? null
                 : Option.getOrUndefined(yield* Effect.serviceOption(CurrentPrincipal));
-            yield* (yield* OrganizationDefaults)(
-              organization.organization,
-              principal == null
-                ? undefined
-                : {
-                    userId: principal.userId,
-                    name: principal.name,
-                    key: authentication
-                      .apiKey(headers)
-                      .pipe(
-                        Effect.catchTag("OrganizationForbidden", () =>
-                          Effect.fail(new Forbidden()),
+            if ((yield* CurrentAuthorization).tools.kind === "all")
+              yield* (yield* OrganizationDefaults)(
+                organization.organization,
+                principal == null
+                  ? undefined
+                  : {
+                      userId: principal.userId,
+                      name: principal.name,
+                      key: authentication
+                        .apiKey(headers)
+                        .pipe(
+                          Effect.catchTag("OrganizationForbidden", () =>
+                            Effect.fail(new Forbidden()),
+                          ),
                         ),
-                      ),
-                  },
-            );
+                    },
+              );
             return yield* inventory(organization.owner);
           }),
         );

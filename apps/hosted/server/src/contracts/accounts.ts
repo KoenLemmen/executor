@@ -1,3 +1,4 @@
+import { RequiredAction } from "./authorization.ts";
 import { AccountWorkflowsActive } from "@executor-js/sdk/core";
 import { AccountWebhooksActive } from "@executor-js/sdk/core";
 /** Account metadata and connection flows for an authenticated organization. */
@@ -82,14 +83,14 @@ export const HostedAccounts = HttpApiGroup.make("accounts")
       params: { ...params, account: AccountId },
       success: HostedAccountDetail,
       error: [StorageError, AccountNotFound, ProviderNotFound],
-    }),
+    }).annotate(RequiredAction, "read"),
   )
   .add(
     HttpApiEndpoint.post("reconnect", `${prefix}/accounts/:account/connections`, {
       params: { ...params, account: AccountId },
       success: AccountConnection,
       error: [...connectionErrors, AccountSelectionInvalid],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.delete("disconnect", `${prefix}/accounts/:account`, {
@@ -102,7 +103,7 @@ export const HostedAccounts = HttpApiGroup.make("accounts")
         AccountNotFound,
         OrganizationForbidden,
       ],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.patch("rename", `${prefix}/accounts/:account`, {
@@ -112,7 +113,7 @@ export const HostedAccounts = HttpApiGroup.make("accounts")
       }),
       success: Account,
       error: [StorageError, AccountNotFound, OrganizationForbidden],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.post("connect", `${prefix}/apps/:app/connections`, {
@@ -120,14 +121,14 @@ export const HostedAccounts = HttpApiGroup.make("accounts")
       payload: Schema.Struct({ requirement: Schema.NonEmptyString }),
       success: BrowserAccountConnection,
       error: [...connectionErrors, AccountSelectionInvalid],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.get("connection", `${prefix}/connections/:connection`, {
       params: connection,
       success: HostedAccountConnection,
       error: connectionErrors,
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.post("submit", `${prefix}/connections/:connection/submit`, {
@@ -139,7 +140,7 @@ export const HostedAccounts = HttpApiGroup.make("accounts")
       }),
       success: Account,
       error: [...completionErrors, AuthMethodInvalid, AccountFieldsInvalid],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.post("startOAuth", `${prefix}/connections/:connection/oauth/start`, {
@@ -151,7 +152,7 @@ export const HostedAccounts = HttpApiGroup.make("accounts")
       }),
       success: HostedOAuthSignIn,
       error: [...completionErrors, AuthMethodInvalid, OAuthClientUnavailable, OAuthSetupFailed],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .add(
     HttpApiEndpoint.post("completeOAuth", `${prefix}/connections/:connection/oauth/complete`, {
@@ -159,6 +160,6 @@ export const HostedAccounts = HttpApiGroup.make("accounts")
       payload: Schema.Struct({ callbackUrl: Schema.RedactedFromValue(HttpUrl) }),
       success: Account,
       error: [...completionErrors, OAuthCompletionFailed],
-    }),
+    }).annotate(RequiredAction, "manage"),
   )
   .middleware(RequireOrganization);

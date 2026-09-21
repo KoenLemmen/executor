@@ -1,3 +1,6 @@
+import { CurrentAuthorization } from "../contracts/authorization.ts";
+import { permitsApp } from "@executor-js/authorization";
+import { OrganizationForbidden } from "../contracts/organization.ts";
 /** Account use cases, connection grants and OAuth routes share the same ownership checks. */
 import {
   HttpUrl,
@@ -21,7 +24,11 @@ export const getAccount = (owner: OwnerId, account: AccountId) =>
     const executor = yield* Effect.flatten(HostedExecutor);
     const metadata = yield* executor.accounts.get({ owner, account });
     const provider = yield* executor.accounts.provider({ owner, account });
-    const apps = yield* executor.apps.list({ owner, account });
+    const policy = yield* CurrentAuthorization;
+    const apps = (yield* executor.apps.list({ owner, account })).filter((app) =>
+      permitsApp(policy, app.id),
+    );
+    if (policy.tools.kind !== "all" && apps.length === 0) return yield* new OrganizationForbidden();
     return { account: metadata, provider, apps };
   });
 /** Replace credentials on the same identity so every app keeps its selection. */

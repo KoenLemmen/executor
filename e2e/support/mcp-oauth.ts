@@ -17,6 +17,8 @@ const Tokens = Schema.Struct({
 /** A real OAuth grant; credentials cannot appear in assertion diagnostics. */
 export interface Grant {
   readonly clientId: string;
+  readonly grantId: string;
+  readonly resource: string;
   readonly consentId: string;
   readonly tokens: Redacted.Redacted<typeof Tokens.Type>;
 }
@@ -129,16 +131,16 @@ const make = Effect.gen(function* () {
       grant_type: "refresh_token",
       client_id: grant.clientId,
       refresh_token: Redacted.value(grant.tokens).refresh_token,
-      resource: `${origin}/mcp`,
+      resource: grant.resource,
     });
-  return {
-    authorize: Effect.gen(function* () {
+  const authorize = (kind: "mcp" | "api") =>
+    Effect.gen(function* () {
       // Playwright network traces contain cookies and authorization codes. Keep the video only.
       yield* browser.omitNetworkTrace;
       const resource = yield* api.request(
         actors.owner,
         "GET",
-        "/.well-known/oauth-protected-resource/mcp",
+        `/.well-known/oauth-protected-resource/${kind}`,
       );
       yield* ok("resource discovery", resource.status);
       const metadata = yield* body(
@@ -149,7 +151,7 @@ const make = Effect.gen(function* () {
         resource,
       );
       if (
-        metadata.resource !== `${origin}/mcp` ||
+        metadata.resource !== `${origin}/${kind}` ||
         !metadata.authorization_servers.includes(`${origin}/api/auth`)
       )
         return yield* new OAuthFailed({ operation: "resource metadata", status: resource.status });
@@ -224,8 +226,8 @@ const make = Effect.gen(function* () {
         redirect_uri: receiver.url,
         code_challenge: createHash("sha256").update(verifier).digest("base64url"),
         code_challenge_method: "S256",
-        scope: "mcp offline_access",
-        resource: `${origin}/mcp`,
+        scope: `${kind === "mcp" ? "mcp" : "executor"} offline_access`,
+        resource: `${origin}/${kind}`,
         state,
       }).toString();
       yield* browser.use("Open the client's OAuth authorization request", (page) =>
@@ -266,7 +268,7 @@ const make = Effect.gen(function* () {
         code: Redacted.value(code),
         code_verifier: verifier,
         redirect_uri: receiver.url,
-        resource: `${origin}/mcp`,
+        resource: `${origin}/${kind}`,
       });
       yield* ok("code exchange", exchanged.status);
       const tokens = yield* body(Tokens, exchanged).pipe(
@@ -297,10 +299,19 @@ const make = Effect.gen(function* () {
         organization: grant.resource,
         grantId: grant.grant.id,
         pkce: "S256",
-        scope: "mcp offline_access",
+        scope: `${kind === "mcp" ? "mcp" : "executor"} offline_access`,
       });
-      return { clientId, consentId: consent.id, tokens } satisfies Grant;
-    }),
+      return {
+        clientId,
+        grantId: grant.grant.id,
+        resource: `${origin}/${kind}`,
+        consentId: consent.id,
+        tokens,
+      } satisfies Grant;
+    });
+  return {
+    authorize: authorize("mcp"),
+    authorizeApi: authorize("api"),
     refresh: (grant: Grant) =>
       Effect.gen(function* () {
         const response = yield* refreshResponse(grant);

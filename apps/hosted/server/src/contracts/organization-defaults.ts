@@ -1,5 +1,5 @@
-import { Unauthorized, AuthenticationUnavailable, Forbidden } from "./auth.ts";
-import { Context, Schema, type Effect, type Redacted } from "effect";
+import { Unauthorized, AuthenticationUnavailable, Forbidden, type AccountApiKey } from "./auth.ts";
+import { Context, Schema, type Effect, type Scope } from "effect";
 import {
   AccountNotFound,
   AccountFieldsInvalid,
@@ -40,13 +40,14 @@ export const OrganizationDefaultsError = Schema.Union([
   CredentialsError,
   AccountSelectionInvalid,
 ]);
-/** Verified dashboard identity and lazy access to its existing managed API key. */
+/** Verified dashboard identity and scoped creation of a key for a new saved account. */
 export interface ExecutorUserAccount {
   readonly userId: string;
   readonly name: string;
   readonly key: Effect.Effect<
-    Redacted.Redacted<string>,
-    Unauthorized | Forbidden | AuthenticationUnavailable
+    AccountApiKey,
+    Unauthorized | Forbidden | AuthenticationUnavailable,
+    Scope.Scope
   >;
 }
 

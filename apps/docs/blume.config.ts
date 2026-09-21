@@ -111,7 +111,7 @@ export default defineConfig({
   navigation: {
     sidebar: [
       { label: "Getting started", items: ["/", "/connect-an-account"] },
-      { label: "Agents and MCP", items: ["/mcp", "/mcp-clients"] },
+      { label: "Agents and MCP", items: ["/mcp", "/mcp-clients", "/api-keys"] },
       {
         label: "Concepts",
         items: [

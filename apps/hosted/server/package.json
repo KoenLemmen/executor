@@ -5,6 +5,7 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
+    "./api-keys": "./src/contracts/api-keys.ts",
     "./contracts": "./src/contracts/api.ts",
     "./mcp/browser": "./src/contracts/mcp-browser.ts",
     "./organization": "./src/contracts/organization.ts",
@@ -18,9 +19,11 @@
     "./browser/contracts": "./src/contracts/browser.ts"
   },
   "dependencies": {
+    "@better-auth/api-key": "1.7.5",
     "@better-auth/core": "1.7.5",
     "@better-auth/oauth-provider": "1.7.5",
     "@executor-js/app-templates": "workspace:*",
+    "@executor-js/authorization": "workspace:*",
     "@executor-js/catalog": "workspace:*",
     "@executor-js/mcp": "workspace:*",
     "@executor-js/mcp-auth": "workspace:*",

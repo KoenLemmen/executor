@@ -1,3 +1,5 @@
+import { CurrentAuthorization } from "../../server/src/contracts/authorization.ts";
+import { fullAuthority } from "@executor-js/authorization";
 /** Hosted operations exercise the real Node builder, saved accounts and portable app handler. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -183,8 +185,8 @@ test(
             const paths = Schema.decodeUnknownSync(SearchResult)(search.execution.value).items.map(
               (item) => item.path,
             );
-            assert.equal(paths.length, 1);
-            assert.ok(paths[0]?.includes(app.id));
+            // Catalog paths use the app slug; storage IDs are used by HTTP routes.
+            assert.deepEqual(paths, [`tools.${app.slug}.mutations.greeting`]);
             const code = `return await tools[${JSON.stringify(app.slug)}].mutations.greeting({ name: "Ada" })`;
             const called = yield* execute(alpha, defaultMcpLimits, code);
             assert.ok(called.execution.ok);
@@ -223,6 +225,10 @@ test(
             }),
           );
         }),
-      ).pipe(Effect.provide(pgliteLayer()), Effect.provide(NodeServices.layer)),
+      ).pipe(
+        Effect.provide(pgliteLayer()),
+        Effect.provideService(CurrentAuthorization, fullAuthority),
+        Effect.provide(NodeServices.layer),
+      ),
     ),
 );

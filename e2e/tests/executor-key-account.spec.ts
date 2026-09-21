@@ -46,7 +46,19 @@ layer(HostedLive, { excludeTestServices: true })("Executor API-key account", (it
             Effect.tap((response) => Effect.sync(() => expect(response.status).toBe(200))),
             Effect.flatMap((response) => body(Inventory, response)),
           );
-        const initial = yield* read(actors.owner);
+        const initialReads = yield* Effect.forEach([0, 1, 2, 3], () => read(actors.owner), {
+          concurrency: 4,
+        });
+        const initial = initialReads[0];
+        if (initial === undefined)
+          return yield* Effect.fail(new Error("Missing initial inventory"));
+        const nativeKeys = yield* body(
+          Schema.Struct({
+            apiKeys: Schema.Array(Schema.Struct({ name: Schema.NullOr(Schema.String) })),
+          }),
+          yield* api.request(actors.owner, "GET", "/api/auth/api-key/list"),
+        );
+        expect(nativeKeys.apiKeys.filter((key) => key.name === "Executor app")).toHaveLength(1);
         const app = initial.apps.find((app) => app.name === "Executor");
         if (app === undefined || app.accounts.service === undefined)
           return yield* Effect.fail(new Error("Executor is not connected"));

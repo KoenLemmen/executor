@@ -19,6 +19,7 @@ import { Route as OauthCallbackRouteImport } from './routes/oauth.callback'
 import { Route as OrgOrganizationSlugRouteImport } from './routes/org.$organizationSlug'
 import { Route as McpApproveRequestIdRouteImport } from './routes/mcp.approve.$requestId'
 import { Route as OrgOrganizationSlugIndexRouteImport } from './routes/org.$organizationSlug.index'
+import { Route as OrgOrganizationSlugApiKeysRouteImport } from './routes/org.$organizationSlug.api-keys'
 import { Route as OrgOrganizationSlugBillingRouteImport } from './routes/org.$organizationSlug.billing'
 import { Route as OrgOrganizationSlugConnectRouteImport } from './routes/org.$organizationSlug.connect'
 import { Route as OrgOrganizationSlugOrganizationRouteImport } from './routes/org.$organizationSlug.organization'
@@ -86,6 +87,12 @@ const OrgOrganizationSlugIndexRoute =
   OrgOrganizationSlugIndexRouteImport.update({
     id: '/',
     path: '/',
+    getParentRoute: () => OrgOrganizationSlugRoute,
+  } as any)
+const OrgOrganizationSlugApiKeysRoute =
+  OrgOrganizationSlugApiKeysRouteImport.update({
+    id: '/api-keys',
+    path: '/api-keys',
     getParentRoute: () => OrgOrganizationSlugRoute,
   } as any)
 const OrgOrganizationSlugBillingRoute =
@@ -201,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/oauth/callback': typeof OauthCallbackRoute
   '/org/$organizationSlug': typeof OrgOrganizationSlugRouteWithChildren
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
+  '/org/$organizationSlug/api-keys': typeof OrgOrganizationSlugApiKeysRoute
   '/org/$organizationSlug/billing': typeof OrgOrganizationSlugBillingRoute
   '/org/$organizationSlug/connect': typeof OrgOrganizationSlugConnectRoute
   '/org/$organizationSlug/organization': typeof OrgOrganizationSlugOrganizationRoute
@@ -229,6 +237,7 @@ export interface FileRoutesByTo {
   '/mcp/authorize': typeof McpAuthorizeRoute
   '/oauth/callback': typeof OauthCallbackRoute
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
+  '/org/$organizationSlug/api-keys': typeof OrgOrganizationSlugApiKeysRoute
   '/org/$organizationSlug/billing': typeof OrgOrganizationSlugBillingRoute
   '/org/$organizationSlug/connect': typeof OrgOrganizationSlugConnectRoute
   '/org/$organizationSlug/organization': typeof OrgOrganizationSlugOrganizationRoute
@@ -259,6 +268,7 @@ export interface FileRoutesById {
   '/oauth/callback': typeof OauthCallbackRoute
   '/org/$organizationSlug': typeof OrgOrganizationSlugRouteWithChildren
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
+  '/org/$organizationSlug/api-keys': typeof OrgOrganizationSlugApiKeysRoute
   '/org/$organizationSlug/billing': typeof OrgOrganizationSlugBillingRoute
   '/org/$organizationSlug/connect': typeof OrgOrganizationSlugConnectRoute
   '/org/$organizationSlug/organization': typeof OrgOrganizationSlugOrganizationRoute
@@ -290,6 +300,7 @@ export interface FileRouteTypes {
     | '/oauth/callback'
     | '/org/$organizationSlug'
     | '/mcp/approve/$requestId'
+    | '/org/$organizationSlug/api-keys'
     | '/org/$organizationSlug/billing'
     | '/org/$organizationSlug/connect'
     | '/org/$organizationSlug/organization'
@@ -318,6 +329,7 @@ export interface FileRouteTypes {
     | '/mcp/authorize'
     | '/oauth/callback'
     | '/mcp/approve/$requestId'
+    | '/org/$organizationSlug/api-keys'
     | '/org/$organizationSlug/billing'
     | '/org/$organizationSlug/connect'
     | '/org/$organizationSlug/organization'
@@ -347,6 +359,7 @@ export interface FileRouteTypes {
     | '/oauth/callback'
     | '/org/$organizationSlug'
     | '/mcp/approve/$requestId'
+    | '/org/$organizationSlug/api-keys'
     | '/org/$organizationSlug/billing'
     | '/org/$organizationSlug/connect'
     | '/org/$organizationSlug/organization'
@@ -449,6 +462,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/org/$organizationSlug/'
       preLoaderRoute: typeof OrgOrganizationSlugIndexRouteImport
+      parentRoute: typeof OrgOrganizationSlugRoute
+    }
+    '/org/$organizationSlug/api-keys': {
+      id: '/org/$organizationSlug/api-keys'
+      path: '/api-keys'
+      fullPath: '/org/$organizationSlug/api-keys'
+      preLoaderRoute: typeof OrgOrganizationSlugApiKeysRouteImport
       parentRoute: typeof OrgOrganizationSlugRoute
     }
     '/org/$organizationSlug/billing': {
@@ -574,6 +594,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface OrgOrganizationSlugRouteChildren {
+  OrgOrganizationSlugApiKeysRoute: typeof OrgOrganizationSlugApiKeysRoute
   OrgOrganizationSlugBillingRoute: typeof OrgOrganizationSlugBillingRoute
   OrgOrganizationSlugConnectRoute: typeof OrgOrganizationSlugConnectRoute
   OrgOrganizationSlugOrganizationRoute: typeof OrgOrganizationSlugOrganizationRoute
@@ -595,6 +616,7 @@ interface OrgOrganizationSlugRouteChildren {
 }
 
 const OrgOrganizationSlugRouteChildren: OrgOrganizationSlugRouteChildren = {
+  OrgOrganizationSlugApiKeysRoute: OrgOrganizationSlugApiKeysRoute,
   OrgOrganizationSlugBillingRoute: OrgOrganizationSlugBillingRoute,
   OrgOrganizationSlugConnectRoute: OrgOrganizationSlugConnectRoute,
   OrgOrganizationSlugOrganizationRoute: OrgOrganizationSlugOrganizationRoute,

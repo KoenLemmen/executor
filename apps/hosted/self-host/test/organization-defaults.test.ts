@@ -205,7 +205,10 @@ test(
           const user = {
             userId: "fixture",
             name: "Fixture",
-            key: Effect.succeed(Redacted.make("synthetic-stable-key")),
+            key: Effect.succeed({
+              key: Redacted.make("synthetic-stable-key"),
+              retain: Effect.void,
+            }),
           };
           yield* initialize(organization, user);
           const owner = organizationOwner(organization);

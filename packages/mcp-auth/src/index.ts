@@ -9,6 +9,7 @@ export {
   grantTarget,
   mcpResourceMetadataUrl,
   GrantPolicy,
+  grantAuthorization,
   Grant,
   AppPermission,
   GrantForbidden,

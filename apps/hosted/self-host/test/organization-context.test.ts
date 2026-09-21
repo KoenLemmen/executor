@@ -308,9 +308,9 @@ test(
             assert.equal((yield* tabB.read()).accounts[0]?.id, beta.id);
             const key = yield* Effect.promise(
               async () =>
-                await auth.api.ensureExecutorApiKey({
+                await auth.api.createApiKey({
                   headers: new Headers({ cookie, origin }),
-                  body: {},
+                  body: { name: "Organization test" },
                 }),
             );
             for (const [reference, status] of [

@@ -10,6 +10,7 @@ import {
   ApiAuthentication,
   apiAuthenticationError,
   Authentication,
+  accountApiKey,
   AuthenticationUnavailable,
   sessionPrincipal,
   lookupMembership,
@@ -17,7 +18,7 @@ import {
   resolveOrganizationReference,
   deleteOrganizationRecords,
 } from "@executor-js/hosted-server";
-import { Effect, Layer, Option, Redacted, Schema } from "effect";
+import { Effect, Layer, Option, Redacted } from "effect";
 import { AuthDatabase } from "./contracts/database.ts";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
@@ -46,17 +47,9 @@ export const selfHostAuth = Effect.gen(function* () {
     apiKey: (headers) => {
       const internal = new Headers(headers);
       internal.set("origin", settings.url);
-      return Effect.tryPromise({
-        try: () => auth.api.ensureExecutorApiKey({ headers: internal, body: {} }),
-        catch: apiAuthenticationError,
-      }).pipe(
-        Effect.flatMap(
-          Schema.decodeUnknownEffect(
-            Schema.Struct({ key: Schema.RedactedFromValue(Schema.NonEmptyString) }),
-          ),
-        ),
-        Effect.map(({ key }) => key),
-        Effect.catchTag("SchemaError", () => Effect.fail(new AuthenticationUnavailable())),
+      return accountApiKey(
+        () => auth.api.createApiKey({ headers: internal, body: { name: "Executor app" } }),
+        (keyId) => auth.api.deleteApiKey({ headers: internal, body: { keyId } }),
       );
     },
     oauthRedirectUri: Option.getOrUndefined(settings.oauthRedirectUri),
@@ -87,9 +80,9 @@ export const selfHostAuth = Effect.gen(function* () {
   });
   const mcpIdentity = Layer.succeed(McpAuthentication, {
     origin: settings.url,
-    authenticate: (headers) =>
+    authenticate: (headers, mode) =>
       Effect.tryPromise({
-        try: () => auth.api.getMcpAccess({ headers }),
+        try: () => auth.api.getMcpAccess({ headers, query: { mode } }),
         catch: mcpAuthenticationError,
       }).pipe(Effect.withSpan("auth.authenticate")),
     browserGrant: (headers, id) =>

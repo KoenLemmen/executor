@@ -1,3 +1,5 @@
+import { CurrentAuthorization } from "../contracts/authorization.ts";
+import { grantAuthorization } from "@executor-js/mcp-auth";
 import {
   restrictMcpBackend,
   permitsDelivery,
@@ -101,10 +103,15 @@ export const dispatchHostedMcp = <E, R>(
     const mode = requestedMcpMode(new URL(request.url, authentication.origin));
     const scoped = (fresh: McpAccess) =>
       Effect.gen(function* () {
-        if (mode === undefined || !permitsDelivery(fresh.grant, mode))
+        if (
+          mode === undefined ||
+          !permitsDelivery(fresh.grant, mode) ||
+          mcpSessionKey(fresh) !== mcpSessionKey(access)
+        )
           return yield* new McpForbidden();
         const backend = yield* hostedMcpBackend.pipe(
           Effect.provideService(CurrentOrganization, fresh.access),
+          Effect.provideService(CurrentAuthorization, grantAuthorization(fresh.grant.policy)),
         );
         return restrictMcpBackend<RequestError, never>(backend, Effect.succeed(fresh.grant));
       });
@@ -115,7 +122,7 @@ export const dispatchHostedMcp = <E, R>(
     // Native elicitation can wait inside this HTTP request. Recheck the grant and
     // membership before each dispatch, including calls following the approved one.
     const current = authentication
-      .authenticate(new Headers(request.headers))
+      .authenticate(new Headers(request.headers), mode)
       .pipe(Effect.flatMap(scoped), Effect.provideContext(services));
     const authorized: McpBackend<RequestError> = {
       ...backend,
@@ -150,7 +157,7 @@ export const dispatchHostedMcp = <E, R>(
     );
   });
 
-/** Authenticate every MCP HTTP method; no browser cookie or API-key fallback. */
+/** Authenticate every MCP HTTP method through OAuth or PAT validation; never fall back to a browser cookie. */
 export const authenticatedMcp = <E, R>(
   handle: (access: McpAccess) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
 ) =>
@@ -160,7 +167,13 @@ export const authenticatedMcp = <E, R>(
     // Programmatic clients have no Origin. Untrusted browser pages cannot call MCP.
     if (request.headers.origin !== undefined && request.headers.origin !== auth.origin)
       return HttpServerResponse.empty({ status: 403 });
-    const access = yield* auth.authenticate(new Headers(request.headers));
+    const mode = requestedMcpMode(new URL(request.url, auth.origin));
+    if (mode === undefined)
+      return HttpServerResponse.jsonUnsafe(
+        { error: "Unsupported elicitation_mode." },
+        { status: 400 },
+      );
+    const access = yield* auth.authenticate(new Headers(request.headers), mode);
     return yield* handle(access);
   }).pipe(
     Effect.catchTag("McpUnauthorized", () =>

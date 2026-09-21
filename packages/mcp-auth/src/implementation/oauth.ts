@@ -1,3 +1,4 @@
+import { isToolSelectionSubset } from "@executor-js/authorization";
 /** Better Auth owns OAuth and token rotation; this plugin owns explicit, revocable grants. */
 import type { BetterAuthPlugin, GenericEndpointContext } from "@better-auth/core";
 import { defineRequestState } from "@better-auth/core/context";
@@ -220,8 +221,6 @@ export const grantOAuthPlugins = (settings: GrantOAuthOptions) => {
         return yield* Effect.fail(new APIError("UNAUTHORIZED"));
       yield* settings.checkResource(context, row.userId, row.resource);
       const value = yield* project(row, target);
-      if (kind === "api" && value.grant.policy.kind !== "all")
-        return yield* Effect.fail(new APIError("FORBIDDEN"));
       return value;
     });
   const revoke = (ctx: GenericEndpointContext, id: GrantId) =>
@@ -355,25 +354,14 @@ export const grantOAuthPlugins = (settings: GrantOAuthOptions) => {
               const row = yield* get(ctx, id);
               if (row.userId !== userId) return yield* Effect.fail(new APIError("FORBIDDEN"));
               const previous = (yield* project(row, yield* targetFor(ctx, row))).grant.policy;
-              if (previous.kind !== "all") {
-                if (
-                  policy.kind !== "tools" ||
-                  (previous.approval === "browser" && policy.approval !== "browser")
-                )
-                  return yield* Effect.fail(new APIError("FORBIDDEN"));
-                for (const app of policy.apps) {
-                  const before = previous.apps.find((item) => item.app === app.app);
-                  if (before === undefined) return yield* Effect.fail(new APIError("FORBIDDEN"));
-                  if (before.tools.kind === "selected") {
-                    const allowed = before.tools.names;
-                    if (
-                      app.tools.kind !== "selected" ||
-                      !app.tools.names.every((name) => allowed.includes(name))
-                    )
-                      return yield* Effect.fail(new APIError("FORBIDDEN"));
-                  }
-                }
-              }
+              if (
+                !isToolSelectionSubset(previous, policy) ||
+                (previous.kind === "tools" &&
+                  previous.approval === "browser" &&
+                  policy.kind === "tools" &&
+                  policy.approval !== "browser")
+              )
+                return yield* Effect.fail(new APIError("FORBIDDEN"));
               yield* authCall(() =>
                 ctx.context.adapter.update({
                   model: "mcpGrant",

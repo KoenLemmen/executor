@@ -22,25 +22,27 @@ layer(HostedLive, { excludeTestServices: true })("User API keys", (it) => {
         const anonymous = yield* api.session();
         const prefix = `/api/organizations/${actors.organization.id}`;
         const ensure = (actor: Session) =>
-          api.request(actor, "POST", "/api/auth/executor/api-key", {}).pipe(
+          api.request(actor, "POST", "/api/auth/api-key/create", { name: "Lifecycle test" }).pipe(
             Effect.tap((response) => Effect.sync(() => expect(response.status).toBe(200))),
             Effect.flatMap((response) => body(Key, response)),
             Effect.mapError(() => new Error("Could not obtain the user's API key")),
           );
         expect(
-          (yield* api.request(anonymous, "POST", "/api/auth/executor/api-key", {})).status,
+          (yield* api.request(anonymous, "POST", "/api/auth/api-key/create", {
+            name: "Lifecycle test",
+          })).status,
         ).toBe(401);
         expect(
           (yield* api.request(
             actors.owner,
             "POST",
-            "/api/auth/executor/api-key",
-            {},
+            "/api/auth/api-key/create",
+            { name: "Lifecycle test" },
             { origin: "https://foreign.example.test" },
           )).status,
         ).toBe(403);
         const owner = yield* evidence.step(
-          "Concurrent creation returns one stable key",
+          "Concurrent creation issues independent user-owned keys",
           Effect.gen(function* () {
             const results = yield* Effect.forEach([0, 1, 2, 3], () => ensure(actors.owner), {
               concurrency: 4,
@@ -48,12 +50,20 @@ layer(HostedLive, { excludeTestServices: true })("User API keys", (it) => {
             const first = results[0];
             if (first === undefined)
               return yield* Effect.fail(new Error("Missing creation result"));
-            expect(
-              results.every((result) => Redacted.value(result.key) === Redacted.value(first.key)),
-            ).toBe(true);
+            expect(new Set(results.map((result) => Redacted.value(result.key))).size).toBe(4);
             return first;
           }),
         );
+        const named = (actor: Session) =>
+          api
+            .request(actor, "POST", "/api/auth/api-key/create", {
+              name: "Lifecycle",
+            })
+            .pipe(
+              Effect.tap((response) => Effect.sync(() => expect(response.status).toBe(200))),
+              Effect.flatMap((response) => body(Key, response)),
+            );
+        const ownerNamed = yield* named(actors.owner);
         const headers = { authorization: `Bearer ${Redacted.value(owner.key)}` };
         const ownContext = yield* api.request(anonymous, "GET", "/api/context", undefined, {
           ...headers,
@@ -85,7 +95,13 @@ layer(HostedLive, { excludeTestServices: true })("User API keys", (it) => {
           (yield* api.request(anonymous, "GET", "/api/viewer", undefined, headers)).status,
         ).toBe(401);
         expect(
-          (yield* api.request(anonymous, "POST", "/api/auth/executor/api-key", {}, headers)).status,
+          (yield* api.request(
+            anonymous,
+            "POST",
+            "/api/auth/api-key/create",
+            { name: "Lifecycle test" },
+            headers,
+          )).status,
         ).toBe(403);
         const session = yield* body(
           Schema.Struct({ user: Schema.Record(Schema.String, Schema.Unknown) }),
@@ -104,14 +120,25 @@ layer(HostedLive, { excludeTestServices: true })("User API keys", (it) => {
                 password,
               })).status,
             ).toBe(200);
+            const browserNamed = yield* named(browser);
             const repeated = yield* ensure(browser);
-            expect(Redacted.value(repeated.key) === Redacted.value(owner.key)).toBe(true);
+            expect(Redacted.value(repeated.key) === Redacted.value(owner.key)).toBe(false);
             expect((yield* api.request(browser, "POST", "/api/auth/sign-out", {})).status).toBe(
               200,
             );
             expect(
               (yield* api.request(anonymous, "GET", `${prefix}/inventory`, undefined, headers))
                 .status,
+            ).toBe(200);
+            expect(
+              (yield* api.request(anonymous, "GET", `${prefix}/inventory`, undefined, {
+                authorization: `Bearer ${Redacted.value(browserNamed.key)}`,
+              })).status,
+            ).toBe(200);
+            expect(
+              (yield* api.request(anonymous, "GET", `${prefix}/inventory`, undefined, {
+                authorization: `Bearer ${Redacted.value(ownerNamed.key)}`,
+              })).status,
             ).toBe(200);
           }),
         );
@@ -137,6 +164,7 @@ layer(HostedLive, { excludeTestServices: true })("User API keys", (it) => {
             });
             expect(registered.status).toBe(200);
             const key = yield* ensure(member);
+            const memberNamed = yield* named(member);
             expect(Redacted.value(key.key) === Redacted.value(owner.key)).toBe(false);
             const memberHeaders = { authorization: `Bearer ${Redacted.value(key.key)}` };
             expect(
@@ -171,6 +199,11 @@ layer(HostedLive, { excludeTestServices: true })("User API keys", (it) => {
                 undefined,
                 memberHeaders,
               )).status,
+            ).toBe(403);
+            expect(
+              (yield* api.request(anonymous, "GET", `${prefix}/inventory`, undefined, {
+                authorization: `Bearer ${Redacted.value(memberNamed.key)}`,
+              })).status,
             ).toBe(403);
           }),
         );

@@ -18,6 +18,7 @@ const items = [
   { to: "/org/$organizationSlug/connect", label: "Connect", icon: Plug01Icon },
   { to: "/org/$organizationSlug/apps", label: "Apps", icon: BoxesIcon },
   { to: "/org/$organizationSlug/accounts", label: "Accounts", icon: Key01Icon },
+  { to: "/org/$organizationSlug/api-keys", label: "API keys", icon: Key01Icon },
   { to: "/org/$organizationSlug/approvals", label: "Approvals", icon: Shield01Icon },
   { to: "/org/$organizationSlug/groups", label: "Groups", icon: UserGroupIcon },
 ] as const;

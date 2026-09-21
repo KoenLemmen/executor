@@ -1,3 +1,4 @@
+import { RequiredAction } from "./authorization.ts";
 import { ExecutionLimitReached, ExecutionAdmissionUnavailable } from "./execution-admission.ts";
 /** Account-dependent discovery and execution within a configured app. */
 import {
@@ -53,7 +54,7 @@ export const HostedTools = HttpApiGroup.make("tools")
       query: { cursor: Schema.optional(Cursor) },
       success: ToolPage,
       error: discoveryErrors,
-    }),
+    }).annotate(RequiredAction, "discover"),
   )
   .add(
     HttpApiEndpoint.post("call", `${prefix}/call`, {
@@ -74,6 +75,6 @@ export const HostedTools = HttpApiGroup.make("tools")
         ExecutionLimitReached,
         ExecutionAdmissionUnavailable,
       ],
-    }),
+    }).annotate(RequiredAction, "run"),
   )
   .middleware(RequireOrganization);
