@@ -1,6 +1,6 @@
 # Executor
 
-> Give your agents more to work with.
+> The cloud for agent apps.
 
 Deploy personal software for your agents. Start with an MCP server, a tool, or a skill.
 
