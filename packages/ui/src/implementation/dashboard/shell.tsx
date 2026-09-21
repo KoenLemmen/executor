@@ -1,7 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { BookOpen01Icon, Menu01Icon, Message01Icon, StarIcon } from "@hugeicons/core-free-icons";
+import {
+  BookOpen01Icon,
+  Menu01Icon,
+  Message01Icon,
+  SidebarLeft01Icon,
+  StarIcon,
+} from "@hugeicons/core-free-icons";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "../components/dialog.tsx";
+import { useMediaQuery } from "../hooks/media-query.ts";
 
 const resources = [
   { label: "Docs", href: "https://executor.sh/docs", icon: BookOpen01Icon },
@@ -13,15 +20,25 @@ const resources = [
   { label: "Star on GitHub", href: "https://github.com/UsefulSoftwareCo/executor", icon: StarIcon },
 ] as const;
 
+/** Between the phone layout and a wide screen the rail starts collapsed; the toggle still wins. */
+const mediumViewport = "(min-width: 741px) and (max-width: 1000px)";
+
 /** Sidebar nav link styles, shared by the desktop rail and the phone menu sheet. */
 const navigationClass =
   "[&_nav]:grid [&_nav]:gap-0.5 [&_nav_a]:flex [&_nav_a]:items-center [&_nav_a]:py-[6px] [&_nav_a]:px-[8px] [&_nav_a]:gap-2 [&_nav_a]:rounded-[6px] [&_nav_a]:text-[13px] [&_nav_a]:font-medium [&_nav_a]:text-muted-foreground [&_nav_a.active]:bg-accent [&_nav_a.active]:text-foreground [&_nav_a:hover]:bg-accent [&_nav_a:hover]:text-foreground [&_nav_a_>_span]:ml-auto [&_nav_a_>_span]:text-muted-foreground [&_nav_a_>_span]:font-mono [&_nav_a_>_span]:text-[11px] [&_nav_a_>_span]:font-normal";
+
+/**
+ * Icon-only rail. Labels stay in the DOM for assistive technology, so they are
+ * collapsed with a zero font size rather than removed; icons keep their own size.
+ */
+const collapsedClass =
+  "[&_.wordmark]:justify-center [&_.wordmark]:px-0 [&_.wordmark_>_span]:hidden [&_nav_a]:justify-center [&_nav_a]:gap-0! [&_nav_a]:px-0! [&_nav_a]:h-9 [&_nav_a]:text-[0px]! [&_nav_a_>_span]:hidden [&_.sidebar-resource-links]:items-center [&_.sidebar-resource-links]:px-0 [&_.sidebar-resource-links_a]:w-full [&_.sidebar-resource-links_a]:justify-center [&_.sidebar-resource-links_a]:min-h-8 [&_.sidebar-resource-links_a_>_span]:hidden [&_.hosted-identity]:px-0 [&_.organization-trigger]:justify-center [&_.organization-trigger]:px-0 [&_.organization-name]:hidden [&_.organization-chevron]:hidden [&_.session-menu]:justify-center [&_.session-menu]:px-0 [&_.session-name]:hidden [&_.sidebar-version]:hidden";
 
 function ResourceLinks() {
   return (
     <div className="sidebar-resource-links flex flex-col items-start gap-0.5 [padding:0_10px_8px] [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1.5 [&_a]:text-[11px] [&_a]:min-h-6 max-[740px]:[padding:4px_8px_8px] max-[740px]:[&_a]:min-h-10 max-[740px]:[&_a]:text-[13px] max-[740px]:[&_a]:gap-2">
       {resources.map(({ label, href, icon }) => (
-        <a key={href} href={href} target="_blank" rel="noopener noreferrer">
+        <a key={href} href={href} target="_blank" rel="noopener noreferrer" title={label}>
           <HugeiconsIcon icon={icon} strokeWidth={2} size={13} aria-hidden />
           <span>{label}</span>
         </a>
@@ -31,7 +48,8 @@ function ResourceLinks() {
 }
 
 /**
- * The dashboard layout: a sidebar rail on wide screens. On phones the rail
+ * The dashboard layout: a sidebar rail on wide screens, which collapses to an
+ * icon rail on medium ones and can be toggled either way. On phones the rail
  * becomes a compact top bar (`identity`, or the brand) and a floating Menu pill
  * that opens the same navigation, resource links and footer in a bottom sheet.
  */
@@ -50,8 +68,18 @@ export function DashboardShell({
   readonly children: ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const medium = useMediaQuery(mediumViewport);
+  // A choice belongs to the width it was made at, so crossing the breakpoint
+  // returns the rail to the width that size expects.
+  const [preference, setPreference] = useState<{
+    readonly medium: boolean;
+    readonly collapsed: boolean;
+  } | null>(null);
+  const collapsed = preference?.medium === medium ? preference.collapsed : medium;
   return (
-    <div className="shell grid grid-cols-[224px_minmax(0,_1fr)] h-dvh max-[1000px]:grid-cols-[190px_minmax(0,_1fr)] max-[740px]:grid-cols-1 max-[740px]:grid-rows-[auto_minmax(0,_1fr)]">
+    <div
+      className={`shell grid h-dvh max-[740px]:grid-cols-1 max-[740px]:grid-rows-[auto_minmax(0,_1fr)] ${collapsed ? "grid-cols-[60px_minmax(0,_1fr)]" : "grid-cols-[224px_minmax(0,_1fr)] max-[1000px]:grid-cols-[190px_minmax(0,_1fr)]"}`}
+    >
       <a
         className="skip-link fixed z-10 top-2 left-2 py-[8px] px-[12px] bg-background border border-border rounded-[6px] [transform:translateY(-150%)] focus:[transform:none]"
         href="#main"
@@ -59,11 +87,28 @@ export function DashboardShell({
         Skip to content
       </a>
       <aside
-        className={`sidebar flex flex-col border-r border-r-border py-0 px-[8px] min-h-0 overflow-y-auto max-[740px]:hidden ${navigationClass}`}
+        className={`sidebar flex flex-col border-r border-r-border py-0 px-[8px] min-h-0 overflow-y-auto overflow-x-hidden max-[740px]:hidden ${navigationClass} ${collapsed ? collapsedClass : ""}`}
       >
         {brand}
         <nav aria-label="Main navigation">{navigation}</nav>
         <div className="sidebar-utilities mt-auto [padding:12px_0_16px] border-t border-t-border text-muted-foreground [&_a:hover]:text-foreground">
+          <button
+            type="button"
+            className={`sidebar-collapse-toggle flex items-center gap-2 h-8 rounded-[6px] text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground ${collapsed ? "w-full justify-center px-0" : "w-full py-0 px-[10px]"}`}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => setPreference({ medium, collapsed: !collapsed })}
+          >
+            <HugeiconsIcon
+              icon={SidebarLeft01Icon}
+              strokeWidth={2}
+              size={14}
+              aria-hidden
+              className={collapsed ? "rotate-180" : undefined}
+            />
+            {!collapsed && <span>Collapse</span>}
+          </button>
           <ResourceLinks />
           {footer}
         </div>
