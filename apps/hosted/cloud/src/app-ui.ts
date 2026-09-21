@@ -8,6 +8,7 @@ import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http";
 import { cloudAppUiBase, cloudAppUiPort } from "./contracts/app-ui.ts";
+import { requestTiming } from "@executor-js/telemetry/http";
 import { cloudSentry } from "./implementation/error-reporting.ts";
 import { cloudAuth } from "./infrastructure/auth.ts";
 import { cloudAuthDatabase } from "./infrastructure/auth-database.ts";
@@ -17,7 +18,11 @@ import { sentryBindings } from "./infrastructure/sentry.ts";
 import { billingBindings } from "./infrastructure/billing.ts";
 import { AppDataSupervisor } from "./infrastructure/app-data.ts";
 import { Api } from "./main.ts";
-import { cloudTelemetry, telemetryBindings } from "./infrastructure/telemetry.ts";
+import {
+  cloudObservability,
+  cloudTelemetry,
+  telemetryBindings,
+} from "./infrastructure/telemetry.ts";
 
 /** A dedicated native Worker guarantees that every private HTML/JS/CSS request passes app authentication. */
 export default class AppPages extends Cloudflare.Worker<AppPages>()(
@@ -30,6 +35,7 @@ export default class AppPages extends Cloudflare.Worker<AppPages>()(
       return yield* Effect.die(new Error("App UI requires EXECUTOR_APP_UI_BASE_URL"));
     return {
       main: import.meta.url,
+      ...(yield* cloudObservability),
       env: {
         ...(yield* telemetryBindings),
         ...(yield* billingBindings),
@@ -86,6 +92,7 @@ export default class AppPages extends Cloudflare.Worker<AppPages>()(
             }),
           ),
         ),
+        requestTiming,
       ),
     };
   }).pipe(Effect.provide(Layer.mergeAll(cloudAuthDatabase, cloudTelemetry))),

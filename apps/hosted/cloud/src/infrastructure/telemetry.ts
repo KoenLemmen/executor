@@ -3,6 +3,7 @@ import { TelemetryConfig, telemetryConfig, telemetryLayer } from "@executor-js/t
 import { CurrentRuntimeContext } from "alchemy/RuntimeContext";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import * as Axiom from "alchemy/Axiom";
+import * as Cloudflare from "alchemy/Cloudflare";
 import * as Output from "alchemy/Output";
 import { adopt } from "alchemy/AdoptPolicy";
 import { retain } from "alchemy/RemovalPolicy";
@@ -10,6 +11,7 @@ import { Stage } from "alchemy/Stage";
 import * as Telemetry from "alchemy/Telemetry";
 import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
 import { testStage } from "./stage.ts";
+import { InvocationTelemetry } from "./invocation-telemetry.ts";
 
 const binding = "EXECUTOR_TELEMETRY";
 
@@ -46,6 +48,40 @@ export const telemetryResources = Effect.gen(function* () {
   });
   return { names, traces, logs, metrics, ingest };
 });
+
+/**
+ * Export invocation summaries and supplementary platform spans, joined by Ray ID.
+ * Tail delivery supplies timings independently of native trace sampling.
+ * This does not register a second Effect tracer.
+ */
+export const cloudObservability = Effect.gen(function* () {
+  if ((yield* AlchemyContext).dev) return {};
+  const stage = yield* Stage;
+  const { names, traces, ingest } = yield* telemetryResources;
+  const destination = yield* Cloudflare.Workers.ObservabilityDestination("PlatformTraces", {
+    name: `executor-next-${stage}-platform-traces`,
+    url: traces.otelTracesEndpoint,
+    headers: {
+      authorization: ingest.token.pipe(Output.map((token) => `Bearer ${Redacted.value(token)}`)),
+      "X-Axiom-Dataset": names.traces,
+    },
+    logpushDataset: "opentelemetry-traces",
+  });
+  return {
+    tailConsumers: [yield* InvocationTelemetry],
+    observability: {
+      enabled: true,
+      redactQueryString: true,
+      logs: { enabled: true, invocationLogs: true, persist: true },
+      traces: {
+        enabled: true,
+        headSamplingRate: 1,
+        persist: true,
+        destinations: [destination.slug],
+      },
+    },
+  };
+}).pipe(Effect.orDie);
 
 /** Worker props own provisioning; local workerd uses only explicit local OTLP settings. */
 export const telemetryBindings = Effect.gen(function* () {

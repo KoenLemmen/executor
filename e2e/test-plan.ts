@@ -26,6 +26,15 @@ const cloudOnboarding = {
 
 /** Scenario names and applicability used by both test declarations and test selection. */
 export const scenarios = {
+  requestTiming: {
+    file: "request-timing.spec.ts",
+    title: "Cloud request timings correlate browser resources with the server trace",
+    targets: {
+      cloud: scheduled,
+      "self-host": na("Cloudflare lifecycle spans belong to the cloud host."),
+      local: na("Cloudflare lifecycle spans belong to the cloud host."),
+    },
+  },
   oauthUrlPolicy: {
     file: "oauth-url-policy.spec.ts",
     title: "OAuth setup honors host URL policy and named loopback callbacks",

@@ -311,6 +311,369 @@ index 73034de2da062d5b083e213aeb4a087ae7fa2989..9b6b1333196c1c266c1263771394bd89
      return yield* Deferred.await(webResponse);
    });
  
+diff --git a/src/Cloudflare/Workers/cloudflare_workers.ts b/src/Cloudflare/Workers/cloudflare_workers.ts
+--- a/src/Cloudflare/Workers/cloudflare_workers.ts
++++ b/src/Cloudflare/Workers/cloudflare_workers.ts
+@@ -11,8 +11,9 @@
+ // while TypeScript infers the catch result.
+ const moduleImport: Promise<typeof import("cloudflare:workers")> =
+   import("cloudflare:workers");
++let tracing: typeof import("cloudflare:workers").tracing | undefined;
+ const modulePromise: Promise<typeof import("cloudflare:workers")> =
+-  moduleImport.catch(
++  moduleImport.then((module) => { tracing = module.tracing; return module; }).catch(
+     () =>
+       ({
+         env: {},
+@@ -27,3 +28,7 @@
+   Effect.promise(() => modulePromise);
+ 
+ export default cloudflare_workers;
++
++/** Native invocation spans also cover work before the Effect tracer exists. */
++export const platformSpan = <A>(name: string, run: () => A): A =>
++  tracing?.enterSpan === undefined ? run() : tracing.enterSpan(name, () => run());
+diff --git a/lib/Cloudflare/Workers/cloudflare_workers.js b/lib/Cloudflare/Workers/cloudflare_workers.js
+--- a/lib/Cloudflare/Workers/cloudflare_workers.js
++++ b/lib/Cloudflare/Workers/cloudflare_workers.js
+@@ -9,7 +9,8 @@
+ // Type the import before chaining to avoid expanding the full module namespace
+ // while TypeScript infers the catch result.
+ const moduleImport = import("cloudflare:workers");
+-const modulePromise = moduleImport.catch(() => ({
++let tracing;
++const modulePromise = moduleImport.then((module) => { tracing = module.tracing; return module; }).catch(() => ({
+     env: {},
+     DurableObject: class {
+     },
+@@ -19,4 +20,6 @@
+ }));
+ const cloudflare_workers = Effect.promise(() => modulePromise);
+ export default cloudflare_workers;
+-//# sourceMappingURL=cloudflare_workers.js.map
+\ No newline at end of file
++//# sourceMappingURL=cloudflare_workers.js.map
++export const platformSpan = (name, run) =>
++  tracing?.enterSpan === undefined ? run() : tracing.enterSpan(name, () => run());
+diff --git a/lib/Cloudflare/Workers/cloudflare_workers.d.ts b/lib/Cloudflare/Workers/cloudflare_workers.d.ts
+--- a/lib/Cloudflare/Workers/cloudflare_workers.d.ts
++++ b/lib/Cloudflare/Workers/cloudflare_workers.d.ts
+@@ -1,4 +1,5 @@
+ import * as Effect from "effect/Effect";
+ declare const cloudflare_workers: Effect.Effect<typeof import("cloudflare:workers")>;
+ export default cloudflare_workers;
+-//# sourceMappingURL=cloudflare_workers.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=cloudflare_workers.d.ts.map
++export declare const platformSpan: <A>(name: string, run: () => A) => A;
+diff --git a/src/Cloudflare/Workers/WorkerBridge.ts b/src/Cloudflare/Workers/WorkerBridge.ts
+--- a/src/Cloudflare/Workers/WorkerBridge.ts
++++ b/src/Cloudflare/Workers/WorkerBridge.ts
+@@ -21,7 +21,7 @@
+ import { StackContext } from "../../StackContext.ts";
+ import { buildEventTelemetry } from "../../TelemetryRuntime.ts";
+ import { CloudflareEnvironment } from "../CloudflareEnvironmentService.ts";
+-import cloudflare_workers from "./cloudflare_workers.ts";
++import cloudflare_workers, { platformSpan } from "./cloudflare_workers.ts";
+ import { isScopeEjected } from "./HttpServer.ts";
+ import {
+   ErrorTag,
+@@ -88,11 +88,12 @@
+     ) => T | Promise<T>,
+   ): Promise<T> => {
+     const scope = Scope.makeUnsafe();
+-    return build((promise) => ctx.waitUntil(promise as Promise<any>))
++    return platformSpan("alchemy.response", () =>
++      platformSpan("alchemy.runtime.wait", () => build((promise) => ctx.waitUntil(promise as Promise<any>)))
+       .then(
+         (built) => {
+           const [eff, services] = makeEffect(built);
+-          return eff.pipe(
++          return platformSpan("alchemy.handler", () => eff.pipe(
+             // Per-event services take precedence over the captured services
+             // and the built isolate context: the isolate context carries the
+             // *deferred* WorkerExecutionContext (yieldable in the top-level
+@@ -123,13 +124,13 @@
+               ),
+             ),
+             Effect.runPromiseExit,
+-          );
++          ));
+         },
+         // A failed isolate build reaches callers as a defect exit so the RPC
+         // path can envelope-encode it like any other handler defect.
+         (error) => Exit.die(error),
+       )
+-      .then((exit) => onExit(exit, scope))
++      .then((exit) => onExit(exit, scope)))
+       .finally(() =>
+         isScopeEjected(scope)
+           ? undefined
+@@ -140,7 +141,7 @@
+               // reaches the telemetry exporter's buffer before the scope's
+               // flush finalizer runs.
+               new Promise((resolve) => setTimeout(resolve, 0)).then(() =>
+-                Effect.runPromise(Scope.close(scope, Exit.void)),
++                platformSpan("alchemy.cleanup", () => Effect.runPromise(Scope.close(scope, Exit.void))),
+               ),
+             ),
+       );
+@@ -356,7 +357,7 @@
+    * `Config` read in user init) resets the memo and heals on the next event.
+    */
+   shared = (pin) => {
+-    const promise = (built ??= Effect.runPromise(
++    const promise = (built ??= platformSpan("alchemy.runtime.initialize", () => Effect.runPromise(
+       Layer.buildWithMemoMap(globalContext, memoMap, instanceScope).pipe(
+         // Strip the build's memo map from the exposed context so a Layer the
+         // user `Effect.provide`s *inside a handler* builds per event instead
+@@ -364,7 +365,7 @@
+         // across concurrent events.
+         Effect.map(Context.omit(Layer.CurrentMemoMap)),
+       ),
+-    ).catch((error) => {
++     )).catch((error) => {
+       built = undefined;
+       throw error;
+     }));
+diff --git a/lib/Cloudflare/Workers/WorkerBridge.js b/lib/Cloudflare/Workers/WorkerBridge.js
+--- a/lib/Cloudflare/Workers/WorkerBridge.js
++++ b/lib/Cloudflare/Workers/WorkerBridge.js
+@@ -16,7 +16,7 @@
+ import { StackContext } from "../../StackContext.js";
+ import { buildEventTelemetry } from "../../TelemetryRuntime.js";
+ import { CloudflareEnvironment } from "../CloudflareEnvironmentService.js";
+-import cloudflare_workers from "./cloudflare_workers.js";
++import cloudflare_workers, { platformSpan } from "./cloudflare_workers.js";
+ import { isScopeEjected } from "./HttpServer.js";
+ import { ErrorTag, encodeRpcError, toRpcStream, } from "./Rpc.js";
+ import { ExportedHandlerMethods, WorkerEnvironment, WorkerExecutionContext, deferredExecutionContext, fromExecutionContext, } from "./WorkerRuntime.js";
+@@ -31,10 +31,10 @@
+     });
+     const processEvent = (makeEffect, ctx, env, onExit) => {
+         const scope = Scope.makeUnsafe();
+-        return build((promise) => ctx.waitUntil(promise))
++        return platformSpan("alchemy.response", () => platformSpan("alchemy.runtime.wait", () => build((promise) => ctx.waitUntil(promise)))
+             .then((built) => {
+             const [eff, services] = makeEffect(built);
+-            return eff.pipe(
++            return platformSpan("alchemy.handler", () => eff.pipe(
+             // Per-event services take precedence over the captured services
+             // and the built isolate context: the isolate context carries the
+             // *deferred* WorkerExecutionContext (yieldable in the top-level
+@@ -50,12 +50,12 @@
+             // so buffered telemetry flushes when the scope closes into
+             // `ctx.waitUntil` below — never on workerd's ephemeral
+             // isolate scope.
+-            Layer.effectContext(buildEventTelemetry(built.context, scope, built.telemetry()))).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(built.context)))), Effect.runPromiseExit);
++            Layer.effectContext(buildEventTelemetry(built.context, scope, built.telemetry()))).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(built.context)))), Effect.runPromiseExit));
+         }, 
+         // A failed isolate build reaches callers as a defect exit so the RPC
+         // path can envelope-encode it like any other handler defect.
+         (error) => Exit.die(error))
+-            .then((exit) => onExit(exit, scope))
++            .then((exit) => onExit(exit, scope)))
+             .finally(() => isScopeEjected(scope)
+             ? undefined
+             : ctx.waitUntil(
+@@ -64,7 +64,7 @@
+             // Yield one macrotask before closing the scope so that span
+             // reaches the telemetry exporter's buffer before the scope's
+             // flush finalizer runs.
+-            new Promise((resolve) => setTimeout(resolve, 0)).then(() => Effect.runPromise(Scope.close(scope, Exit.void)))));
++            new Promise((resolve) => setTimeout(resolve, 0)).then(() => platformSpan("alchemy.cleanup", () => Effect.runPromise(Scope.close(scope, Exit.void))))));
+     };
+     class WorkerBridge extends Base {
+         ctx;
+@@ -194,12 +194,12 @@
+      * `Config` read in user init) resets the memo and heals on the next event.
+      */
+     shared = (pin) => {
+-        const promise = (built ??= Effect.runPromise(Layer.buildWithMemoMap(globalContext, memoMap, instanceScope).pipe(
++        const promise = (built ??= platformSpan("alchemy.runtime.initialize", () => Effect.runPromise(Layer.buildWithMemoMap(globalContext, memoMap, instanceScope).pipe(
+         // Strip the build's memo map from the exposed context so a Layer the
+         // user `Effect.provide`s *inside a handler* builds per event instead
+         // of sharing one instance (pinned to the first request's IoContext)
+         // across concurrent events.
+-        Effect.map(Context.omit(Layer.CurrentMemoMap)))).catch((error) => {
++        Effect.map(Context.omit(Layer.CurrentMemoMap))))).catch((error) => {
+             built = undefined;
+             throw error;
+         }));
+diff --git a/src/Cloudflare/Workers/DurableObjectBridge.ts b/src/Cloudflare/Workers/DurableObjectBridge.ts
+--- a/src/Cloudflare/Workers/DurableObjectBridge.ts
++++ b/src/Cloudflare/Workers/DurableObjectBridge.ts
+@@ -20,6 +20,7 @@
+ } from "./DurableObjectState.ts";
+ import { isScopeEjected, makeRequestEffect } from "./HttpServer.ts";
+ import { fromWebSocket } from "./WebSocket.ts";
++import { platformSpan } from "./cloudflare_workers.ts";
+ import { getWorkerExport, handleRpcExit } from "./WorkerBridge.ts";
+ 
+ /**
+@@ -65,7 +66,7 @@
+         const instanceScope = Scope.makeUnsafe();
+ 
+         this.#instance = state.blockConcurrencyWhile(() =>
+-          build((promise) => void (state as any).waitUntil?.(promise)).then(
++          platformSpan("alchemy.do.initialize", () => build((promise) => void (state as any).waitUntil?.(promise)).then(
+             ({ context, export: exported, telemetry }) => {
+               const { constructor, services } = exported;
+               const doContext = Layer.mergeAll(
+@@ -92,7 +93,7 @@
+                 Effect.runPromise,
+               );
+             },
+-          ),
++          )),
+         );
+ 
+         return new Proxy(this, {
+@@ -136,9 +137,9 @@
+       ) {
+         const scope = Scope.makeUnsafe();
+ 
+-        const { instance, services, context, telemetry } = await this.#instance;
+-
+-        return fn(instance)
++        const { instance, services, context, telemetry } = await platformSpan("alchemy.do.wait", () => this.#instance);
++
++        return platformSpan("alchemy.do.response", () => fn(instance)
+           .pipe(
+             Effect.provide(
+               Layer.mergeAll(
+@@ -167,7 +168,7 @@
+               : exit._tag === "Success"
+                 ? Promise.resolve(exit.value)
+                 : Promise.reject(Cause.squash(exit.cause)),
+-          )
++          ))
+           .finally(() =>
+             isScopeEjected(scope)
+               ? undefined
+@@ -176,7 +177,7 @@
+                   // HttpMiddleware tracer's late span-end reaches the
+                   // telemetry exporter before the scope's flush finalizer.
+                   new Promise((resolve) => setTimeout(resolve, 0)).then(() =>
+-                    Effect.runPromise(Scope.close(scope, Exit.void)),
++                    platformSpan("alchemy.cleanup", () => Effect.runPromise(Scope.close(scope, Exit.void))),
+                   ),
+                 ),
+           );
+diff --git a/lib/Cloudflare/Workers/DurableObjectBridge.js b/lib/Cloudflare/Workers/DurableObjectBridge.js
+--- a/lib/Cloudflare/Workers/DurableObjectBridge.js
++++ b/lib/Cloudflare/Workers/DurableObjectBridge.js
+@@ -9,6 +9,7 @@
+ import { DurableObjectState, fromDurableObjectState, } from "./DurableObjectState.js";
+ import { isScopeEjected, makeRequestEffect } from "./HttpServer.js";
+ import { fromWebSocket } from "./WebSocket.js";
++import { platformSpan } from "./cloudflare_workers.js";
+ import { getWorkerExport, handleRpcExit } from "./WorkerBridge.js";
+ /**
+  * Create a DurableObjectBridge class that proxies RPC method calls through
+@@ -34,7 +35,7 @@
+             super(state, env);
+             this.#state = state;
+             const instanceScope = Scope.makeUnsafe();
+-            this.#instance = state.blockConcurrencyWhile(() => build((promise) => void state.waitUntil?.(promise)).then(({ context, export: exported, telemetry }) => {
++            this.#instance = state.blockConcurrencyWhile(() => platformSpan("alchemy.do.initialize", () => build((promise) => void state.waitUntil?.(promise)).then(({ context, export: exported, telemetry }) => {
+                 const { constructor, services } = exported;
+                 const doContext = Layer.mergeAll(Layer.succeed(DurableObjectState, fromDurableObjectState(this.#state)), Layer.succeed(Scope.Scope, instanceScope)).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(context)));
+                 return constructor.pipe(Effect.provide(doContext), Effect.flatMap((instance) => instance.pipe(Effect.provide(doContext))), Effect.onExit((exit) => Exit.isFailure(exit) ? Scope.close(instanceScope, exit) : Effect.void), Effect.map((instance) => ({
+@@ -43,7 +44,7 @@
+                     context,
+                     telemetry,
+                 })), Effect.runPromise);
+-            }));
++            })));
+             return new Proxy(this, {
+                 get: (target, prop) => {
+                     const bind = (f) => typeof f === "function" ? f.bind(target) : f;
+@@ -79,8 +80,8 @@
+         }
+         async #execute(fn, onExit) {
+             const scope = Scope.makeUnsafe();
+-            const { instance, services, context, telemetry } = await this.#instance;
+-            return fn(instance)
++            const { instance, services, context, telemetry } = await platformSpan("alchemy.do.wait", () => this.#instance);
++            return platformSpan("alchemy.do.response", () => fn(instance)
+                 .pipe(Effect.provide(Layer.mergeAll(Layer.succeed(DurableObjectState, fromDurableObjectState(this.#state)), Layer.succeed(Scope.Scope, scope), 
+             // The configured telemetry exporters, attached to the *call*
+             // scope by `buildEventTelemetry` so buffered telemetry
+@@ -91,14 +92,14 @@
+                 ? onExit(exit, scope)
+                 : exit._tag === "Success"
+                     ? Promise.resolve(exit.value)
+-                    : Promise.reject(Cause.squash(exit.cause)))
++                    : Promise.reject(Cause.squash(exit.cause))))
+                 .finally(() => isScopeEjected(scope)
+                 ? undefined
+                 : this.ctx.waitUntil(
+                 // Match WorkerBridge: yield one macrotask so the
+                 // HttpMiddleware tracer's late span-end reaches the
+                 // telemetry exporter before the scope's flush finalizer.
+-                new Promise((resolve) => setTimeout(resolve, 0)).then(() => Effect.runPromise(Scope.close(scope, Exit.void)))));
++                new Promise((resolve) => setTimeout(resolve, 0)).then(() => platformSpan("alchemy.cleanup", () => Effect.runPromise(Scope.close(scope, Exit.void))))));
+         }
+         async fetch(request) {
+             return this.#execute((instance) => instance.fetch
+diff --git a/src/Cloudflare/Workers/cloudflare_workers.ts b/src/Cloudflare/Workers/cloudflare_workers.ts
+--- a/src/Cloudflare/Workers/cloudflare_workers.ts
++++ b/src/Cloudflare/Workers/cloudflare_workers.ts
+@@ -30,5 +30,18 @@
+ export default cloudflare_workers;
+ 
+ /** Native invocation spans also cover work before the Effect tracer exists. */
+-export const platformSpan = <A>(name: string, run: () => A): A =>
+-  tracing?.enterSpan === undefined ? run() : tracing.enterSpan(name, () => run());
++export const platformSpan = <A>(name: string, run: () => Promise<A>): Promise<A> => {
++  // Tail delivery gives each invocation a timing record even when native traces are sampled.
++  // Cloudflare clocks advance on I/O: CPU cost remains the platform's separate cpuTime field.
++  const measured = () => {
++    const started = performance.now();
++    return Promise.resolve().then(run).finally(() => {
++      if (name !== "alchemy.handler") console.log({
++        type: "alchemy.phase",
++        name,
++        durationMs: Math.max(0, performance.now() - started),
++      });
++    });
++  };
++  return tracing?.enterSpan === undefined ? measured() : tracing.enterSpan(name, measured);
++};
+diff --git a/lib/Cloudflare/Workers/cloudflare_workers.js b/lib/Cloudflare/Workers/cloudflare_workers.js
+--- a/lib/Cloudflare/Workers/cloudflare_workers.js
++++ b/lib/Cloudflare/Workers/cloudflare_workers.js
+@@ -21,5 +21,18 @@
+ const cloudflare_workers = Effect.promise(() => modulePromise);
+ export default cloudflare_workers;
+ //# sourceMappingURL=cloudflare_workers.js.map
+-export const platformSpan = (name, run) =>
+-  tracing?.enterSpan === undefined ? run() : tracing.enterSpan(name, () => run());
++export const platformSpan = (name, run) => {
++  // Tail delivery gives each invocation a timing record even when native traces are sampled.
++  // Cloudflare clocks advance on I/O: CPU cost remains the platform's separate cpuTime field.
++  const measured = () => {
++    const started = performance.now();
++    return Promise.resolve().then(run).finally(() => {
++      if (name !== "alchemy.handler") console.log({
++        type: "alchemy.phase",
++        name,
++        durationMs: Math.max(0, performance.now() - started),
++      });
++    });
++  };
++  return tracing?.enterSpan === undefined ? measured() : tracing.enterSpan(name, measured);
++};
+diff --git a/lib/Cloudflare/Workers/cloudflare_workers.d.ts b/lib/Cloudflare/Workers/cloudflare_workers.d.ts
+--- a/lib/Cloudflare/Workers/cloudflare_workers.d.ts
++++ b/lib/Cloudflare/Workers/cloudflare_workers.d.ts
+@@ -2,4 +2,4 @@
+ declare const cloudflare_workers: Effect.Effect<typeof import("cloudflare:workers")>;
+ export default cloudflare_workers;
+ //# sourceMappingURL=cloudflare_workers.d.ts.map
+-export declare const platformSpan: <A>(name: string, run: () => A) => A;
++export declare const platformSpan: <A>(name: string, run: () => Promise<A>) => Promise<A>;
 diff --git a/src/Cloudflare/Workers/LocalWorkerProvider.ts b/src/Cloudflare/Workers/LocalWorkerProvider.ts
 index 02757fb2cfd6cb7eb0c7af3ae4bc0ae2699e0b43..24e4d8049366a0725dd6e4b06c8cc08fbd265734 100644
 --- a/src/Cloudflare/Workers/LocalWorkerProvider.ts

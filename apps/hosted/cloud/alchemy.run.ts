@@ -11,6 +11,7 @@ import AppPages from "./src/app-ui.ts";
 import { cloudAppUiBase } from "./src/contracts/app-ui.ts";
 import ApiLive, { Api } from "./src/main.ts";
 import AppCompilerLive from "./src/compiler.ts";
+import InvocationTelemetryLive from "./src/invocation-telemetry.ts";
 import { DatabaseConnection } from "./src/infrastructure/database.ts";
 import { LogicalDatabaseProvider } from "./src/infrastructure/logical-database.ts";
 import { developmentWeb } from "./src/infrastructure/development.ts";
@@ -50,5 +51,5 @@ export default Alchemy.Stack(
     if ((yield* cloudAppUiBase.pipe(Effect.orDie)) !== undefined) yield* AppPages;
     yield* uploadCloudSourceMaps(api.hash).pipe(Effect.orDie);
     return { url: (yield* AlchemyContext).dev ? yield* developmentWeb(api.url) : api.url };
-  }).pipe(Effect.provide(Layer.mergeAll(ApiLive, AppCompilerLive))),
+  }).pipe(Effect.provide(Layer.mergeAll(ApiLive, AppCompilerLive, InvocationTelemetryLive))),
 );

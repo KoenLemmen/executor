@@ -32,7 +32,11 @@ import { cloudApi } from "./implementation/api.ts";
 import { billingLive } from "./implementation/billing.ts";
 import { cloudExecutor } from "./infrastructure/executor.ts";
 import { cloudAuthDatabase } from "./infrastructure/auth-database.ts";
-import { cloudTelemetry, telemetryBindings } from "./infrastructure/telemetry.ts";
+import {
+  cloudObservability,
+  cloudTelemetry,
+  telemetryBindings,
+} from "./infrastructure/telemetry.ts";
 import { cloudEmail } from "./infrastructure/email.ts";
 import { cloudWelcomeEmails } from "./infrastructure/welcome-email.ts";
 import { homepage } from "./implementation/homepage.ts";
@@ -46,6 +50,7 @@ import { cloudOrigin } from "./infrastructure/stage.ts";
 import { AppDataSupervisor, AppDataSupervisorLive } from "./infrastructure/app-data.ts";
 import { cloudDevelopment } from "./contracts/development.ts";
 import { requestServices } from "./implementation/request-services.ts";
+import { requestTiming } from "@executor-js/telemetry/http";
 
 /** One native Effect Worker serves the API with the static marketing site and dashboard attached as assets. */
 export class Api extends Cloudflare.Worker<Api, {}, AppDataSupervisor>()("Api") {}
@@ -71,6 +76,7 @@ export default Api.make(
     });
     return {
       main: import.meta.url,
+      ...(yield* cloudObservability),
       env: {
         ...(yield* telemetryBindings),
         ...analytics.env,
@@ -224,6 +230,7 @@ export default Api.make(
         ),
         analytics.wrap,
         reportErrors,
+        requestTiming,
       ),
     };
   }).pipe(

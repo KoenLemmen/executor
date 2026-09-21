@@ -1,5 +1,6 @@
 /** Native page measurements. Observers and reporting fibers belong to the browser Layer. */
-import { Effect, Option, Schedule, Schema } from "effect";
+import { Effect, FiberSet, Option, Schedule, Schema } from "effect";
+import { browserRequestTiming } from "./browser-request-timing.ts";
 
 const layoutShift = Schema.decodeUnknownOption(
   Schema.Struct({ value: Schema.Number, hadRecentInput: Schema.Boolean }),
@@ -50,11 +51,22 @@ export const observeBrowserPerformance = Effect.gen(function* () {
   let shiftWindowValue = 0;
   let longTasks = { count: 0, duration: 0, blocking: 0, max: 0 };
   let interactions = { count: 0, duration: 0, inputDelay: 0, processing: 0 };
+  const run = yield* FiberSet.makeRuntime();
+  const report = (name: string, attributes: Readonly<Record<string, string | number | boolean>>) =>
+    Effect.logInfo(name).pipe(
+      Effect.annotateLogs(attributes),
+      Effect.withSpan(name, { root: true, attributes }),
+    );
 
   const record = (entries: readonly PerformanceEntry[]) => {
     for (const entry of entries) {
       if (entry.startTime < pageStart) continue;
       switch (entry.entryType) {
+        case "resource": {
+          const attributes = browserRequestTiming(entry, window.location.origin);
+          if (attributes !== undefined) run(report("ui.request.timing", attributes));
+          break;
+        }
         case "paint":
           if (entry.name === "first-contentful-paint" && entry.startTime < firstHidden) {
             paint = entry.startTime;
@@ -119,7 +131,14 @@ export const observeBrowserPerformance = Effect.gen(function* () {
     observers.clear();
   };
   const observe = (buffered: boolean) => {
-    for (const type of ["paint", "largest-contentful-paint", "layout-shift", "longtask", "event"]) {
+    for (const type of [
+      "paint",
+      "largest-contentful-paint",
+      "layout-shift",
+      "longtask",
+      "event",
+      "resource",
+    ]) {
       if (!PerformanceObserver.supportedEntryTypes?.includes(type)) continue;
       const observer = new PerformanceObserver((list) => record(list.getEntries()));
       try {
@@ -138,11 +157,6 @@ export const observeBrowserPerformance = Effect.gen(function* () {
   };
   observe(true);
 
-  const report = (name: string, attributes: Record<string, string | number | boolean>) =>
-    Effect.logInfo(name).pipe(
-      Effect.annotateLogs(attributes),
-      Effect.withSpan(name, { root: true, attributes }),
-    );
   const flush = Effect.gen(function* () {
     drain();
     const common = {

@@ -51,7 +51,7 @@ const until = async (condition: () => boolean) => {
 const browser = (supported: string[]) => {
   let time = 0;
   const window = Object.assign(new EventTarget(), {
-    location: { pathname: "/apps" },
+    location: { pathname: "/apps", origin: "https://fixture.test" },
     performance: { now: () => time, timeOrigin: 1_000_000 },
   });
   const document = Object.assign(new EventTarget(), { visibilityState: "visible" });
@@ -114,7 +114,14 @@ const browser = (supported: string[]) => {
 };
 
 test("page exports bounded measurements, flushes on hide and resets after BFCache restore", async () => {
-  const page = browser(["paint", "largest-contentful-paint", "layout-shift", "longtask", "event"]);
+  const page = browser([
+    "paint",
+    "largest-contentful-paint",
+    "layout-shift",
+    "longtask",
+    "event",
+    "resource",
+  ]);
   const bodies: string[] = [];
   const server = createServer(async (request, response) => {
     let body = "";
@@ -170,10 +177,32 @@ test("page exports bounded measurements, flushes on hide and resets after BFCach
         processingStart: 1_220,
         processingEnd: 1_280,
       }),
+      entry("resource", 100, 1463, {
+        name: "https://fixture.test/api/apps?secret=hidden",
+        domainLookupStart: 100,
+        domainLookupEnd: 105,
+        connectStart: 105,
+        connectEnd: 130,
+        secureConnectionStart: 110,
+        requestStart: 135,
+        responseStart: 1561,
+        responseEnd: 1563,
+        serverTiming: [
+          { name: "executor", description: "", duration: 163 },
+          { name: "executor-trace", description: "1234567890abcdef1234567890abcdef", duration: 0 },
+          { name: "cf-ray", description: "1234567890abcdef-SJC", duration: 0 },
+        ],
+      }),
     );
     page.at(3_000);
     await runtime.runPromise(telemetry.flush);
+    await until(() => spans().some((span) => span.name === "ui.request.timing"));
     const first = spans();
+    const timing = first.find((span) => span.name === "ui.request.timing");
+    assert.equal(timing?.values["browser.request.duration_ms"], 1463);
+    assert.equal(timing?.values["executor.handler.duration_ms"], 163);
+    assert.equal(timing?.values["cloudflare.ray_id"], "1234567890abcdef");
+    assert.doesNotMatch(JSON.stringify(timing), /secret|hidden/);
     const vitals = first.filter((span) => span.name === "ui.performance.vital");
     assert.equal(
       vitals.find((span) => span.values["browser.vital.name"] === "FCP")?.values[
@@ -244,7 +273,14 @@ test("page exports bounded measurements, flushes on hide and resets after BFCach
     page.document.visibilityState = "visible";
     page.transition("pageshow", true);
     await runtime.runPromise(Effect.yieldNow);
-    assert.equal(page.observers.size, 5);
+    assert.deepEqual([...page.observers].map((observer) => observer.type).sort(), [
+      "event",
+      "largest-contentful-paint",
+      "layout-shift",
+      "longtask",
+      "paint",
+      "resource",
+    ]);
     assert.ok([...page.observers].every((observer) => !observer.buffered));
     page.enqueue(
       entry("paint", 100, 0, { name: "first-contentful-paint" }),

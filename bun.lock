@@ -617,6 +617,7 @@
     "@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d": "patches/@effect%2Fsql-pg@c7d1ffff.patch",
     "@better-auth/oauth-provider@1.7.5": "patches/@better-auth%2Foauth-provider@1.7.5.patch",
     "@cfworker/json-schema@4.1.1": "patches/@cfworker%2Fjson-schema@4.1.1.patch",
+    "@distilled.cloud/cloudflare@1.0.0-rc.12": "patches/@distilled.cloud%2Fcloudflare@1.0.0-rc.12.patch",
   },
   "overrides": {
     "@effect/platform-browser": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d",
