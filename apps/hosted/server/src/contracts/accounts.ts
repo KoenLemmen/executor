@@ -1,3 +1,4 @@
+import { AccountWorkflowsActive } from "@executor-js/sdk/core";
 import { AccountWebhooksActive } from "@executor-js/sdk/core";
 /** Account metadata and connection flows for an authenticated organization. */
 import {
@@ -94,7 +95,13 @@ export const HostedAccounts = HttpApiGroup.make("accounts")
     HttpApiEndpoint.delete("disconnect", `${prefix}/accounts/:account`, {
       params: { ...params, account: AccountId },
       success: Schema.Struct({ account: AccountId }),
-      error: [StorageError, AccountWebhooksActive, AccountNotFound, OrganizationForbidden],
+      error: [
+        StorageError,
+        AccountWebhooksActive,
+        AccountWorkflowsActive,
+        AccountNotFound,
+        OrganizationForbidden,
+      ],
     }),
   )
   .add(

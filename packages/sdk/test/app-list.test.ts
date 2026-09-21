@@ -38,7 +38,7 @@ const fixture = (count: number) =>
   Effect.gen(function* () {
     const storage = yield* makeExecutorStorage({ provider: "postgresql" });
     yield* storage.migrate;
-    const db = storage.orm("1.8.2");
+    const db = storage.orm("1.9.0");
     const deployments = Array.from({ length: count + 1 }, (_, index) => ({
       id: DeploymentId.make(`dpl_list_${index}`),
       code: AppCodeId.make(`code_list_${index}`),
@@ -86,6 +86,7 @@ const fixture = (count: number) =>
         query: () => Effect.die("List must not run queries"),
         mutate: () => Effect.die("List must not run mutations"),
         webhook: () => Effect.die("List must not handle webhooks"),
+        workflow: () => Effect.die("List must not run workflows"),
       }),
     });
     return { executor, db, apps, deployments };

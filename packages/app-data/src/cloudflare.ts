@@ -1,7 +1,7 @@
 /** Workerd edge: one supervisor per configured app; code changes preserve the isolated facet database. */
 import { WorkerBundle, workerModules } from "./contracts/worker-bundle.ts";
 import type { DurableObjectState, WorkerLoader, WebSocket } from "@cloudflare/workers-types";
-import { Clock, Deferred, Effect, Result, Schema, Semaphore } from "effect";
+import { Clock, Deferred, Effect, Exit, Result, Schema, Semaphore } from "effect";
 import { fingerprint } from "./implementation/cursor.ts";
 import { AppDatabaseError } from "./contracts/database.ts";
 
@@ -35,6 +35,7 @@ const FacetEntrypoint = Schema.declare(
       body: string,
       headers: Readonly<Record<string, string>>,
       elicitation: ((input: unknown) => Promise<unknown>) | null,
+      workflows: ((input: unknown) => Promise<unknown>) | null,
     ) => Promise<unknown>;
     cancel: (id: string) => Promise<void>;
   } =>
@@ -49,73 +50,36 @@ const FacetEntrypoint = Schema.declare(
 /** Use supervisor alarms: the pinned workerd cannot schedule alarms from a facet. */
 export const makeFacetSupervisor = (state: DurableObjectState, loader: Pick<WorkerLoader, "get">) =>
   Effect.gen(function* () {
-    const lifecycle = yield* Semaphore.make(1);
+    const execution = yield* Semaphore.make(1);
     const metadata = yield* Semaphore.make(1);
-    type Context = {
-      identity: string;
-      users: number;
-      drained: Deferred.Deferred<void>;
-    };
-    let active: Context | undefined;
+    let activeIdentity: string | undefined;
     let writes = 0;
     const calls = new Map<
       string,
       { cancel: Deferred.Deferred<void>; done: Deferred.Deferred<void> }
     >();
     const acquire = (invocation: typeof FacetInvocation.Type) =>
-      lifecycle.withPermits(1)(
-        Effect.gen(function* () {
-          if (active !== undefined && active.identity !== invocation.identity && active.users > 0) {
-            // Await only our lease queue. The DO remains free to deliver RPC callbacks, cancellation and alarms.
-            yield* Deferred.await(active.drained);
+      Effect.try({
+        try: () => {
+          if (activeIdentity !== invocation.identity) {
+            state.facets.abort("data", "Execution context changed");
+            activeIdentity = invocation.identity;
           }
-          if (active === undefined || active.identity !== invocation.identity) {
-            yield* Effect.try({
-              try: () => state.facets.abort("data", "Execution context changed"),
-              catch: failed,
-            });
-            active = {
-              identity: invocation.identity,
-              users: 0,
-              drained: yield* Deferred.make<void>(),
-            };
-          }
-          // Facet abort/reset invalidates stubs. Reacquire the capability on each call;
-          // get() keeps the existing instance when it is healthy and restarts it otherwise.
-          const entrypoint = yield* Effect.try({
-            try: () =>
-              Schema.decodeUnknownSync(FacetEntrypoint)(
-                state.facets.get("data", () => {
-                  const worker = loader.get(
-                    `${state.id.toString()}:${invocation.identity}`,
-                    () => ({
-                      ...invocation.bundle,
-                      modules: workerModules(invocation.bundle.modules),
-                      compatibilityDate: "2026-07-30",
-                      // Same-zone URLs must use their public Worker routes, not the underlying origin.
-                      compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
-                    }),
-                  );
-                  return { class: worker.getDurableObjectClass("ExecutorAppData") };
-                }),
-              ),
-            catch: failed,
-          });
-          if (active.users === 0) active.drained = yield* Deferred.make<void>();
-          const context = active;
-          return yield* Effect.acquireRelease(
-            Effect.sync(() => {
-              context.users++;
-              return { context, entrypoint };
+          // An abort invalidates stubs. Reacquire on every serialized invocation.
+          return Schema.decodeUnknownSync(FacetEntrypoint)(
+            state.facets.get("data", () => {
+              const worker = loader.get(`${state.id.toString()}:${invocation.identity}`, () => ({
+                ...invocation.bundle,
+                modules: workerModules(invocation.bundle.modules),
+                compatibilityDate: "2026-07-30",
+                // Same-zone URLs must use their public Worker routes, not the underlying origin.
+                compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
+              }));
+              return { class: worker.getDurableObjectClass("ExecutorAppData") };
             }),
-            ({ context }) => release(context),
           );
-        }),
-      );
-    const release = (lease: Context) =>
-      Effect.gen(function* () {
-        lease.users--;
-        if (lease.users === 0) yield* Deferred.succeed(lease.drained, undefined);
+        },
+        catch: failed,
       });
     const revision = Effect.tryPromise({
       try: () => state.storage.get("revision"),
@@ -193,10 +157,11 @@ export const makeFacetSupervisor = (state: DurableObjectState, loader: Pick<Work
     const invoke = (
       invocation: typeof FacetInvocation.Type,
       elicitation: ((input: unknown) => Promise<unknown>) | null,
+      workflows: ((input: unknown) => Promise<unknown>) | null,
     ) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const lease = yield* acquire(invocation);
+          const entrypoint = yield* acquire(invocation);
           if (invocation.write)
             yield* Effect.acquireRelease(begin, () => finish.pipe(Effect.catch(() => Effect.void)));
           const run = Effect.gen(function* () {
@@ -205,16 +170,27 @@ export const makeFacetSupervisor = (state: DurableObjectState, loader: Pick<Work
                 const id = invocation.id;
                 const result = Promise.resolve()
                   .then(() =>
-                    lease.entrypoint.invoke(id, invocation.body, invocation.headers, elicitation),
+                    entrypoint.invoke(
+                      id,
+                      invocation.body,
+                      invocation.headers,
+                      elicitation,
+                      workflows,
+                    ),
                   )
                   .then(Result.succeed, Result.fail);
                 return { id, result };
               }),
-              ({ id, result }) =>
+              ({ id, result }, exit) =>
                 Effect.promise(async () => {
-                  // Keep the generation leased until cancellation has closed its transaction and callback scopes.
+                  if (Exit.isFailure(exit)) {
+                    // A facet transaction closes its input gate, so a cancel RPC cannot
+                    // enter until it commits. Abort the isolated facet to roll it back.
+                    state.facets.abort("data", "App invocation cancelled");
+                  }
+                  // Drain the invocation before the next caller acquires a fresh facet capability.
                   await Promise.allSettled([
-                    Promise.resolve().then(() => lease.entrypoint.cancel(id)),
+                    Promise.resolve().then(() => entrypoint.cancel(id)),
                     result,
                   ]);
                 }),
@@ -227,11 +203,16 @@ export const makeFacetSupervisor = (state: DurableObjectState, loader: Pick<Work
           });
           return yield* run;
         }),
+      ).pipe(
+        // Storage operations already serialize inside the facet. Queue here so aborting
+        // one invocation never kills another caller or leaves a stale facet capability.
+        execution.withPermits(1),
       );
     return {
       invoke: (
         input: typeof FacetInvocation.Type,
         elicitation: ((input: unknown) => Promise<unknown>) | null = null,
+        workflows: ((input: unknown) => Promise<unknown>) | null = null,
       ) =>
         Effect.scoped(
           Effect.gen(function* () {
@@ -254,7 +235,7 @@ export const makeFacetSupervisor = (state: DurableObjectState, loader: Pick<Work
                 }),
             );
             return yield* Effect.raceFirst(
-              invoke(invocation, elicitation),
+              invoke(invocation, elicitation, workflows),
               Deferred.await(handle.cancel).pipe(Effect.andThen(Effect.interrupt)),
             );
           }),

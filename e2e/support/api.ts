@@ -19,7 +19,7 @@ export const BrowserCookies = Schema.Array(
   }),
 );
 export type BrowserCookies = typeof BrowserCookies.Type;
-type Method = "GET" | "POST" | "PATCH" | "DELETE";
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 /** Each actor owns its cookie jar; no session state can bleed into another actor. */
 export interface Session {
   readonly cookies: Effect.Effect<Redacted.Redacted<BrowserCookies>>;

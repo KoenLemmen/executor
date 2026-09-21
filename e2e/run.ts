@@ -21,7 +21,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
-import { scenarios } from "./test-plan.ts";
+import { scenariosForSuite } from "./test-plan.ts";
 import { collectEvidence, writeEvidenceReport } from "./evidence-reporter.ts";
 import { type EvidenceReport, type RunMetadata } from "./report-model.ts";
 import { BrowserDriver } from "./support/browser.ts";
@@ -219,10 +219,7 @@ const command = Command.make("e2e", {
           (yield* processes.string(ChildProcess.make("git", ["status", "--porcelain"]))).trim()
             .length > 0;
         const startedAt = new Date().toISOString();
-        const plan =
-          selected === "hosted"
-            ? [scenarios.hosted, scenarios.mcp, scenarios.mcpProtocol]
-            : Object.values(scenarios);
+        const plan = scenariosForSuite(selected === "hosted" ? "hosted" : "all");
         const captures = yield* Effect.forEach(
           targets,
           (target) =>
@@ -332,6 +329,9 @@ const command = Command.make("e2e", {
                                 ? {}
                                 : { E2E_EMULATORS: process.env.E2E_EMULATORS }
                               : { E2E_EMULATORS: environment.emulators }),
+                            ...(process.env.E2E_WORKFLOW_HOLD_MS === undefined
+                              ? {}
+                              : { E2E_WORKFLOW_HOLD_MS: process.env.E2E_WORKFLOW_HOLD_MS }),
                             E2E_TARGET: target,
                             EXECUTOR_E2E_RUN: directory,
                             EXECUTOR_E2E_API_KEY: Redacted.value(apiKey),

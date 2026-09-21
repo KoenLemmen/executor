@@ -48,6 +48,7 @@ const requirements = (name: string) => ({
 
 const runtimeFor = (build: Runtime["build"]): Runtime => ({
   build,
+  workflow: () => Effect.die("Unexpected workflow invocation"),
   webhook: () => Effect.die("Unexpected webhook invocation"),
   inspect: () => Effect.succeed([]),
   query: () => Effect.succeed(null),

@@ -1,3 +1,4 @@
+import { WorkflowRunId } from "apps/contracts";
 import { AppSlugTaken } from "../contracts/apps.ts";
 import { AppSlug, appSlug } from "../contracts/app-slug.ts";
 /** FumaDB schema and client factory. Importing this module performs no I/O. */
@@ -252,7 +253,7 @@ const webhookSlugBackfillSchema = schema({
   },
 });
 /** Current schema enforces derived address uniqueness while retaining all webhook tables. */
-export const storageSchema = schema({
+const appContextSchema = schema({
   version: "1.8.2",
   tables: {
     ...webhookSlugBackfillSchema.tables,
@@ -262,6 +263,42 @@ export const storageSchema = schema({
     })
       .unique("executor_apps_owner_name", ["owner", "name"])
       .unique("executor_apps_owner_slug", ["owner", "slug"]),
+  },
+  relations: {
+    apps: ({ one }) => ({
+      deployment: one("deployments", ["activeDeployment", "id"], ["code", "code"]).foreignKey(),
+    }),
+  },
+});
+
+/** Additive workflow metadata. Existing identities, selections, credentials and app rows remain unchanged. */
+export const storageSchema = schema({
+  version: "1.9.0",
+  tables: {
+    ...appContextSchema.tables,
+    // Relations attach constraints to their table declaration; do not share that
+    // mutable schema object with 1.8.2 or its migration gets the foreign key twice.
+    apps: table("executor_apps", { ...appContextSchema.tables.apps.columns })
+      .unique("executor_apps_owner_name", ["owner", "name"])
+      .unique("executor_apps_owner_slug", ["owner", "slug"]),
+    workflowRuns: table("executor_workflow_runs", {
+      id: idColumn("id", WorkflowRunId, { type: "varchar(255)" }),
+      app: column("app", AppId, { type: "varchar(255)" }),
+      owner: column("owner", OwnerId, { type: "varchar(255)" }),
+      key: column("start_key", Schema.String, { type: "varchar(128)" }),
+      deployment: column("deployment", DeploymentId, { type: "varchar(255)" }),
+      name: column("name", Schema.String),
+      accounts: column("accounts", Schema.Json),
+      status: column("status", Schema.String),
+      failure: column("failure", Schema.NullOr(Schema.String)),
+      encrypted: column("encrypted", Schema.Uint8Array),
+      createdAt: column("created_at", Schema.Date),
+    }).unique("executor_workflow_runs_app_key", ["app", "key"]),
+    workflowAccounts: table("executor_workflow_accounts", {
+      id: idColumn("id", Schema.String, { type: "varchar(255)" }),
+      account: column("account", AccountId, { type: "varchar(255)" }),
+      run: column("run", WorkflowRunId, { type: "varchar(255)" }),
+    }).unique("executor_workflow_accounts_account_run", ["account", "run"]),
   },
   relations: {
     apps: ({ one }) => ({
@@ -285,6 +322,7 @@ export const executorDatabase = fumadb({
     derivedSlugSchema,
     webhookSchema,
     webhookSlugBackfillSchema,
+    appContextSchema,
     storageSchema,
   ],
 });
@@ -295,11 +333,15 @@ export const makeExecutorStorage = (options: { readonly provider: SqlProvider })
     const sql = yield* SqlClient.SqlClient;
     const reactivity = yield* makeReactiveStore({ namespace: "executor" });
     const client = executorDatabase.client(sqlAdapter({ provider: options.provider }));
-    const db = bindOrm(client.orm("1.8.2"), sql, reactivity);
+    const db = bindOrm(client.orm("1.9.0"), sql, reactivity);
     const migrate = Effect.gen(function* () {
       const migrator = yield* client.createMigrator;
       const version = yield* migrator.version;
-      if (Option.isSome(version) && version.value === "1.8.2") return;
+      if (Option.isSome(version) && version.value === "1.9.0") return;
+      if (Option.isSome(version) && version.value === "1.8.2") {
+        yield* (yield* migrator.migrateToLatest()).execute;
+        return;
+      }
       yield* (yield* migrator.migrateTo("1.8.1")).execute;
       const rows = yield* client.orm("1.8.1").findMany("apps", { orderBy: ["id", "asc"] });
       const owners = new Map<string, Set<string>>();
@@ -322,7 +364,7 @@ export const makeExecutorStorage = (options: { readonly provider: SqlProvider })
       Effect.provideService(SqlClient.SqlClient, sql),
       Effect.mapError((error) => (Schema.is(AppSlugTaken)(error) ? error : new StorageError())),
     );
-    return { orm: (_version: "1.8.2") => db, reactivity, migrate };
+    return { orm: (_version: "1.9.0") => db, reactivity, migrate };
   });
 
 /** Caller-owned, Effect-native persistence with commit-driven subscriptions. */

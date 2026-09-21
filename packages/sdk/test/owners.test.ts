@@ -49,6 +49,7 @@ const runtime: Runtime = {
         },
       },
     }),
+  workflow: () => Effect.die("Unexpected workflow invocation"),
   webhook: () => Effect.die("Unexpected webhook invocation"),
   inspect: () => Effect.succeed([]),
   query: () => Effect.succeed(null),
@@ -95,7 +96,7 @@ test(
         Effect.gen(function* () {
           const options = yield* fixture;
           const executor = yield* createExecutor(options);
-          const db = options.storage.orm("1.8.2");
+          const db = options.storage.orm("1.9.0");
           const rows = (table: "deployments" | "accountConnections", owner: OwnerId) =>
             db.findMany(table, { select: ["id"], where: (b) => b("owner", "=", owner) });
           yield* populate(executor, alice);
@@ -145,7 +146,7 @@ test(
           const options = yield* fixture;
           const executor = yield* createExecutor(options);
           const mine = yield* populate(executor, alice);
-          const db = options.storage.orm("1.8.2");
+          const db = options.storage.orm("1.9.0");
           // Stand in for a provider registration this owner still holds.
           yield* db.create("webhooks", {
             id: WebhookId.make("whk_live"),

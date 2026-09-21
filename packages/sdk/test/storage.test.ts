@@ -49,7 +49,7 @@ const account = {
 test("real SQL rollback and cancellation leave no rows or live notification", () =>
   withStorage((storage) =>
     Effect.gen(function* () {
-      const db = storage.orm("1.8.2");
+      const db = storage.orm("1.9.0");
       const initial = yield* Deferred.make<void>();
       const rows: number[] = [];
       const subscriber = yield* storage.reactivity.subscribe(db.count("providers")).pipe(
@@ -94,7 +94,7 @@ test("real SQL rollback and cancellation leave no rows or live notification", ()
 test("joined and empty reads observe related table writes", () =>
   withStorage((storage) =>
     Effect.gen(function* () {
-      const db = storage.orm("1.8.2");
+      const db = storage.orm("1.9.0");
       yield* db.create("providers", { id: provider, definition: { name: "Before" } });
       yield* db.create("accounts", account);
       const ready = yield* Deferred.make<void>();
@@ -124,7 +124,7 @@ test("joined and empty reads observe related table writes", () =>
 test("an untracked outer SQL transaction is rejected before a tracked write", () =>
   withStorage((storage) =>
     Effect.gen(function* () {
-      const db = storage.orm("1.8.2");
+      const db = storage.orm("1.9.0");
       const sql = yield* SqlClient.SqlClient;
       const result = yield* sql
         .withTransaction(db.create("providers", { id: provider, definition: {} }))
@@ -188,7 +188,7 @@ test("connection migration preserves existing accounts, grants, deployments and 
         yield* client.orm("1.3.0").create("accountConnections", pending);
         const storage = yield* makeExecutorStorage({ provider: "postgresql" });
         yield* storage.migrate;
-        const current = storage.orm("1.8.2");
+        const current = storage.orm("1.9.0");
         assert.deepEqual(yield* current.findMany("toolApprovals", {}), []);
         assert.deepEqual(yield* current.findMany("accounts", {}), [account]);
         assert.deepEqual(yield* current.findMany("oauthGrants", {}), [grant]);
@@ -298,11 +298,11 @@ test("name-derived migration replaces custom slugs atomically, including swapped
         const storage = yield* makeExecutorStorage({ provider: "postgresql" });
         yield* storage.migrate;
         yield* storage.migrate;
-        assert.deepEqual(yield* storage.orm("1.8.2").findMany("apps", { orderBy: ["id", "asc"] }), [
+        assert.deepEqual(yield* storage.orm("1.9.0").findMany("apps", { orderBy: ["id", "asc"] }), [
           { ...a, slug: AppSlug.make("alpha") },
           { ...b, slug: AppSlug.make("beta") },
         ]);
-        assert.deepEqual(yield* migrator.version, Option.some("1.8.2"));
+        assert.deepEqual(yield* migrator.version, Option.some("1.9.0"));
       }),
     ).pipe(Effect.provide(pgliteLayer())),
   ));
@@ -319,9 +319,9 @@ test("webhook migration adds lifecycle tables without changing existing credenti
         yield* previous.create("accounts", account);
         const storage = yield* makeExecutorStorage({ provider: "postgresql" });
         yield* storage.migrate;
-        assert.deepEqual(yield* storage.orm("1.8.2").findMany("accounts", {}), [account]);
-        assert.deepEqual(yield* storage.orm("1.8.2").findMany("webhooks", {}), []);
-        assert.deepEqual(yield* storage.orm("1.8.2").findMany("webhookAccounts", {}), []);
+        assert.deepEqual(yield* storage.orm("1.9.0").findMany("accounts", {}), [account]);
+        assert.deepEqual(yield* storage.orm("1.9.0").findMany("webhooks", {}), []);
+        assert.deepEqual(yield* storage.orm("1.9.0").findMany("webhookAccounts", {}), []);
       }),
     ).pipe(Effect.provide(pgliteLayer())),
   ));
@@ -383,14 +383,61 @@ test("re-deriving old webhook-era slugs preserves subscriptions, ciphertext and 
         yield* old.create("webhookAccounts", reference);
         const storage = yield* makeExecutorStorage({ provider: "postgresql" });
         yield* storage.migrate;
-        const current = storage.orm("1.8.2");
+        const current = storage.orm("1.9.0");
         assert.deepEqual(yield* current.findMany("apps", {}), [
           { ...app, slug: AppSlug.make("webhook-app") },
         ]);
         assert.deepEqual(yield* current.findMany("webhooks", {}), [hook]);
         assert.deepEqual(yield* current.findMany("webhookAccounts", {}), [reference]);
         assert.deepEqual(yield* current.findMany("accounts", {}), [account]);
-        assert.deepEqual(yield* migrator.version, Option.some("1.8.2"));
+        assert.deepEqual(yield* migrator.version, Option.some("1.9.0"));
+      }),
+    ).pipe(Effect.provide(pgliteLayer())),
+  ));
+
+test("workflow migration preserves current app identity, ciphertext, and deployment constraints", () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const client = executorDatabase.client(sqlAdapter({ provider: "postgresql" }));
+        const migrator = yield* client.createMigrator;
+        yield* (yield* migrator.migrateTo("1.8.2")).execute;
+        const old = client.orm("1.8.2");
+        yield* old.create("providers", { id: provider, definition: {} });
+        yield* old.create("accounts", account);
+        const deployment = {
+          id: DeploymentId.make("dpl_workflow_migration"),
+          code: AppCodeId.make("code_workflow_migration"),
+          owner: account.owner,
+          files: [],
+          build: BuildId.make("bld_workflow_migration"),
+          requirements: { accounts: {} },
+          createdAt: new Date(0),
+        };
+        yield* old.create("deployments", deployment);
+        const app = {
+          id: AppId.make("app_workflow_migration"),
+          code: deployment.code,
+          owner: account.owner,
+          name: "Workflow migration",
+          slug: AppSlug.make("workflow-migration"),
+          activeDeployment: deployment.id,
+          accounts: { service: account.id },
+          createdAt: new Date(0),
+        };
+        yield* old.create("apps", app);
+        const storage = yield* makeExecutorStorage({ provider: "postgresql" });
+        yield* storage.migrate;
+        const current = storage.orm("1.9.0");
+        assert.deepEqual(yield* current.findMany("apps", {}), [app]);
+        assert.deepEqual(yield* current.findMany("accounts", {}), [account]);
+        assert.deepEqual(yield* current.findMany("deployments", {}), [deployment]);
+        assert.deepEqual(yield* current.findMany("workflowRuns", {}), []);
+        assert.deepEqual(yield* current.findMany("workflowAccounts", {}), []);
+        const removed = yield* current
+          .deleteMany("deployments", { where: (b) => b("id", "=", deployment.id) })
+          .pipe(Effect.result);
+        assert.equal(removed._tag, "Failure");
       }),
     ).pipe(Effect.provide(pgliteLayer())),
   ));

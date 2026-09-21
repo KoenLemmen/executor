@@ -162,6 +162,7 @@ test(
                       },
                     },
                   }),
+                workflow: () => Effect.die("Unexpected workflow invocation"),
                 webhook: () => Effect.die("Unexpected webhook invocation"),
                 inspect: () => Effect.succeed([]),
                 call: () => Effect.succeed(null),

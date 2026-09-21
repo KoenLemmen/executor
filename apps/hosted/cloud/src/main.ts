@@ -1,6 +1,9 @@
 import { executorCloudApiDocument } from "./contracts/api.ts";
 import { hostedAppUi, appAddresses } from "@executor-js/hosted-server/app-ui";
 import { cloudAppUiBase } from "./contracts/app-ui.ts";
+import { WorkflowHost } from "@executor-js/sdk/core";
+import { AppWorkflows } from "./infrastructure/workflows.ts";
+import { HostedExecutor } from "@executor-js/hosted-server";
 import { BillingMeter } from "./contracts/billing-meter.ts";
 import { ExecutionAdmission } from "@executor-js/hosted-server";
 import { billingBindings } from "./infrastructure/billing.ts";
@@ -20,7 +23,7 @@ import {
   apiProtectedResource,
 } from "@executor-js/hosted-server";
 import * as Cloudflare from "alchemy/Cloudflare";
-import * as Command from "alchemy/Command";
+import { cloudSite } from "./infrastructure/site.ts";
 import * as Output from "alchemy/Output";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import { Config, Effect, Layer, Option, Path } from "effect";
@@ -68,12 +71,7 @@ export default Api.make(
     );
     const analytics = yield* postHogBindings;
     const sentry = yield* sentryBindings;
-    const site = yield* Command.Build("Site", {
-      cwd: "../../..",
-      command: "bun run hosted:cloud:site:build",
-      outdir: "apps/hosted/cloud/.generated/site",
-      env: { ...analytics.build, ...sentry.build },
-    });
+    const site = yield* cloudSite;
     return {
       main: import.meta.url,
       ...(yield* cloudObservability),
@@ -135,6 +133,7 @@ export default Api.make(
     const email = yield* cloudEmail.pipe(Effect.orDie);
     const auth = yield* cloudAuth(email.send);
     const welcomeEmails = yield* cloudWelcomeEmails(email.welcome);
+    yield* AppWorkflows;
     const executor = yield* cloudExecutor(yield* AppDataSupervisor);
     const appUi = hostedAppUi(appAddresses(auth.origin, yield* cloudAppUiBase.pipe(Effect.orDie)));
     const mcp = yield* cloudMcp;
@@ -148,6 +147,11 @@ export default Api.make(
       Effect.all(
         [
           welcomeEmails.deliver,
+          Effect.flatten(HostedExecutor).pipe(
+            Effect.flatMap((sdk) => sdk[WorkflowHost].reconcile),
+            Effect.provide(executor),
+            Effect.catch(() => Effect.logWarning("Workflow queue reconciliation failed")),
+          ),
           billingEnabled
             ? meter.reconcileSeats.pipe(
                 Effect.catch(() => Effect.logError("Billing seat reconciliation failed")),

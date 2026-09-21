@@ -2,6 +2,8 @@
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { OwnerId, StorageError, WebhookId } from "./shared.ts";
+import { AppWorkflowsActive } from "./apps.ts";
+import { AccountWorkflowsActive } from "./account.ts";
 
 /** Live provider registrations must be removed first; this operation never silently abandons them. */
 export class OwnerWebhooksActive extends Schema.TaggedError<OwnerWebhooksActive>()(
@@ -28,9 +30,9 @@ export const OwnersGroup = HttpApiGroup.make("owners").add(
   HttpApiEndpoint.delete("remove", "/v1/owners/:owner", {
     params: { owner: OwnerId },
     success: OwnerRemoved,
-    error: [StorageError, OwnerWebhooksActive],
+    error: [StorageError, OwnerWebhooksActive, AppWorkflowsActive, AccountWorkflowsActive],
   }).annotate(
     OpenApi.Description,
-    "Delete every record belonging to one owner: configured apps, app records, stopped webhooks, saved accounts and their credentials, retained deployments, pending connections and pending approvals. Remove live webhook subscriptions first. Repeating removal is safe.",
+    "Delete every record belonging to one owner: configured apps, app records, stopped webhooks, saved accounts and their credentials, retained deployments, pending connections, pending approvals and completed workflow runs. Remove live webhook subscriptions and finish or terminate active workflows first. Repeating removal is safe.",
   ),
 );

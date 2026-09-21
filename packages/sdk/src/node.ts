@@ -1,4 +1,4 @@
-/** Node-only host adapter. Trusted app code runs in this process with normal Node access. */
+/** Node host adapters. Products use workerdApps to isolate authored code. */
 import { nodeRuntime as nativeNodeRuntime } from "./implementation/node-runtime.ts";
 import { runtimeAdapter, type AppRuntime } from "./implementation/runtime.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -27,9 +27,12 @@ export const nodeRuntime = (options: NodeRuntimeOptions): AppRuntime => {
     inspect: (input) => runtime.inspect(input).pipe(provideNode),
     query: (input) => runtime.query(input).pipe(provideNode),
     mutate: (input) => runtime.mutate(input).pipe(provideNode),
+    workflow: (input) => runtime.workflow(input).pipe(provideNode),
     webhook: (input) => runtime.webhook(input).pipe(provideNode),
     call: (input) => runtime.call(input).pipe(provideNode),
   });
 };
 
 export { filesystemAppDatabases } from "@executor-js/app-data/node";
+
+export { workerdApps, WorkerdMigrationRequired } from "./implementation/workerd-apps.ts";

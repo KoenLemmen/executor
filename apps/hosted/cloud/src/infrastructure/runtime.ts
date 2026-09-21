@@ -1,3 +1,4 @@
+import { invocationWorkflow, invocationWorkflowControls } from "../implementation/workflow-rpc.ts";
 import { reportCloudFailure } from "../implementation/error-reporting.ts";
 /** Cloud apps use account-isolated cached Workers; explicitly declared databases run in facets. */
 import { appRpcBridge, appFacetBridge } from "../implementation/app-bridge.ts";
@@ -124,6 +125,14 @@ export const cloudRuntime = Effect.fn(function* (
           const entrypoint = yield* Schema.decodeUnknownEffect(AppRpcEntrypoint)(
             worker.getEntrypoint().raw,
           ).pipe(Effect.mapError((cause) => protocolFailed(cause)));
+          const workflow =
+            context.workflow === undefined
+              ? null
+              : yield* invocationWorkflow(context.workflow, lifetime.signal);
+          const controls =
+            context.workflowControls === undefined
+              ? null
+              : yield* invocationWorkflowControls(context.workflowControls, lifetime.signal);
           const invocation = yield* Effect.acquireRelease(
             Effect.tryPromise({
               try: () =>
@@ -132,11 +141,15 @@ export const cloudRuntime = Effect.fn(function* (
                     command,
                     accounts: Redacted.value(context.accounts),
                     approval: context.approval,
+                    replay: context.replay,
+                    workflowRun: context.workflow?.runId,
                   }),
                   headers,
                   context.elicitation === undefined
                     ? null
                     : invocationElicitation(context.elicitation, lifetime.signal),
+                  context.workflow === undefined ? null : workflow,
+                  context.workflowControls === undefined ? null : controls,
                 ),
               catch: protocolFailed,
             }).pipe(
@@ -226,6 +239,10 @@ export const cloudRuntime = Effect.fn(function* (
           );
           const target = databases.getByName(input.app);
           const id = crypto.randomUUID();
+          const workflowControls =
+            input.workflowControls === undefined
+              ? null
+              : yield* invocationWorkflowControls(input.workflowControls, lifetime.signal);
           const body = yield* target
             .invoke(
               {
@@ -240,11 +257,14 @@ export const cloudRuntime = Effect.fn(function* (
                   },
                 },
                 write:
-                  command.operation === "mutate" ||
+                  ["mutate", "webhook-register", "webhook-handle", "webhook-unregister"].includes(
+                    command.operation,
+                  ) ||
                   (command.operation === "call" && command.tool.startsWith("mutations.")),
                 body: JSON.stringify({
                   command,
                   approval: input.approval,
+                  replay: input.replay,
                   accounts: Redacted.value(input.accounts),
                 }),
                 headers: Object.fromEntries(Object.entries(yield* traceHeaders)),
@@ -252,6 +272,7 @@ export const cloudRuntime = Effect.fn(function* (
               input.elicitation === undefined
                 ? null
                 : invocationElicitation(input.elicitation, lifetime.signal),
+              workflowControls,
             )
             .pipe(
               Effect.onInterrupt(() => target.cancel(id).pipe(Effect.catch(() => Effect.void))),
@@ -328,6 +349,12 @@ export const cloudRuntime = Effect.fn(function* (
             identity,
           );
         }).pipe(Effect.withSpan("runtime.cloud.inspect")),
+      workflow: ({ app, build, command, ...context }) =>
+        Effect.gen(function* () {
+          const { database: _database, ...bundle } = yield* load(build);
+          const identity = `${app}:workflow:${context.workflow?.runId ?? "inspect"}:${yield* facetIdentity(build, JSON.stringify(Redacted.value(context.accounts))).pipe(Effect.mapError(protocolFailed))}`;
+          return yield* dispatch(bundle, command, context, Json, HostCallError, build, identity);
+        }),
       webhook: (input) => data(input.command, input),
       call: (input) =>
         data({ operation: "call", tool: input.tool, input: input.input }, input).pipe(

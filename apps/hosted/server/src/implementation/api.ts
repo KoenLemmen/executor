@@ -9,6 +9,7 @@ import { hostedOrganizationHandlers } from "./organization.ts";
 import { hostedAccountHandlers } from "./accounts.ts";
 import { hostedAppDataHandlers } from "./app-data.ts";
 import { hostedWebhookSetupHandlers } from "./webhook-setup.ts";
+import { hostedWorkflowHandlers } from "./workflows.ts";
 import { hostedWebhookHandlers } from "./webhooks.ts";
 import { hostedToolHandlers } from "./tools.ts";
 import { hostedAppHandlers } from "./apps.ts";
@@ -47,6 +48,7 @@ export const hostedHandlers = Layer.mergeAll(
   hostedOrganizationHandlers,
   hostedWebhookSetupHandlers,
   hostedWebhookHandlers,
+  hostedWorkflowHandlers,
   hostedAppHandlers,
   hostedSkillHandlers,
   hostedAccountHandlers,

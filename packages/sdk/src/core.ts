@@ -20,3 +20,12 @@ export {
 /** Optional Web Crypto adapter; callers retain signing-key custody. */
 export { aesGcmCredentials } from "./implementation/credentials.ts";
 export { webhookCallback } from "./implementation/webhook-http.ts";
+
+export * from "./contracts/workflows.ts";
+export {
+  WorkflowHost,
+  WorkflowSeed,
+  WorkflowBackendState,
+  type WorkflowRuntime,
+  type WorkflowDriver,
+} from "./contracts/workflow-runtime.ts";

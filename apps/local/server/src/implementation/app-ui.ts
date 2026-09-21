@@ -46,7 +46,7 @@ export const appUi = (
   auth: LocalAuth,
 ) => {
   const native = runtime;
-  const db = storage.orm("1.8.2");
+  const db = storage.orm("1.9.0");
   const current = (id: AppId) =>
     executor.apps
       .get({ app: id, owner: OwnerId.make("local") })
@@ -75,14 +75,12 @@ export const appUi = (
       if (app.activeDeployment !== pinned) return yield* new UiDeploymentChanged();
       return { app: app.id, deployment: pinned, name: payload.name, input: payload.input };
     });
+  const operationFailure = (error: unknown) =>
+    Schema.is(AccountRequired)(error) || Schema.is(OAuthReconnectRequired)(error)
+      ? failed("account_required")
+      : failed("operation_failed");
   const safeOperation = <A, E>(effect: Effect.Effect<A, E>) =>
-    effect.pipe(
-      Effect.mapError((error) =>
-        Schema.is(AccountRequired)(error) || Schema.is(OAuthReconnectRequired)(error)
-          ? failed("account_required")
-          : failed("operation_failed"),
-      ),
-    );
+    effect.pipe(Effect.mapError(operationFailure));
   const uiHandlers = HttpApiBuilder.group(AppUiApi, "ui", (handlers) =>
     handlers
       .handle("query", ({ payload }) =>
@@ -97,17 +95,12 @@ export const appUi = (
       )
       .handle("subscribe", ({ payload }) =>
         Effect.gen(function* () {
-          yield* operation(payload);
+          const input = yield* operation(payload);
           const request = yield* HttpServerRequest.HttpServerRequest;
-          const read = operation(payload).pipe(
-            Effect.flatMap((input) => Effect.result(safeOperation(executor.appData.query(input)))),
-          );
-          return storage.reactivity.subscribe(read).pipe(
-            Stream.map(({ value }) =>
-              Result.isSuccess(value)
-                ? { type: "snapshot" as const, value: value.success }
-                : { type: "failure" as const, error: value.failure },
-            ),
+          const source = yield* safeOperation(executor.appData.subscribe(input));
+          return source.pipe(
+            Stream.mapError(operationFailure),
+            Stream.map(({ value }) => ({ type: "snapshot" as const, value })),
             Stream.merge(
               Stream.tick("15 seconds").pipe(Stream.map(() => ({ type: "heartbeat" as const }))),
             ),

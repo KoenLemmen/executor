@@ -61,6 +61,7 @@ test("default setup preserves source, build and storage failures through HTTP an
           credentials,
           runtime: runtimeAdapter({
             build: () => Effect.fail(new RuntimeBuildFailed({ stage: "compile" })),
+            workflow: () => Effect.die("Unexpected workflow invocation"),
             webhook: () => Effect.die("Unexpected webhook invocation"),
             inspect: () => Effect.die("No build should be available"),
             call: () => Effect.die("No build should be available"),
@@ -210,7 +211,7 @@ test(
           assert.ok(app);
           const account = app.accounts.service;
           assert.equal(typeof account, "string");
-          yield* storage.orm("1.8.2").transaction(
+          yield* storage.orm("1.9.0").transaction(
             Effect.gen(function* () {
               yield* sql`set transaction read only`;
               for (let i = 0; i < 3; i++) {

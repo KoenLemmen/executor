@@ -37,6 +37,10 @@ export default class AppPages extends Cloudflare.Worker<AppPages>()(
       main: import.meta.url,
       ...(yield* cloudObservability),
       env: {
+        AppWorkflows: Cloudflare.Workflow("AppWorkflows", {
+          className: "AppWorkflows",
+          scriptName: (yield* Api).workerName,
+        }),
         ...(yield* telemetryBindings),
         ...(yield* billingBindings),
         ...(yield* sentryBindings).env,

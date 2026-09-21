@@ -3,6 +3,8 @@ import { makeLocalMcpOAuth } from "./mcp-oauth.ts";
 /** Local host composition. The SDK owns operations; this package owns local resources and access. */
 import {
   ExecutorApi,
+  WorkflowHost,
+  type Executor,
   AccountNotFound,
   AppNotFound,
   createExecutor,
@@ -10,8 +12,8 @@ import {
   executorHandlers,
   webhookCallback,
 } from "@executor-js/sdk/core";
-import { nodeRuntime, filesystemBlobStore, filesystemAppDatabases } from "@executor-js/sdk/node";
-import { Effect, Layer, Path, Redacted, Result } from "effect";
+import { filesystemBlobStore, workerdApps } from "@executor-js/sdk/node";
+import { Effect, Layer, Path, Redacted, Result, Deferred, Schedule } from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -58,15 +60,19 @@ export const localApi = (
       const storage = yield* openStorage(directory);
       const credentialStore = yield* credentials(config.encryptionKey, crypto);
       const httpClient = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
-      const runtime = nodeRuntime({ workDirectory: path.join(directory, "runtime-cache") });
       const blobs = filesystemBlobStore({ directory: path.join(directory, "builds") });
-      const appStorage = yield* filesystemAppDatabases({
-        directory: path.join(directory, "app-data"),
-        reactivity: storage.reactivity,
-        crypto,
+      const ready = yield* Deferred.make<Executor>();
+      const { runtime, workflows } = yield* workerdApps({
+        directory: path.join(directory, "workerd"),
+        blobs,
+        executor: Deferred.await(ready),
+        legacyDataDirectories: [
+          path.join(directory, "app-data"),
+          path.join(directory, "workflow-engine"),
+        ],
       });
       const executor = yield* createExecutor({
-        appStorage,
+        workflows,
         webhookOrigin:
           config.webhookOrigin ?? config.browserOrigin ?? `http://localhost:${config.port}`,
         storage,
@@ -82,6 +88,13 @@ export const localApi = (
             : { clientMetadataUrl: config.oauthClientMetadataUrl }),
         },
       });
+      yield* Deferred.succeed(ready, executor);
+      yield* Effect.forkScoped(
+        executor[WorkflowHost].reconcile.pipe(
+          Effect.catch(() => Effect.logWarning("Workflow queue reconciliation failed")),
+          Effect.repeat(Schedule.spaced("5 seconds")),
+        ),
+      );
       const managed = yield* installExecutorApp(executor, storage, credentialStore, config);
       const access = HttpRouter.middleware((httpEffect) =>
         Effect.gen(function* () {

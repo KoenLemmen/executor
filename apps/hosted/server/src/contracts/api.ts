@@ -14,6 +14,7 @@ import { HostedApps } from "./apps.ts";
 import { HostedAccounts } from "./accounts.ts";
 import { HostedAppData } from "./app-data.ts";
 import { HostedWebhookSetup } from "./webhook-setup.ts";
+import { HostedWorkflows } from "./workflows.ts";
 import { HostedWebhooks } from "./webhooks.ts";
 import { HostedTools } from "./tools.ts";
 import { HostedSkills } from "./skills.ts";
@@ -130,6 +131,7 @@ export const HostedApi = HttpApi.make("executor-hosted")
   .add(
     HostedWebhookSetup,
     HostedWebhooks,
+    HostedWorkflows,
     HostedApps,
     HostedSkills,
     HostedAccounts,

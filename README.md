@@ -293,9 +293,11 @@ return await Promise.all([
 ]);
 ```
 
-Each copy uses its own saved account selection. The interpreter has no direct
-filesystem, network, Node globals or imports. Its tool calls enter the trusted
-Node app runtime. Limits and cancellation are cooperative, not process isolation.
+Each copy uses its own saved account selection. All targets use
+`@opencode-ai/codemode` for `execute(code)`. The interpreter has no direct
+filesystem, network, Node globals or imports. Its tool calls enter the product's
+authorized app runtime. Authored apps run in workerd on Local, self-host and Cloud;
+CodeMode's interpreter limits and cancellation remain cooperative.
 See [MCP implementation and checks](notes/effect-mcp.md).
 
 ## Local dashboard

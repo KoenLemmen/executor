@@ -1,3 +1,4 @@
+import { AppWorkflowsActive, AccountWorkflowsActive } from "@executor-js/sdk/core";
 import { AccountWebhooksActive } from "@executor-js/sdk/core";
 import { AppWebhooksActive } from "@executor-js/sdk/core";
 /** Browser-safe read contracts for inspecting the local Executor instance. */
@@ -298,7 +299,7 @@ export const DashboardApi = HttpApi.make("local-dashboard").add(
       HttpApiEndpoint.delete("deleteApp", "/dashboard/api/apps/:app", {
         params: { app: AppId },
         success: Schema.Struct({ app: AppId }),
-        error: [StorageError, AppWebhooksActive, AppDeletionBlocked],
+        error: [StorageError, AppWebhooksActive, AppWorkflowsActive, AppDeletionBlocked],
       }),
     )
     .add(
@@ -453,7 +454,12 @@ export const DashboardApi = HttpApi.make("local-dashboard").add(
       HttpApiEndpoint.delete("disconnectAccount", "/dashboard/api/accounts/:account", {
         params: { account: AccountId },
         success: Schema.Struct({ account: AccountId }),
-        error: [StorageError, AccountWebhooksActive, AccountManagementBlocked],
+        error: [
+          StorageError,
+          AccountWebhooksActive,
+          AccountWorkflowsActive,
+          AccountManagementBlocked,
+        ],
       }),
     )
     .add(

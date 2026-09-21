@@ -1,3 +1,4 @@
+import { AppWorkflowsActive } from "../contracts/apps.ts";
 import { AppWebhooksActive } from "../contracts/apps.ts";
 import { appSlug } from "../contracts/app-slug.ts";
 /** Durable configured apps and immutable deployments, sharing one execution path. */
@@ -393,6 +394,19 @@ export const makeApps = (db: Query, runtime: Runtime, crypto: Crypto.Crypto) => 
             }),
           );
           if (live !== null) return yield* new AppWebhooksActive({ app: app.id });
+          const run = yield* query(() =>
+            tx.findFirst("workflowRuns", {
+              where: (b) =>
+                b.and(
+                  b("app", "=", app.id),
+                  b.or(b("status", "=", "queued"), b("status", "=", "running")),
+                ),
+            }),
+          );
+          if (run !== null) return yield* new AppWorkflowsActive({ app: app.id });
+          yield* query(() =>
+            tx.deleteMany("workflowRuns", { where: (b) => b("app", "=", app.id) }),
+          );
           yield* query(() => tx.deleteMany("webhooks", { where: (b) => b("app", "=", app.id) }));
           yield* query(() => tx.deleteMany("appRecords", { where: (b) => b("app", "=", app.id) }));
           yield* query(() => tx.deleteMany("apps", { where: (b) => b("id", "=", app.id) }));

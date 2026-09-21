@@ -9,6 +9,8 @@ const api = HttpApi.make("local-management")
   .add(ExecutorApi.groups.skills)
   .add(ExecutorApi.groups.accounts)
   .add(ExecutorApi.groups.webhooks)
+  .add(ExecutorApi.groups.appWorkflows)
+  .add(ExecutorApi.groups.appWorkflowRuns)
   .add(HttpApiGroup.make("tools").add(ExecutorApi.groups.tools.endpoints.list))
   .add(
     HttpApiGroup.make("accountConnections").add(

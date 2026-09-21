@@ -46,6 +46,7 @@ export const makeSqliteDatabase = (options: {
           yield* sql`CREATE TABLE IF NOT EXISTS app_database (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), schema_hash TEXT NOT NULL, cursor_key TEXT NOT NULL)`;
           yield* sql`CREATE TABLE IF NOT EXISTS app_rows (table_name TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY (table_name, id)) WITHOUT ROWID`;
           yield* sql`CREATE TABLE IF NOT EXISTS app_indexes (table_name TEXT NOT NULL, index_name TEXT NOT NULL, sort_key BLOB NOT NULL, row_id TEXT NOT NULL, PRIMARY KEY (table_name, index_name, sort_key)) WITHOUT ROWID`;
+          yield* sql`CREATE TABLE IF NOT EXISTS app_mutation_receipts (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL) WITHOUT ROWID`;
           yield* sql`CREATE INDEX IF NOT EXISTS app_indexes_by_row ON app_indexes (table_name, row_id)`;
           const generated = Encoding.encodeBase64Url(crypto.getRandomValues(new Uint8Array(32)));
           yield* sql`INSERT OR IGNORE INTO app_database (singleton, schema_hash, cursor_key) VALUES (1, ${schemaHash}, ${generated})`;
@@ -299,7 +300,45 @@ export const makeSqliteDatabase = (options: {
                   Effect.provideContext(context),
                 ),
               );
-            const session: DatabaseSession = { readTables: reads, changedTables: changes, execute };
+            const session: DatabaseSession = {
+              readTables: reads,
+              changedTables: changes,
+              execute,
+              once: (key, expected, work) =>
+                Effect.gen(function* () {
+                  if (!active) return yield* new AppDatabaseError({ reason: "closed" });
+                  if (!writable) return yield* new AppDatabaseError({ reason: "readonly" });
+                  const rows =
+                    yield* sql`SELECT fingerprint, result FROM app_mutation_receipts WHERE id = ${key}`.pipe(
+                      Effect.flatMap(
+                        Schema.decodeUnknownEffect(
+                          Schema.Array(
+                            Schema.Struct({ fingerprint: Schema.String, result: Schema.String }),
+                          ),
+                        ),
+                      ),
+                      Effect.mapError(storageError),
+                    );
+                  const saved = rows[0];
+                  if (saved !== undefined) {
+                    if (saved.fingerprint !== expected)
+                      return yield* new AppDatabaseError({ reason: "replay" });
+                    return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json))(
+                      saved.result,
+                    ).pipe(Effect.mapError(storageError));
+                  }
+                  const result = yield* work();
+                  const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Json))(
+                    result,
+                  ).pipe(Effect.mapError(storageError));
+                  if (new TextEncoder().encode(encoded).byteLength > 1024 * 1024)
+                    return yield* new AppDatabaseError({ reason: "limit" });
+                  yield* sql`INSERT INTO app_mutation_receipts (id, fingerprint, result) VALUES (${key}, ${expected}, ${encoded})`.pipe(
+                    Effect.mapError(storageError),
+                  );
+                  return result;
+                }),
+            };
             return yield* Effect.suspend(() => work(session)).pipe(
               Effect.tap(() =>
                 gate.withPermits(1)(

@@ -1,7 +1,13 @@
 import { executorSelfHostApiDocument } from "./contracts/api.ts";
 /** Self-host SDK uses the same PGlite connection as Better Auth. */
 import { urlPolicyConfig } from "@executor-js/utils/url-policy";
-import { toEffectRuntime, makeExecutorStorage, type SourceFile } from "@executor-js/sdk/core";
+import {
+  toEffectRuntime,
+  makeExecutorStorage,
+  WorkflowHost,
+  type Executor,
+  type SourceFile,
+} from "@executor-js/sdk/core";
 import {
   HostedExecutor,
   OrganizationIcons,
@@ -11,8 +17,8 @@ import {
 } from "@executor-js/hosted-server";
 import { postgresExecutor } from "@executor-js/hosted-server/database";
 import { HostedAppRuntime } from "@executor-js/hosted-server/app-ui/contracts";
-import { nodeRuntime, filesystemBlobStore, filesystemAppDatabases } from "@executor-js/sdk/node";
-import { Config, Effect, Layer, Option, Path } from "effect";
+import { filesystemBlobStore, workerdApps } from "@executor-js/sdk/node";
+import { Config, Effect, Layer, Option, Path, Deferred, Schedule } from "effect";
 import { dataDirectory } from "./contracts/config.ts";
 
 /** Database initialization finishes before this service is acquired. */
@@ -28,20 +34,31 @@ export const selfHostExecutor = (skills: readonly SourceFile[]) =>
         Config.option,
         Config.map(Option.getOrUndefined),
       );
-      const runtime = nodeRuntime({ workDirectory: path.resolve(directory, "runtime-cache") });
       const blobs = filesystemBlobStore({ directory: path.resolve(directory, "builds") });
       const storage = yield* makeExecutorStorage({ provider: "postgresql" });
-      const appStorage = yield* filesystemAppDatabases({
-        directory: path.resolve(directory, "app-data"),
-        reactivity: storage.reactivity,
-        crypto,
+      const ready = yield* Deferred.make<Executor>();
+      const { runtime, workflows } = yield* workerdApps({
+        directory: path.resolve(directory, "workerd"),
+        blobs,
+        executor: Deferred.await(ready),
+        legacyDataDirectories: [
+          path.resolve(directory, "app-data"),
+          path.resolve(directory, "workflow-engine"),
+        ],
       });
       const executor = yield* postgresExecutor(
         key,
         runtime,
         blobs,
         { urlPolicy, ...(clientMetadataUrl === undefined ? {} : { clientMetadataUrl }) },
-        { storage, appStorage, webhookOrigin: origin },
+        { storage, webhookOrigin: origin, workflows },
+      );
+      yield* Deferred.succeed(ready, executor);
+      yield* Effect.forkScoped(
+        executor[WorkflowHost].reconcile.pipe(
+          Effect.catch(() => Effect.logWarning("Workflow queue reconciliation failed")),
+          Effect.repeat(Schedule.spaced("5 seconds")),
+        ),
       );
       const initialize = yield* organizationDefaults(
         executor,

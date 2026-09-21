@@ -3,6 +3,7 @@ import * as Command from "alchemy/Command";
 import * as Docker from "alchemy/Docker";
 import * as Output from "alchemy/Output";
 import { retain } from "alchemy/RemovalPolicy";
+import { cloudSite } from "./site.ts";
 import { Config, Effect, Schema } from "effect";
 import { cloudDevelopment } from "../contracts/development.ts";
 import { cloudDevelopmentDatabaseUrl } from "../contracts/database.ts";
@@ -63,10 +64,13 @@ export const developmentWeb = (apiUrl: Output.Output<string | undefined>) =>
   Effect.gen(function* () {
     const configuration = yield* cloudDevelopment.pipe(Effect.orDie);
     const password = yield* Config.Redacted("CLOUD_DEV_DATABASE_PASSWORD");
+    const site = yield* cloudSite;
     yield* Command.Dev("DevelopmentWeb", {
       command: "node scripts/development-web.ts",
       env: {
         NODE_ENV: "development",
+        // The Site resource owns marketing output; do not start a second writer.
+        SITE_BUILD_HASH: site.hash.output,
         DATABASE_URL: cloudDevelopmentDatabaseUrl(password, configuration.databasePort),
         HOSTED_API_URL: apiUrl.pipe(Output.map(() => `http://127.0.0.1:${configuration.apiPort}`)),
       },

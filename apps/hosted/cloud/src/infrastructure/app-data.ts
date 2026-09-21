@@ -33,7 +33,8 @@ export const AppDataSupervisorLive = AppDataSupervisor.make(
         invoke: (
           input: typeof FacetInvocation.Type,
           elicitation: ((input: unknown) => Promise<unknown>) | null = null,
-        ) => supervisor.invoke(input, elicitation),
+          workflows: ((input: unknown) => Promise<unknown>) | null = null,
+        ) => supervisor.invoke(input, elicitation, workflows),
         cancel: (id: string) => supervisor.cancel(id),
         fetch: Effect.gen(function* () {
           const [response, socket] = yield* Cloudflare.upgrade();

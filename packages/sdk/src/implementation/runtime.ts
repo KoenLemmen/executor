@@ -151,6 +151,7 @@ export const toEffectRuntime = (definition: AppRuntime, blobs: BlobStorage): Run
     inspect: (input) => runtime.inspect(input).pipe(provide),
     query: (input) => runtime.query(input).pipe(provide),
     mutate: (input) => runtime.mutate(input).pipe(provide),
+    workflow: (input) => runtime.workflow(input).pipe(provide),
     webhook: (input) => runtime.webhook(input).pipe(provide),
     call: (input) => runtime.call(input).pipe(provide),
   };

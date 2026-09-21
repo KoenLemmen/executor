@@ -1,7 +1,12 @@
 /** Removing an organization is a separate capability; a host composes it only where it applies. */
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
-import { OwnerWebhooksActive, WebhookErrors } from "@executor-js/sdk/core";
+import {
+  OwnerWebhooksActive,
+  AppWorkflowsActive,
+  AccountWorkflowsActive,
+  WebhookErrors,
+} from "@executor-js/sdk/core";
 import { AuthenticationUnavailable } from "./auth.ts";
 import {
   OrganizationForbidden,
@@ -30,6 +35,8 @@ export const HostedOrganizationRemoval = HttpApiGroup.make("organizationRemoval"
         OrganizationIconUnavailable,
         AuthenticationUnavailable,
         OwnerWebhooksActive,
+        AppWorkflowsActive,
+        AccountWorkflowsActive,
         ...WebhookErrors,
       ],
     }).annotate(

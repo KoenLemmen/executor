@@ -155,6 +155,7 @@ test(
                         },
                       },
                     }),
+                  workflow: () => Effect.die("Unexpected workflow invocation"),
                   webhook: () => Effect.die("Unexpected webhook invocation"),
                   inspect: () => Effect.succeed([]),
                   query: () => Effect.succeed(null),
@@ -214,7 +215,7 @@ test(
                 );
               yield* Deferred.await(started);
               yield* storage
-                .orm("1.8.2")
+                .orm("1.9.0")
                 .transaction(
                   executor.accounts
                     .update({ owner: ownerA, account: one.id, label: "Rolled back" })
@@ -426,13 +427,13 @@ export default defineApp({ accounts: { service } }, async (appContext) => ({ nam
                 saved.alice,
               );
               const storage = yield* makeExecutorStorage({ provider: "postgresql" });
-              const accounts = yield* storage.orm("1.8.2").findMany("accounts");
+              const accounts = yield* storage.orm("1.9.0").findMany("accounts");
               assert.equal(accounts.find((account) => account.id === saved.one)?.label, "Renamed");
               assert.equal(
                 accounts.find((account) => account.id === saved.two)?.label,
                 "Beta account",
               );
-              const apps = yield* storage.orm("1.8.2").findMany("apps");
+              const apps = yield* storage.orm("1.9.0").findMany("apps");
               assert.equal(apps[0]?.id, saved.app);
               // Revocation uses current membership, not the session's remembered organization.
               const identity = yield* selfHostAuth;

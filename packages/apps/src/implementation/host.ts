@@ -1,3 +1,12 @@
+import { toPromise } from "./authoring.ts";
+import type { WorkflowControls, WorkflowReads } from "../contracts/workflows.ts";
+import {
+  WorkflowFailure,
+  WorkflowValue,
+  HostedWorkflow,
+  WorkflowReplay,
+} from "../contracts/workflows.ts";
+import { makeWorkflowContext, workflowSafe } from "./workflow-context.ts";
 /** Framework-owned dispatch. Each inspect/call binds accounts and evaluates afresh. */
 import { Cause, Effect, Match, Option, Redacted, Schema } from "effect";
 import {
@@ -216,10 +225,47 @@ function dispatch(
                   )
               : Effect.fail(new ElicitationFailed({ reason: "unavailable" })),
         );
+      const unavailableWorkflow = () =>
+        Effect.fail(new WorkflowFailure({ reason: "unavailable", retryable: false }));
+      const workflowControls: WorkflowControls = {
+        start: toPromise(
+          (input) =>
+            context.workflowControls === undefined
+              ? unavailableWorkflow()
+              : context.workflowControls.start(input),
+          invocationSignal,
+        ),
+        get: toPromise(
+          (input) =>
+            context.workflowControls === undefined
+              ? unavailableWorkflow()
+              : context.workflowControls.get(input),
+          invocationSignal,
+        ),
+        list: toPromise(
+          (input) =>
+            context.workflowControls === undefined
+              ? unavailableWorkflow()
+              : context.workflowControls.list(input),
+          invocationSignal,
+        ),
+        terminate: toPromise(
+          (input) =>
+            context.workflowControls === undefined
+              ? unavailableWorkflow()
+              : context.workflowControls.terminate(input),
+          invocationSignal,
+        ),
+      };
+      const workflowReads: WorkflowReads = {
+        get: workflowControls.get,
+        list: workflowControls.list,
+      };
       const bound = {
         ...(yield* bindAccounts(native.accounts, declared, context).pipe(
           Effect.withSpan("app.accounts.bind"),
         )),
+        workflows: workflowReads,
         signal: invocationSignal,
         fetch: yield* invocationFetch(invocationSignal),
         elicit: makeElicit(delivery, invocationSignal),
@@ -228,6 +274,78 @@ function dispatch(
         () => native.evaluate(bound).pipe(Effect.withSpan("app.evaluate")),
         new HostEvaluationFailed(),
       );
+      if (request.operation === "workflows") {
+        return yield* Effect.forEach(Object.entries(definition.workflows ?? {}), ([name, entry]) =>
+          safe(
+            () =>
+              Effect.gen(function* () {
+                return yield* Schema.decodeUnknownEffect(HostedWorkflow)({
+                  name,
+                  ...(entry.description === undefined ? {} : { description: entry.description }),
+                  inputSchema: yield* jsonSchema(entry.input),
+                  ...(entry.output === undefined
+                    ? {}
+                    : { outputSchema: yield* jsonSchema(entry.output) }),
+                });
+              }),
+            new HostDeclarationInvalid(),
+          ),
+        );
+      }
+      if (request.operation === "workflow-validate" || request.operation === "workflow-run") {
+        const entry =
+          definition.workflows !== undefined && Object.hasOwn(definition.workflows, request.name)
+            ? definition.workflows[request.name]
+            : undefined;
+        if (entry === undefined)
+          return yield* new WorkflowFailure({ reason: "not_found", retryable: false });
+        const input = yield* safe(
+          () => Schema.decodeUnknownEffect(entry.input)(request.input),
+          new WorkflowFailure({ reason: "input", retryable: false }),
+        );
+        if (request.operation === "workflow-validate")
+          return yield* safe(
+            () => Schema.decodeUnknownEffect(WorkflowValue)(input),
+            new WorkflowFailure({ reason: "input", retryable: false }),
+          );
+        const execution = context.workflow;
+        if (execution === undefined)
+          return yield* new WorkflowFailure({ reason: "unavailable", retryable: false });
+        const workflowContext = yield* makeWorkflowContext(
+          execution,
+          definition,
+          (stepId, signal) =>
+            Effect.gen(function* () {
+              const current = yield* execution.resolve();
+              const accounts = yield* safe(
+                () => bindAccounts(native.accounts, declared, current),
+                new WorkflowFailure({ reason: "credentials", retryable: false }),
+              );
+              return {
+                ...accounts,
+                fetch: yield* invocationFetch(signal),
+                signal,
+                runId: execution.runId,
+                stepId,
+                idempotencyKey: stepId,
+              };
+            }),
+          invocationSignal,
+        );
+        const output = yield* workflowSafe(entry.run(workflowContext, input));
+        const outputSchema = entry.output;
+        const decoded =
+          outputSchema === undefined
+            ? output
+            : yield* safe(
+                () => Schema.decodeUnknownEffect(outputSchema)(output),
+                new WorkflowFailure({ reason: "output", retryable: false }),
+              );
+        return yield* safe(
+          () => Schema.decodeUnknownEffect(WorkflowValue)(decoded),
+          new WorkflowFailure({ reason: "output", retryable: false }),
+        );
+      }
       if (request.operation === "inspect") {
         const metadata: HostedTool[] = [];
         for (const [prefix, readOnly, catalog] of [
@@ -276,6 +394,7 @@ function dispatch(
             request,
             {
               accounts: bound.accounts,
+              workflows: workflowControls,
               signal: bound.signal,
               fetch: bound.fetch,
               ...(db === undefined || native.database === undefined
@@ -380,6 +499,7 @@ function dispatch(
               {
                 ...bound,
                 fetch,
+                workflows: kind === "mutate" ? workflowControls : workflowReads,
                 ...(db === undefined || native.database === undefined
                   ? {}
                   : {
@@ -423,11 +543,20 @@ function dispatch(
             new HostOutputInvalid(),
           );
         });
+      const replay =
+        context.replay === undefined
+          ? undefined
+          : yield* safe(
+              () => Schema.decodeUnknownEffect(WorkflowReplay)(context.replay),
+              new HostInputInvalid(),
+            );
+      if (replay !== undefined && kind !== "mutate") return yield* new HostInputInvalid();
       if (native.database === undefined) return yield* execute();
       const storage = context.storage ?? unavailableStorage;
-      return yield* storage[kind === "query" ? "read" : "mutate"](
-        native.database.schema,
-        execute,
+      return yield* storage[kind === "query" ? "read" : "mutate"](native.database.schema, (db) =>
+        replay === undefined
+          ? execute(db)
+          : db.once(replay.key, replay.fingerprint, () => execute(db)),
       ).pipe(
         Effect.catchTags({
           AppDatabaseError: () => Effect.fail(new HostOperationFailed()),
@@ -441,6 +570,7 @@ function dispatch(
 
 const errorStatus = Match.type<HostError>().pipe(
   Match.tagsExhaustive({
+    WorkflowFailure: () => 422,
     HostRequestInvalid: () => 400,
     HostAccountsInvalid: () => 422,
     HostInputInvalid: () => 422,

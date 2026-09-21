@@ -1,3 +1,4 @@
+import { AccountWorkflowsActive } from "../contracts/account.ts";
 import { AccountWebhooksActive } from "../contracts/account.ts";
 /** Reusable account operations. Owners remain lookup predicates, not authorization. */
 import { Clock, type Crypto, Effect, Schema } from "effect";
@@ -145,6 +146,10 @@ export const makeAccounts = (db: Query, credentials: Credentials, crypto: Crypto
             tx.findFirst("webhookAccounts", { where: (b) => b("account", "=", row.id) }),
           );
           if (linked !== null) return yield* new AccountWebhooksActive({ account: row.id });
+          const workflow = yield* query(() =>
+            tx.findFirst("workflowAccounts", { where: (b) => b("account", "=", row.id) }),
+          );
+          if (workflow !== null) return yield* new AccountWorkflowsActive({ account: row.id });
           yield* query(() =>
             tx.deleteMany("oauthGrants", { where: (b) => b("id", "=", input.account) }),
           );

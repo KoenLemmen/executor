@@ -35,11 +35,9 @@ Declare the needed peer in the deployed app's `package.json`, for example:
 { "dependencies": { "@modelcontextprotocol/sdk": "1.30.0" } }
 ```
 
-The local runtime supplies `apps` and Effect. It installs and retains declared
-app dependencies, then bundles the imported framework code. Optional peers
-resolve from that app's installation, not the host's version. A missing peer
-fails the build with the dependency to add. Do not add host-supplied packages
-to a deployment manifest. In this repository, playground workspaces instead
+The product runtimes supply `apps` and Effect. They compile authored source and
+declared dependencies inside workerd, then retain the executable Worker modules.
+Do not add host-supplied packages to a deployment manifest. In this repository, playground workspaces instead
 use `"apps": "workspace:*"` for development.
 
 `openapiOperations` accepts normalized operations from the template generator,
@@ -117,3 +115,24 @@ Providers without a webhook API can use
 instead of `register` and `unregister`. The private setup page collects the
 `state` schema and the signing secret. Agents get a setup link and safe status
 through the normal management API. See [manual setup](../../notes/webhooks.md#manual-registration).
+
+## Workflows
+
+Declare `workflow(options, handler)` and register it in `defineApp(...).workflows`.
+Use `WorkflowContext<typeof requirements>` for a standalone handler. The body gets
+`runId` and `step`. `step.do` supplies fresh accounts and fetch; `step.runQuery`
+and `step.runMutation` call registered operations. Durable timers use `step.sleep`
+and `step.sleepUntil`.
+
+Start and inspect runs through `executor.apps.workflowRuns`. Inside an app,
+queries can inspect `ctx.workflows`; mutations and webhooks can also start and
+terminate runs. Workflow execution has no live `elicit` capability.
+
+See [workflow semantics](../../notes/app-workflows.md) for replay, idempotency,
+self-host recovery and v1 limits, and the
+[repository report example](../../playground/demo-apps/workflow-report/) for a full app.
+
+Local and self-host products run authored apps in Alchemy/workerd, using the
+same Worker build format and app-data facets as Cloud. Host filesystem and
+subprocess access are unavailable to app code. Agent `execute(code)` continues
+to use OpenCode CodeMode.

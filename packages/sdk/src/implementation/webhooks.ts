@@ -1,3 +1,4 @@
+import type { WorkflowHostControls } from "apps/contracts";
 import type { AppDatabases } from "@executor-js/app-data";
 import { bindAppStorage } from "./app-database.ts";
 import { CompleteWebhookSetup, WebhookSetupView } from "../contracts/webhook-setup.ts";
@@ -51,6 +52,7 @@ export const makeWebhooks = (
   crypto: Crypto.Crypto,
   origin?: string,
   appStorage?: AppDatabases,
+  workflows?: (app: AppId) => WorkflowHostControls,
 ) => {
   const db = database(storage);
   const next = crypto.randomUUIDv4.pipe(Effect.mapError(() => new StorageError()));
@@ -85,6 +87,7 @@ export const makeWebhooks = (
           build: state.deployment.build,
           ...context,
           ...(yield* bindAppStorage(appStorage, row.app)),
+          ...(workflows === undefined ? {} : { workflowControls: workflows(row.app) }),
           command,
         })
         .pipe(

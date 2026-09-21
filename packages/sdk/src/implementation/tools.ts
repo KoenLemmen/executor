@@ -2,7 +2,11 @@
 import { type Crypto, Effect, Match, Redacted, Result, Schema } from "effect";
 import type { AppDatabases } from "@executor-js/app-data";
 import { bindAppStorage } from "./app-database.ts";
-import { HostToolApprovalRequired, type ResolvedAccounts } from "apps/contracts";
+import {
+  type WorkflowHostControls,
+  HostToolApprovalRequired,
+  type ResolvedAccounts,
+} from "apps/contracts";
 import { AccountRequired } from "../contracts/apps.ts";
 import type { Executor } from "../contracts/executor.ts";
 import type { Runtime } from "../contracts/runtime.ts";
@@ -131,6 +135,8 @@ const runtimeFailure = (identity: { app: AppId; deployment: DeploymentId; tool: 
     Effect.Error<ReturnType<Runtime["call"] | Runtime["query"] | Runtime["mutate"]>>
   >().pipe(
     Match.tagsExhaustive({
+      WorkflowFailure: () =>
+        new ToolCallFailed({ ...identity, reason: "Workflow operation failed" }),
       ElicitationFailed: ({ reason }) => new ToolElicitationFailed({ ...identity, reason }),
       HostToolNotFound: () => new ToolNotFound(identity),
       HostOperationNotFound: () => new ToolNotFound(identity),
@@ -165,6 +171,7 @@ export const makeTools = (
   credentials: Credentials,
   crypto: Crypto.Crypto,
   appStorage?: AppDatabases,
+  workflows?: (app: AppId) => WorkflowHostControls,
 ) => {
   const db = database(storage);
   const approvals = makeToolApprovals(db, credentials, crypto, storage.reactivity.inTransaction);
@@ -181,7 +188,12 @@ export const makeTools = (
           "executor.build.id": state.deployment.build,
         });
         const tools = yield* runtime
-          .inspect({ app: state.app.id, build: state.deployment.build, ...context })
+          .inspect({
+            app: state.app.id,
+            build: state.deployment.build,
+            ...context,
+            ...(workflows === undefined ? {} : { workflowControls: workflows(state.app.id) }),
+          })
           .pipe(
             Effect.mapError(
               () =>
@@ -238,6 +250,7 @@ export const makeTools = (
           .call({
             app: state.app.id,
             ...(yield* bindAppStorage(appStorage, state.app.id)),
+            ...(workflows === undefined ? {} : { workflowControls: workflows(state.app.id) }),
             build: state.deployment.build,
             ...context,
             tool: parsed.tool,
@@ -306,6 +319,7 @@ export const makeTools = (
                   const value = yield* runtime.call({
                     app: saved.app,
                     ...(yield* bindAppStorage(appStorage, saved.app)),
+                    ...(workflows === undefined ? {} : { workflowControls: workflows(saved.app) }),
                     build: checked.success.state.deployment.build,
                     ...context,
                     tool: saved.tool,

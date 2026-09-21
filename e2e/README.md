@@ -355,6 +355,39 @@ bun run e2e:parity
 Missing, expired or mismatched sessions fail explicitly. For an anonymous check,
 use `bun run e2e:cloud --test-name 'cloud endpoint'` with only `E2E_CLOUD_URL`.
 
+### Workflow durability during a host deployment
+
+The confirmed-write timeout scenario first commits a control mutation. Its
+second mutation inserts and reads a row inside the transaction, then starts a
+separate workflow as a durable observation before waiting beyond its timeout.
+The scenario requires that observation and checks that the row remains absent
+after the authored body would otherwise have returned.
+
+The sleep scenario defaults to one second. On a dedicated deployed stage, set
+`E2E_WORKFLOW_HOLD_MS=180000` to provide a three-minute host deployment window:
+
+```sh
+# Also supply E2E_CLOUD_URL and E2E_CLOUD_ACTORS as above.
+E2E_WORKFLOW_HOLD_MS=180000 bun run e2e:cloud --test-name 'workflow sleep preserves'
+```
+
+Wait for `Workflow sleep window` and inspect the native Cloudflare instance to
+confirm an unfinished sleep before deploying the same stage through Alchemy.
+The case saves `sleeping-workflow.json` with the run ID. Capture the Worker
+deployment and instance version before and after deployment, while the sleep
+is still pending. After completion, `completed-workflow.json` identifies the
+original run and a fresh run. Require a changed Worker deployment before the
+sleep deadline, an unfinished sleep after that deployment, and successful
+completion of both runs. The HTTP assertions require exactly one mutation
+before and after each sleep. Record native workflow IDs separately: the
+workflow `versionId` stayed unchanged across the verified Worker redeployment
+and cannot be used as its Worker code version.
+
+The suite does not deploy infrastructure itself. A passing sleep scenario alone
+does not prove a host deployment overlapped it; retain the provider timestamps
+and version evidence with the report. The runner only forwards the bounded
+hold duration, never deployment credentials, into the test process.
+
 ## Existing failure
 
 The original 1,000-account run preserved every account and selection but lost later

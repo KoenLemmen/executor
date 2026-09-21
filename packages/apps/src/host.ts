@@ -1,5 +1,5 @@
 /** Public host adapter. No product auth, server listener or app-authored routes. */
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Scheduler } from "effect";
 import { collectTelemetry, withRemoteSpan } from "@executor-js/telemetry";
 import {
   HostAccountsInvalid,
@@ -67,7 +67,12 @@ export const createIsolatedAppHandler = (app: unknown) => {
         );
         return Response.json({ ...body, telemetry }, { status: value.status });
       }),
-      { signal: request.signal },
+      {
+        signal: request.signal,
+        // workerd delivers timers in order. A scheduler timer outside a transaction
+        // can block timers inside its closed input gate; microtasks avoid that queue.
+        scheduler: new Scheduler.MixedScheduler("sync"),
+      },
     );
 };
 
@@ -98,3 +103,8 @@ export const isolatedElicitation =
         reply.ok ? Effect.succeed(reply.response) : Effect.fail(reply.error),
       ),
     );
+
+export {
+  isolatedWorkflowExecution,
+  isolatedWorkflowControls,
+} from "./implementation/workflow-rpc.ts";

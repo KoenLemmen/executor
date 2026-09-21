@@ -98,6 +98,11 @@ const errorMessage = Match.type<HostedError>().pipe(
     Unauthorized: () => "Your session has ended. Sign in again.",
     Forbidden: () => "You do not have permission to make this request.",
     AuthenticationUnavailable: () => "Sign-in is unavailable. Try again shortly.",
+    AppWorkflowsActive: () =>
+      "Wait for this app’s workflows to finish or terminate them before deleting it.",
+    AccountWorkflowsActive: () =>
+      "Wait for this account’s workflows to finish or terminate them before deleting it.",
+    WorkflowFailure: (error) => `Workflow request failed (${error.reason}).`,
     AppWebhooksActive: () => "Remove this app’s webhook subscriptions before deleting it.",
     AccountWebhooksActive: () => "Remove this account’s webhook subscriptions before deleting it.",
     WebhookNotFound: () => "This webhook subscription is no longer available.",

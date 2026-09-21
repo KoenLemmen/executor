@@ -383,14 +383,14 @@ export const nodeRuntime = (options: NodeRuntimeOptions): Runtime<NodeRuntimeSer
       ).pipe(Effect.withSpan("runtime.node.build")),
     asset: ({ build, path: assetPath }) =>
       nodeBuildAsset(build, assetPath).pipe(Effect.withSpan("runtime.node.asset")),
-    inspect: ({ build, accounts }) =>
+    inspect: ({ build, ...context }) =>
       load(build)
         .pipe(
           Effect.flatMap((handler) =>
             dispatch(
               handler,
               { operation: "inspect" },
-              { accounts },
+              context,
               Schema.Array(HostedTool),
               HostInspectError,
             ),
@@ -413,6 +413,11 @@ export const nodeRuntime = (options: NodeRuntimeOptions): Runtime<NodeRuntimeSer
           ),
         )
         .pipe(Effect.withSpan("runtime.node.mutate")),
+    workflow: ({ build, command, ...context }) =>
+      load(build).pipe(
+        Effect.flatMap((handler) => dispatch(handler, command, context, Json, HostCallError)),
+        Effect.withSpan("runtime.node.workflow"),
+      ),
     webhook: ({ build, command, ...context }) =>
       load(build).pipe(
         Effect.flatMap((handler) => dispatch(handler, command, context, Json, HostCallError)),

@@ -156,6 +156,16 @@ export class AppWebhooksActive extends Schema.TaggedError<AppWebhooksActive>()(
   { httpApiStatus: 409, description: "Remove the app's webhook subscriptions before deleting it." },
 ) {}
 
+/** A configured app owns active runs and cannot disappear while they execute. */
+export class AppWorkflowsActive extends Schema.TaggedError<AppWorkflowsActive>()(
+  "AppWorkflowsActive",
+  { app: AppId },
+  {
+    httpApiStatus: 409,
+    description: "Terminate the app's active workflow runs before deleting it.",
+  },
+) {}
+
 /** Canonical operation inputs; Promise and HTTP callers use the same validators. */
 export const AppInputs = {
   deploy: DeployAppInput,
@@ -268,7 +278,7 @@ export const AppsGroup = HttpApiGroup.make("apps")
       params: appParams,
       query: ownerQuery,
       success: Schema.Struct({ app: AppId }),
-      error: [StorageError, AppWebhooksActive],
+      error: [StorageError, AppWebhooksActive, AppWorkflowsActive],
     }).annotate(
       OpenApi.Description,
       "Delete one configured app and its selections. Saved accounts, retained deployments and other copies are kept. Repeating removal is safe.",

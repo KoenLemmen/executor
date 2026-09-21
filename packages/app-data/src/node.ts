@@ -46,6 +46,9 @@ export const filesystemAppDatabases = (options: {
           const db = yield* makeSqliteDatabase({ sql, schema, crypto: options.crypto });
           const operation = db[write ? "mutate" : "read"]((session) =>
             work(session).pipe(
+              // Notification publication masks interruption after commit. Restore it
+              // for the author body so timeout/cancellation rolls back the SQL work.
+              Effect.interruptible,
               Effect.tap(() => {
                 const keys = [...session.readTables].map((table) =>
                   JSON.stringify(["app-data", app, table]),

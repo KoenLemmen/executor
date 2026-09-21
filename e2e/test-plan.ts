@@ -163,6 +163,42 @@ export const scenarios = {
       local: na("Local uses its configured instance API key."),
     },
   },
+  localWorkflows: {
+    file: "local-workflows.spec.ts",
+    title: "local app workflows execute through the authenticated SDK HTTP surface",
+    targets: {
+      local: scheduled,
+      "self-host": na("Hosted workflow coverage uses organization routes."),
+      cloud: na("Hosted workflow coverage uses organization routes."),
+    },
+  },
+  workflows: {
+    file: "workflows.spec.ts",
+    title: "app workflows pin deployments and accounts, retry steps, and enforce permissions",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("This scenario uses hosted app and account management routes."),
+    },
+  },
+  workflowTimeout: {
+    file: "workflow-durability.spec.ts",
+    title: "workflow timeouts roll back confirmed writes without late commits",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("This scenario uses hosted app management routes."),
+    },
+  },
+  workflowSleep: {
+    file: "workflow-durability.spec.ts",
+    title: "workflow sleep preserves completed mutations and resumes execution",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("This scenario uses hosted app management routes."),
+    },
+  },
   appContext: {
     file: "app-context.spec.ts",
     title: "standalone app handlers receive fresh accounts and scoped storage",
@@ -314,13 +350,19 @@ export const scenarios = {
   },
 } as const satisfies Record<string, typeof TestPlan.Type>;
 
+/** Hosted parity includes every scenario scheduled on both hosted products. */
+export const scenariosForSuite = (suite: "all" | "hosted") =>
+  Object.values(scenarios).filter(
+    (scenario) =>
+      suite === "all" ||
+      (scenario.targets["self-host"].status === "scheduled" &&
+        scenario.targets.cloud.status === "scheduled"),
+  );
+
 /** Select only explicitly scheduled files for a target; cloud scale stays disabled. */
 export const filesForTarget = (target: typeof Target.Type, suite: "all" | "hosted") => [
   ...new Set(
-    (suite === "hosted"
-      ? [scenarios.hosted, scenarios.mcp, scenarios.mcpProtocol, scenarios.appSkills]
-      : Object.values(scenarios)
-    )
+    scenariosForSuite(suite)
       .filter((scenario) => scenario.targets[target].status === "scheduled")
       .map((scenario) => `e2e/tests/${scenario.file}`),
   ),

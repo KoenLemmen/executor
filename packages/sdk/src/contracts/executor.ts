@@ -1,3 +1,4 @@
+import { WorkflowHost, type WorkflowRuntime } from "./workflow-runtime.ts";
 /** The shared Executor interface and remote client options; projected from ExecutorApi. */
 import { type Effect, type Redacted, type Stream, Schema } from "effect";
 import type { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
@@ -13,6 +14,7 @@ import type { BlobStorage } from "./blobs.ts";
 /** Caller-owned SQL, blobs, execution and encryption; constructors do not migrate or close them. */
 export interface ExecutorOptions {
   /** Public callback origin, provided by the serving product. Local providers need a reachable tunnel. */
+  readonly workflows?: WorkflowRuntime;
   readonly webhookOrigin?: string;
   readonly storage: ExecutorDatabase;
   readonly appStorage?: import("@executor-js/app-data").AppDatabases;
@@ -83,7 +85,7 @@ type WithInvocationOptions<M> = M extends (input: infer Input) => infer Output
  * decoded contract values, including Redacted secrets. Operations run in the
  * caller's fiber, retaining cancellation and live-query dependency tracking.
  */
-export type Executor = {
+type FlatExecutor = {
   readonly [G in Groups<ExecutorApi | typeof WebhookSetupApi> as HttpApiGroup.Identifier<G>]: {
     readonly [
       E in HttpApiGroup.Endpoints<G> as HttpApiEndpoint.Identifier<E>
@@ -95,9 +97,18 @@ export type Executor = {
   };
 };
 
+/** App-related namespaces remain beneath apps, including workflow execution management. */
+export type Executor = Omit<FlatExecutor, "apps" | "appWorkflows" | "appWorkflowRuns"> & {
+  readonly apps: FlatExecutor["apps"] & {
+    readonly workflows: FlatExecutor["appWorkflows"];
+    readonly workflowRuns: FlatExecutor["appWorkflowRuns"];
+  };
+  readonly [WorkflowHost]: import("./workflow-runtime.ts").WorkflowHost;
+};
+
 type Promisify<T> = T extends (...args: infer Args) => Effect.Effect<infer A, infer _E, never>
   ? (...args: { [Key in keyof Args]: PublicInput<Args[Key]> }) => Promise<PublicOutput<A>>
   : { readonly [Key in keyof T]: Promisify<T[Key]> };
 
 /** Root SDK facade over the same operations: plain inputs, Promises, and AsyncIterable subscriptions. */
-export type PromiseExecutor = Promisify<Executor>;
+export type PromiseExecutor = Promisify<Omit<Executor, typeof WorkflowHost>>;

@@ -1,3 +1,11 @@
+import {
+  WorkflowCommand,
+  WorkflowFailure,
+  type WorkflowExecution,
+  type WorkflowReplay,
+  type WorkflowHostControls,
+} from "./workflows.ts";
+export * from "./workflows.ts";
 import { DatabaseSchema } from "@executor-js/app-data/contracts";
 /** Portable framework dispatch contracts. Requests never carry account bindings. */
 import { Schema, type Effect, type Redacted } from "effect";
@@ -87,6 +95,9 @@ export type TrustedToolApproval = typeof TrustedToolApproval.Type;
 /** Trusted invocation context, supplied separately from the Request. */
 export interface HostContext {
   /** Private delivery capability. It is never accepted in public request JSON or stored in a build. */
+  readonly workflowControls?: WorkflowHostControls;
+  readonly workflow?: WorkflowExecution;
+  readonly replay?: WorkflowReplay;
   readonly elicitation?: ElicitationHandler;
   /** Trusted in-process tracing capability; never decoded from a public request. */
   readonly telemetry?: InvocationTelemetry;
@@ -111,6 +122,7 @@ export type HostedTool = typeof HostedTool.Type;
 
 /** Framework-owned dispatch, independent of app-authored HTTP routing. */
 export const HostRequest = Schema.Union([
+  WorkflowCommand,
   WebhookCommand,
   Schema.Struct({ operation: Schema.Literal("requirements") }),
   Schema.Struct({ operation: Schema.Literal("inspect") }),
@@ -202,6 +214,7 @@ export const HostInspectError = Schema.Union([
 ]);
 /** Tool invocation adds lookup, input, execution and output failures to inspection. */
 export const HostCallError = Schema.Union([
+  WorkflowFailure,
   HostInspectError,
   HostToolNotFound,
   HostOperationNotFound,
@@ -218,6 +231,7 @@ export const HostDataError = HostCallError;
 
 /** Safe error envelope; no author exception, source, account fields or stack is serialized. */
 export const HostError = Schema.Union([
+  WorkflowFailure,
   HostRequestInvalid,
   HostAccountsInvalid,
   HostDeclarationInvalid,

@@ -3,6 +3,7 @@ import type { DatabaseDefinition } from "./storage.ts";
 import { type Effect, Schema } from "effect";
 import type { AppOperation } from "./operations.ts";
 import type { AccountOf, AuthMethods, ManyAccounts, Provider } from "./provider.ts";
+import type { AppWorkflow, WorkflowReads } from "./workflows.ts";
 import type { Elicit } from "./elicitation.ts";
 
 /** Composition-only view. Specific handler inputs and outputs stay on the inferred definition. */
@@ -11,6 +12,7 @@ type Handler<Context> = (context: Context, input: never) => Effect.Effect<unknow
 /** App capabilities share one account context. No callbacks run during declaration. */
 export interface AppDefinition<Context> {
   readonly name: string;
+  readonly workflows?: Readonly<Record<string, AppWorkflow>>;
   readonly queries?: Readonly<Record<string, AppOperation>>;
   readonly mutations?: Readonly<Record<string, AppOperation>>;
   readonly webhooks?: Readonly<
@@ -39,6 +41,8 @@ type AccountsFor<Slot> =
 
 /** Current credentials for one invocation. Never retained in source or build output. */
 export interface BoundContext<Slots extends AccountSlots> {
+  /** Read-only run management, bound to this configured app. */
+  readonly workflows: WorkflowReads;
   /** Ask for user input during this tool call. Unavailable during discovery and after the invocation closes. */
   readonly elicit: Elicit;
   /** Invocation-owned HTTP requests with trace propagation and host cancellation. */
@@ -51,7 +55,7 @@ export interface BoundContext<Slots extends AccountSlots> {
 }
 
 /** The host evaluates this factory fresh with the configured app's selected accounts. */
-export interface App<Slots extends AccountSlots, Def extends AppDefinition<BoundContext<Slots>>> {
+export interface App<Slots extends AccountSlots, Def extends AppDefinition<never>> {
   readonly accounts: Slots;
   readonly database?: DatabaseDefinition;
   readonly evaluate: (context: BoundContext<Slots>) => Effect.Effect<Def, unknown>;

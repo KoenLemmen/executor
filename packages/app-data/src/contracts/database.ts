@@ -101,6 +101,7 @@ export class AppDatabaseError extends Schema.TaggedError<AppDatabaseError>()("Ap
     "limit",
     "closed",
     "storage",
+    "replay",
   ]),
 }) {}
 
@@ -144,6 +145,13 @@ export const defaultDatabaseRuntimeLimits = DatabaseRuntimeLimits.make({
 
 /** The host binds one database and read/write authority for the entire invocation. */
 export interface DatabaseSession {
+  /** Host-only idempotency receipt, committed atomically with the mutation and validated result. */
+  readonly once: <E, R>(
+    key: string,
+    fingerprint: string,
+    work: () => Effect.Effect<Schema.Json, E, R>,
+  ) => Effect.Effect<Schema.Json, E | AppDatabaseError, R>;
+
   readonly readTables: ReadonlySet<string>;
   readonly changedTables: ReadonlySet<string>;
   readonly execute: (

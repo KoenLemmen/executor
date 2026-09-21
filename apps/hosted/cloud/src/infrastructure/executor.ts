@@ -22,6 +22,7 @@ import { Config, Effect, Layer, Option } from "effect";
 import { cloudBuildAsset } from "../implementation/build-storage.ts";
 import { withExecutorAnalytics } from "../implementation/product-analytics.ts";
 import { cloudBlobs } from "./blobs.ts";
+import { cloudWorkflows } from "./workflows.ts";
 import { cloudRuntime } from "./runtime.ts";
 import { DatabaseConnection } from "./database.ts";
 import { cloudSecrets } from "./secrets.ts";
@@ -47,6 +48,7 @@ export const cloudExecutor = Effect.fn(function* (
   );
   const connection = yield* Cloudflare.Hyperdrive.Connect(yield* DatabaseConnection);
   const makeRuntime = yield* cloudRuntime(databases);
+  const workflows = yield* cloudWorkflows;
   const blobs = yield* cloudBlobs;
   const executor = yield* makeExecutionMemo(
     Effect.gen(function* () {
@@ -64,7 +66,7 @@ export const cloudExecutor = Effect.fn(function* (
         runtime,
         blobs,
         { urlPolicy, ...(clientMetadataUrl === undefined ? {} : { clientMetadataUrl }) },
-        { storage, webhookOrigin: origin },
+        { storage, webhookOrigin: origin, workflows },
       ).pipe(Effect.provideContext(services), Effect.provide(BrowserCrypto.layer));
       const initialize = yield* organizationDefaults(
         executor,

@@ -65,6 +65,20 @@ export const executorHandlers = (executor: Executor) =>
     HttpApiBuilder.group(ExecutorApi, "owners", (handlers) =>
       handlers.handle("remove", ({ params }) => executor.owners.remove(params)),
     ),
+    HttpApiBuilder.group(ExecutorApi, "appWorkflows", (handlers) =>
+      handlers.handle("list", ({ params }) => executor.apps.workflows.list(params)),
+    ),
+    HttpApiBuilder.group(ExecutorApi, "appWorkflowRuns", (handlers) =>
+      handlers
+        .handle("start", ({ params, payload }) =>
+          executor.apps.workflowRuns.start({ ...params, ...payload }),
+        )
+        .handle("get", ({ params }) => executor.apps.workflowRuns.get(params))
+        .handle("list", ({ params, query }) =>
+          executor.apps.workflowRuns.list({ ...params, ...query }),
+        )
+        .handle("terminate", ({ params }) => executor.apps.workflowRuns.terminate(params)),
+    ),
     HttpApiBuilder.group(ExecutorApi, "webhooks", (handlers) =>
       handlers
         .handle("get", ({ params }) => executor.webhooks.get(params))

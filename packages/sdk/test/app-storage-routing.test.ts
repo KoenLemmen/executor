@@ -33,6 +33,7 @@ for (const database of [undefined, {}]) {
                   build: BuildId.make("bld_fixture"),
                   requirements: { accounts: {}, ...(database === undefined ? {} : { database }) },
                 }),
+              workflow: () => Effect.die("Unexpected workflow invocation"),
               webhook: () => Effect.die("Unexpected webhook invocation"),
               inspect: () => Effect.succeed([]),
               call: () => Effect.succeed(null),

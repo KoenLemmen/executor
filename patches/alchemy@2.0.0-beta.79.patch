@@ -726,3 +726,29 @@ index 02757fb2cfd6cb7eb0c7af3ae4bc0ae2699e0b43..24e4d8049366a0725dd6e4b06c8cc08f
  
            // `dev: { mode: "external" }` opts out of running a local Worker
            // entirely — typically because an external dev process
+diff --git a/src/Cloudflare/Workflows/Workflow.ts b/src/Cloudflare/Workflows/Workflow.ts
+--- a/src/Cloudflare/Workflows/Workflow.ts
++++ b/src/Cloudflare/Workflows/Workflow.ts
+@@ -1121,3 +1121,3 @@
+     diff: Effect.fn(function* ({ news, output }) {
+-      const { accountId } = yield* yield* CloudflareEnvironment;
++      const accountId = output?.accountId ?? "local";
+       if (!output?.workflowId) return { action: "update" } as const;
+@@ -1135,3 +1135,3 @@
+     reconcile: Effect.fn(function* ({ news, output }) {
+-      const { accountId } = yield* yield* CloudflareEnvironment;
++      const accountId = output?.accountId ?? "local";
+       return {
+diff --git a/lib/Cloudflare/Workflows/Workflow.js b/lib/Cloudflare/Workflows/Workflow.js
+--- a/lib/Cloudflare/Workflows/Workflow.js
++++ b/lib/Cloudflare/Workflows/Workflow.js
+@@ -595,3 +595,3 @@
+     diff: Effect.fn(function* ({ news, output }) {
+-        const { accountId } = yield* yield* CloudflareEnvironment;
++        const accountId = output?.accountId ?? "local";
+         if (!output?.workflowId)
+@@ -611,3 +611,3 @@
+     reconcile: Effect.fn(function* ({ news, output }) {
+-        const { accountId } = yield* yield* CloudflareEnvironment;
++        const accountId = output?.accountId ?? "local";
+         return {

@@ -9,6 +9,8 @@ import type {
   WebhookContext,
 } from "../contracts/context.ts";
 import { fromPromise, type PromiseMethods } from "./authoring.ts";
+import { nativeWorkflow, type WorkflowDeclaration } from "./workflows.ts";
+import type { WorkflowContext } from "../contracts/workflows.ts";
 import { nativeOperation, type OperationDeclaration } from "./operations.ts";
 import { decoderOf, isSchema, type Schema } from "./schema.ts";
 
@@ -26,22 +28,26 @@ type PromiseCatalog<Catalog> =
 /** Author definition projected from native capabilities. Excluding callable objects keeps
  * factories from being inferred as definitions and preserves contextual handler inference. */
 export type AppDefinition<Requirements extends AppRequirements> = {
-  readonly [Key in keyof NativeDefinition<WebhookContext<Requirements>>]: Key extends "queries"
-    ? Readonly<Record<string, OperationDeclaration<"query", QueryContext<Requirements>>>>
-    : Key extends "mutations"
-      ? Readonly<Record<string, OperationDeclaration<"mutation", MutationContext<Requirements>>>>
-      : Key extends "webhooks"
-        ? PromiseCatalog<NonNullable<NativeDefinition<WebhookContext<Requirements>>[Key]>>
-        : NativeDefinition<WebhookContext<Requirements>>[Key];
+  readonly [Key in keyof NativeDefinition<WebhookContext<Requirements>>]: Key extends "workflows"
+    ? Readonly<Record<string, WorkflowDeclaration<WorkflowContext<Requirements>>>>
+    : Key extends "queries"
+      ? Readonly<Record<string, OperationDeclaration<"query", QueryContext<Requirements>>>>
+      : Key extends "mutations"
+        ? Readonly<Record<string, OperationDeclaration<"mutation", MutationContext<Requirements>>>>
+        : Key extends "webhooks"
+          ? PromiseCatalog<NonNullable<NativeDefinition<WebhookContext<Requirements>>[Key]>>
+          : NativeDefinition<WebhookContext<Requirements>>[Key];
 } & { readonly tools?: never; readonly call?: never };
 
 /** Adapt operation and webhook catalogs without evaluating their handlers. */
 export type EffectDefinition<Def> = {
-  readonly [Key in keyof Def]: Key extends "queries" | "mutations"
-    ? Readonly<Record<string, import("../contracts/operations.ts").AppOperation>>
-    : Key extends "webhooks"
-      ? NonNullable<NativeDefinition<WebhookContext>["webhooks"]>
-      : Def[Key];
+  readonly [Key in keyof Def]: Key extends "workflows"
+    ? Readonly<Record<string, import("../contracts/workflows.ts").AppWorkflow>>
+    : Key extends "queries" | "mutations"
+      ? Readonly<Record<string, import("../contracts/operations.ts").AppOperation>>
+      : Key extends "webhooks"
+        ? NonNullable<NativeDefinition<WebhookContext>["webhooks"]>
+        : Def[Key];
 };
 
 const InternalApp = Symbol("apps.App");
@@ -110,6 +116,18 @@ function adaptDefinition<
         return [name, operation];
       }),
     );
+  const workflows =
+    definition.workflows === undefined
+      ? {}
+      : {
+          workflows: Object.fromEntries(
+            Object.entries(definition.workflows).map(([name, value]) => {
+              const declared = nativeWorkflow(value);
+              if (declared === undefined) throw new Error("Invalid workflow declaration");
+              return [name, declared];
+            }),
+          ),
+        };
   const data = {
     ...(definition.queries === undefined
       ? {}
@@ -121,7 +139,7 @@ function adaptDefinition<
   // SAFETY: only the listed handler/schema fields are replaced. Each callback
   // forwards the same arguments/result; every other property and catalog key survives.
   // Object.entries/fromEntries erase those generic key associations.
-  return { ...definition, ...webhooks, ...data } as EffectDefinition<Def>;
+  return { ...definition, ...webhooks, ...workflows, ...data } as EffectDefinition<Def>;
 }
 
 /** Assemble static declarations or evaluate a dynamic catalog using the same host path. */

@@ -1,5 +1,6 @@
 /** Configured-app data dispatch. Platform storage never holds authored rows. */
 import { Effect, Schema, Stream } from "effect";
+import type { WorkflowHostControls } from "apps/contracts";
 import type { AppDatabases } from "@executor-js/app-data";
 import { bindAppStorage } from "./app-database.ts";
 import { Json } from "../contracts/shared.ts";
@@ -17,6 +18,7 @@ export const makeAppData = (
   resolveAccount: ReturnType<typeof makeOAuth>["resolve"],
   runtime: Runtime,
   appStorage?: AppDatabases,
+  workflows?: (app: import("../contracts/shared.ts").AppId) => WorkflowHostControls,
 ) => {
   const db = database(storage);
   const execute = (kind: "query" | "mutate", input: AppDataInput) =>
@@ -28,6 +30,7 @@ export const makeAppData = (
         ...accounts,
         app: state.app.id,
         ...(yield* bindAppStorage(appStorage, state.app.id)),
+        ...(workflows === undefined ? {} : { workflowControls: workflows(state.app.id) }),
         name: input.name,
         input: input.input,
       }).pipe(

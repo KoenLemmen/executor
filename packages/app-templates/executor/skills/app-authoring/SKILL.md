@@ -650,3 +650,37 @@ signing secrets in chat or include them in tool arguments. Read status with
 `webhooks_get`. Manual removal returns `disabled`; after removing it
 in the provider, use `webhooks_confirmRemoval`. This confirms the
 operator's action; Executor cannot verify external deletion without a provider API.
+
+## Workflows
+
+Register `workflow({ input, output?, description? }, async (ctx, input) => result)`
+in `defineApp(requirements, { ..., workflows: { name: declaration } })`.
+Import `WorkflowContext<typeof requirements>` for handlers in separate files.
+The body has `runId` and `step`; it has no database, accounts or `elicit`.
+
+Use `step.do("name", async (ctx) => value)` for external work. Its context has fresh
+accounts, fetch, signal and a stable `idempotencyKey`. Retry options can precede
+the callback: `{ retries: { limit: 3, delay: "2 seconds", backoff: "exponential" },
+timeout: "30 seconds" }`. Throw `NonRetryableError` for permanent failure.
+Return bounded JSON, or `null` when no result is needed.
+
+Use `step.runQuery("name", registeredQuery, input)` and
+`step.runMutation("name", registeredMutation, input)` for app storage. Register
+those declarations in the normal query/mutation catalogs too. A mutation's
+receipt commits atomically with its database writes, so lost checkpoints do not
+repeat a committed database mutation. External API writes still need idempotency.
+
+Use `step.sleep("name", "1 minute")` or `step.sleepUntil("name", timestamp)` for
+waiting. Put time reads, randomness and I/O inside steps; use their results for
+branches and loops. `Promise.all` works for independent steps. Runs pin deployed
+code and account IDs, but each executing step resolves current credentials.
+
+App mutations/webhooks can call `ctx.workflows.start({ workflow, input, key? })`
+and `terminate({ run })`. Queries also have `get({ run })` and `list(options?)`.
+Controls cannot target another app. Use stable start keys when retrying a caller;
+starting a workflow is not part of the calling app database transaction.
+The SDK namespace is `executor.apps.workflowRuns`, with discovery through
+`executor.apps.workflows.list`. Do not invent `executor.workflowRuns`.
+
+V1 has no webhook/event wait, durable human-input request, or restart helper.
+Background operations retain approval rules and fail if they require live input.

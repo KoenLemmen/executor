@@ -40,3 +40,5 @@ export const createExecutor = (options: ExecutorOptions): Promise<Executor> =>
 /** Create a remote Executor client. Currently rejects with NotImplemented until the transport is implemented. */
 export const createRemoteExecutor = (options: RemoteExecutorOptions): Promise<Executor> =>
   Effect.runPromise(createRemoteExecutorEffect(options).pipe(Effect.map(promiseExecutor)));
+
+export * from "./contracts/workflows.ts";

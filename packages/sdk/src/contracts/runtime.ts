@@ -8,6 +8,7 @@ import {
   type HostedTool,
   type HostContext,
   type WebhookCommand,
+  type WorkflowCommand,
 } from "apps/contracts";
 import { SourceFiles } from "./deployment.ts";
 import { BuildId, Json } from "./shared.ts";
@@ -92,6 +93,14 @@ export interface Runtime<Requirements = never> {
       readonly app: string;
       readonly build: BuildId;
       readonly command: WebhookCommand;
+    } & HostContext,
+  ) => Effect.Effect<Json, RuntimeLoadError | typeof HostCallError.Type, Requirements>;
+  /** Discover or execute workflows against the same retained app build. */
+  readonly workflow: (
+    input: {
+      readonly app: string;
+      readonly build: BuildId;
+      readonly command: WorkflowCommand;
     } & HostContext,
   ) => Effect.Effect<Json, RuntimeLoadError | typeof HostCallError.Type, Requirements>;
   readonly call: (

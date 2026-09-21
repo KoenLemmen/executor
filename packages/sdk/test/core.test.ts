@@ -55,6 +55,7 @@ const runtime: Runtime = {
         },
       },
     }),
+  workflow: () => Effect.die("Unexpected workflow invocation"),
   webhook: () => Effect.die("Unexpected webhook invocation"),
   inspect: () => Effect.succeed([]),
   query: () => Effect.succeed(null),
@@ -168,7 +169,7 @@ test(
             label: "Example",
             fields: Redacted.make({ token: "synthetic-token" }),
           });
-          const db = options.storage.orm("1.8.2");
+          const db = options.storage.orm("1.9.0");
           yield* db
             .transaction(add.pipe(Effect.andThen(Effect.fail("rollback"))))
             .pipe(Effect.result);

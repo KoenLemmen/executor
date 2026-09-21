@@ -1,3 +1,9 @@
+import {
+  StartWorkflow,
+  WorkflowTarget,
+  WorkflowApp,
+  ListWorkflowRuns,
+} from "../contracts/workflows.ts";
 import { CompleteWebhookSetup } from "../contracts/webhook-setup.ts";
 /** Promise facade parses plain inputs before calling native operations. */
 import { CreateWebhook, WebhookApp, WebhookTarget, DeliverWebhook } from "../contracts/webhooks.ts";
@@ -77,6 +83,14 @@ export const promiseExecutor = (executor: Executor): PromiseExecutor => {
       remove: (input) => run(OwnerInputs.remove, input, executor.owners.remove),
     },
     apps: {
+      workflows: { list: (input) => run(WorkflowApp, input, executor.apps.workflows.list) },
+      workflowRuns: {
+        start: (input) => run(StartWorkflow, input, executor.apps.workflowRuns.start),
+        get: (input) => run(WorkflowTarget, input, executor.apps.workflowRuns.get),
+        list: (input) =>
+          run(Schema.toType(ListWorkflowRuns), input, executor.apps.workflowRuns.list),
+        terminate: (input) => run(WorkflowTarget, input, executor.apps.workflowRuns.terminate),
+      },
       deploy: (input) => run(AppInputs.deploy, input, executor.apps.deploy),
       add: (input) => run(AppInputs.add, input, executor.apps.add),
       get: (input) => run(AppInputs.get, input, executor.apps.get),

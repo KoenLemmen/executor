@@ -2,6 +2,8 @@
 import { Effect } from "effect";
 import type { Executor } from "../contracts/executor.ts";
 import { OwnerWebhooksActive } from "../contracts/owner.ts";
+import { AppWorkflowsActive } from "../contracts/apps.ts";
+import { AccountWorkflowsActive } from "../contracts/account.ts";
 import { WebhookId } from "../contracts/shared.ts";
 import { query, transaction, type Query } from "./database.ts";
 
@@ -11,6 +13,13 @@ export const makeOwners = (db: Query): Executor["owners"] => ({
     transaction(db, (tx) =>
       Effect.gen(function* () {
         const owner = input.owner;
+        // Workflow start locks apps before accounts. Hold that same order through the purge.
+        yield* query(() =>
+          tx.updateMany("apps", { where: (b) => b("owner", "=", owner), set: { owner } }),
+        );
+        yield* query(() =>
+          tx.updateMany("accounts", { where: (b) => b("owner", "=", owner), set: { owner } }),
+        );
         const apps = yield* query(() =>
           tx.findMany("apps", { select: ["id"], where: (b) => b("owner", "=", owner) }),
         );
@@ -33,6 +42,46 @@ export const makeOwners = (db: Query): Executor["owners"] => ({
         const appIds = apps.map((app) => app.id);
         const accountIds = accounts.map((account) => account.id);
         const webhookIds = webhooks.map((webhook) => webhook.id);
+        const activeRun = yield* query(() =>
+          tx.findFirst("workflowRuns", {
+            where: (b) =>
+              b.and(
+                b("owner", "=", owner),
+                b.or(b("status", "=", "queued"), b("status", "=", "running")),
+              ),
+          }),
+        );
+        if (activeRun !== null) return yield* new AppWorkflowsActive({ app: activeRun.app });
+        if (accountIds.length > 0) {
+          const pinned = yield* query(() =>
+            tx.findFirst("workflowAccounts", {
+              where: (b) => b("account", "in", accountIds),
+            }),
+          );
+          if (pinned !== null)
+            return yield* new AccountWorkflowsActive({ account: pinned.account });
+        }
+        const runs = yield* query(() =>
+          tx.findMany("workflowRuns", {
+            select: ["id"],
+            where: (b) => b("owner", "=", owner),
+          }),
+        );
+        if (runs.length > 0) {
+          yield* query(() =>
+            tx.deleteMany("workflowAccounts", {
+              where: (b) =>
+                b(
+                  "run",
+                  "in",
+                  runs.map((run) => run.id),
+                ),
+            }),
+          );
+          yield* query(() =>
+            tx.deleteMany("workflowRuns", { where: (b) => b("owner", "=", owner) }),
+          );
+        }
         if (webhookIds.length > 0) {
           yield* query(() =>
             tx.deleteMany("webhookAccounts", {

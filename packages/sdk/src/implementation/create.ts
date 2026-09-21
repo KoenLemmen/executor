@@ -1,3 +1,5 @@
+import { WorkflowHost } from "../contracts/workflow-runtime.ts";
+import { makeWorkflowRuns } from "./workflows.ts";
 /** Compose native operations once for in-process and HTTP callers. */
 import { Crypto, Effect } from "effect";
 import type { Executor, ExecutorOptions, RemoteExecutorOptions } from "../contracts/executor.ts";
@@ -23,6 +25,15 @@ export const createExecutor = (
     const db = database(options.storage);
     const runtime = toEffectRuntime(options.runtime, options.blobs);
     const oauth = makeOAuth(db, options.credentials, crypto, options.oauth);
+    const workflows = makeWorkflowRuns(
+      options.storage,
+      runtime,
+      oauth.resolve,
+      options.credentials,
+      crypto,
+      options.workflows,
+      options.appStorage,
+    );
     const webhooks = makeWebhooks(
       options.storage,
       runtime,
@@ -31,9 +42,15 @@ export const createExecutor = (
       crypto,
       options.webhookOrigin,
       options.appStorage,
+      workflows.controls,
     );
-    const apps = makeApps(db, runtime, crypto);
+    const apps = {
+      ...makeApps(db, runtime, crypto),
+      workflows: { list: workflows.definitions },
+      workflowRuns: workflows.runs,
+    };
     return {
+      [WorkflowHost]: workflows.host,
       accounts: makeAccounts(db, options.credentials, crypto),
       accountConnections: {
         ...makeAccountConnections(db, options.credentials, crypto),
@@ -43,7 +60,13 @@ export const createExecutor = (
       owners: makeOwners(db),
       skills: makeSkills(apps),
       ...webhooks,
-      appData: makeAppData(options.storage, oauth.resolve, runtime, options.appStorage),
+      appData: makeAppData(
+        options.storage,
+        oauth.resolve,
+        runtime,
+        options.appStorage,
+        workflows.controls,
+      ),
       tools: makeTools(
         options.storage,
         oauth.resolve,
@@ -51,6 +74,7 @@ export const createExecutor = (
         options.credentials,
         crypto,
         options.appStorage,
+        workflows.controls,
       ),
     };
   });

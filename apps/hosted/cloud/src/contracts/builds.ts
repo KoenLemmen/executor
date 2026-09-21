@@ -1,11 +1,9 @@
-/** Retained Worker code and optional private browser asset metadata. */
-import { UiAsset, type RuntimeBuildFailed, type SourceFiles } from "@executor-js/sdk/core";
-import { WorkerBundle } from "@executor-js/app-data/worker-bundle";
+/** Retained Worker bundles use the shared SDK wire format. */
+import type { RuntimeBuildFailed, SourceFiles } from "@executor-js/sdk/core";
+import { WorkerBundle as CloudBundle } from "@executor-js/sdk/workerd";
 import { Schema, type Effect } from "effect";
-
-/** Executable modules are separate from browser bytes and product authentication. */
-export const CloudBundle = WorkerBundle;
-export type CloudBundle = typeof CloudBundle.Type;
+export { CloudBundle };
+export { RetainedWorkerBuild as RetainedCloudBuild } from "@executor-js/sdk/workerd";
 
 /** Private compiler RPC result; no storage handles or caller credentials cross this boundary. */
 export const CompiledCloudApp = Schema.Struct({
@@ -28,10 +26,3 @@ export type CloudCompiler = {
     headers: Readonly<Record<string, string>>,
   ) => Effect.Effect<typeof CompiledCloudApp.Type, RuntimeBuildFailed>;
 };
-
-/** The existing bundle key remains the publication point; builds without a UI omit its metadata. */
-export const RetainedCloudBuild = Schema.Struct({
-  ...CloudBundle.fields,
-  database: Schema.Boolean,
-  ui: Schema.optional(Schema.Array(UiAsset)),
-});

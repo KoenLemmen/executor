@@ -163,3 +163,16 @@ export {
   type OperationOptions,
 } from "./implementation/operations.ts";
 export type { OperationContext } from "./contracts/operations.ts";
+
+export { workflow, type Workflow, type WorkflowDeclaration } from "./implementation/workflows.ts";
+export {
+  NonRetryableError,
+  WorkflowFailure,
+  type WorkflowContext,
+  type WorkflowStepContext,
+  type WorkflowStep,
+  type WorkflowStepOptions,
+  type WorkflowDuration,
+  type WorkflowReads,
+  type WorkflowControls,
+} from "./contracts/workflows.ts";

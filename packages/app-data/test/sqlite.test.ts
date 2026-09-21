@@ -261,3 +261,67 @@ test("bounded scans fail instead of truncating and a defect cannot leak a live t
     await runtime.dispose();
   }
 });
+
+test("mutation receipts commit with writes, replay saved results, and roll back on failure", async () => {
+  const runtime = ManagedRuntime.make(Sqlite.layer({ filename: ":memory:" }));
+  try {
+    const db = await runtime.runPromise(
+      Effect.flatMap(SqlClient, (sql) => makeSqliteDatabase({ sql, schema, crypto })),
+    );
+    const insert = (session: DatabaseSession) =>
+      session.execute({ kind: "insert", table: "messages", value: { mailbox: "receipt" } });
+    const first = await runtime.runPromise(
+      db.mutate((session) => session.once("one", "input-a", () => insert(session))),
+    );
+    // A caller lost the acknowledgement after commit: repeat the same durable step.
+    const replay = await runtime.runPromise(
+      db.mutate((session) =>
+        session.once("one", "input-a", () => Effect.die("Must not repeat a committed mutation")),
+      ),
+    );
+    assert.deepEqual(replay, first);
+    const mismatch = await runtime.runPromise(
+      db
+        .mutate((session) => session.once("one", "input-b", () => insert(session)))
+        .pipe(Effect.result),
+    );
+    assert.ok(Result.isFailure(mismatch));
+    assert.equal(mismatch.failure.reason, "replay");
+    const rolledBack = await runtime.runPromise(
+      db
+        .mutate((session) =>
+          session.once("two", "input", () =>
+            insert(session).pipe(Effect.flatMap(() => Effect.fail("rollback"))),
+          ),
+        )
+        .pipe(Effect.result),
+    );
+    assert.ok(Result.isFailure(rolledBack));
+    // Neither the write nor the receipt survived, so a retry can commit.
+    await runtime.runPromise(
+      db.mutate((session) => session.once("two", "input", () => insert(session))),
+    );
+    const invalid = await runtime.runPromise(
+      db
+        .mutate((session) =>
+          session.once("three", "input", () =>
+            insert(session).pipe(Effect.as("x".repeat(1024 * 1024 + 1))),
+          ),
+        )
+        .pipe(Effect.result),
+    );
+    assert.ok(Result.isFailure(invalid));
+    const count = await runtime.runPromise(
+      db.read((session) =>
+        session.execute({
+          kind: "query",
+          plan: { ...plan, index: "by_creation", clauses: [] },
+          terminal: { kind: "count" },
+        }),
+      ),
+    );
+    assert.equal(count, 2);
+  } finally {
+    await runtime.dispose();
+  }
+});

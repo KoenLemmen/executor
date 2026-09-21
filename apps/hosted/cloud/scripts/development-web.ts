@@ -5,9 +5,8 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Config, Console, Effect, FileSystem, Layer, Path } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { HttpRouter } from "effect/unstable/http";
-import { cloudDevelopment, DevelopmentWebFailed } from "../src/contracts/development.ts";
+import { cloudDevelopment } from "../src/contracts/development.ts";
 import { cloudSessionCookiePrefix } from "../src/contracts/browser.ts";
 import { homepageResponse } from "../src/implementation/homepage-response.ts";
 import { marketingFiles } from "../src/implementation/marketing.ts";
@@ -41,18 +40,8 @@ const main = Effect.scoped(
       path.dirname(yield* path.fromFileUrl(new URL(import.meta.url))),
       "../web",
     );
-    // The dashboard still hot reloads. Marketing is static, matching the deployed asset path.
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    // Alchemy starts this process after the shared Site build has finished.
     const marketingRoot = path.resolve(root, "../../../marketing");
-    const build = yield* spawner.spawn(
-      ChildProcess.make("bun", ["run", "build"], {
-        cwd: marketingRoot,
-        stdout: "inherit",
-        stderr: "inherit",
-      }),
-    );
-    const status = yield* build.exitCode;
-    if (status !== 0) return yield* new DevelopmentWebFailed({ stage: "build" });
     const configuration = yield* cloudDevelopment;
     const origin = new URL(configuration.origin);
     const tls =

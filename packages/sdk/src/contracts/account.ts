@@ -82,6 +82,16 @@ export class AccountWebhooksActive extends Schema.TaggedError<AccountWebhooksAct
   },
 ) {}
 
+/** Active workflows retain their selected account identities until completion or termination. */
+export class AccountWorkflowsActive extends Schema.TaggedError<AccountWorkflowsActive>()(
+  "AccountWorkflowsActive",
+  { account: AccountId },
+  {
+    httpApiStatus: 409,
+    description: "Terminate this account's active workflow runs before deleting it.",
+  },
+) {}
+
 export const AccountsGroup = HttpApiGroup.make("accounts")
   .add(
     HttpApiEndpoint.post("add", "/v1/accounts", {
@@ -135,7 +145,7 @@ export const AccountsGroup = HttpApiGroup.make("accounts")
       params: accountParams,
       query: ownerQuery,
       success: Schema.Struct({ account: AccountId }),
-      error: [StorageError, AccountWebhooksActive],
+      error: [StorageError, AccountWebhooksActive, AccountWorkflowsActive],
     }).annotate(
       OpenApi.Description,
       "Delete a saved account and its local credentials. Inspect affected app selections and confirm the intended account first. Does not revoke access at the provider. To stop using the account in only one app, update that app selection instead.",

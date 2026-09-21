@@ -118,7 +118,7 @@ test(
             yield* f.executor.tools.call({ app: f.app.id, tool: ToolName.make("mutations.count") }),
             { status: "completed", value: 0 },
           );
-          const rows = yield* f.options.storage.orm("1.8.2").findMany("toolApprovals", {});
+          const rows = yield* f.options.storage.orm("1.9.0").findMany("toolApprovals", {});
           assert.equal(rows.length, 1);
           assert.ok(rows[0]);
           assert.equal(
@@ -150,7 +150,7 @@ test(
             },
           });
           const marker = yield* f.options.storage
-            .orm("1.8.2")
+            .orm("1.9.0")
             .findFirst("toolApprovals", { where: (b) => b("id", "=", request.requestId) });
           assert.ok(marker);
           assert.equal(marker.status, "consumed");
@@ -201,7 +201,7 @@ test(
           });
           assert.deepEqual(denied, { status: "denied", requestId: request.requestId });
           const marker = yield* f.options.storage
-            .orm("1.8.2")
+            .orm("1.9.0")
             .findFirst("toolApprovals", { where: (b) => b("id", "=", request.requestId) });
           assert.ok(marker);
           assert.equal(marker.encrypted.byteLength, 0);
@@ -256,7 +256,7 @@ test(
           });
           assert.equal(
             yield* f.options.storage
-              .orm("1.8.2")
+              .orm("1.9.0")
               .findFirst("toolApprovals", { where: (b) => b("id", "=", expired.requestId) }),
             null,
           );
@@ -337,7 +337,7 @@ test("concurrent resumes from independent SDK handles dispatch once", { timeout:
           .pipe(Effect.forkChild);
         yield* Deferred.await(entered);
         const marker = yield* f.options.storage
-          .orm("1.8.2")
+          .orm("1.9.0")
           .findFirst("toolApprovals", { where: (b) => b("id", "=", request.requestId) });
         assert.ok(marker);
         assert.equal(marker.status, "consumed");
@@ -527,7 +527,7 @@ test(
         Effect.gen(function* () {
           const f = yield* fixture;
           const request = yield* pending(f);
-          const db = f.options.storage.orm("1.8.2");
+          const db = f.options.storage.orm("1.9.0");
           assert.ok(
             Schema.is(RequestInvalid)(
               yield* Effect.flip(
@@ -603,7 +603,7 @@ test(
           const afterExpiry =
             Math.max(expired.expiresAt, consumed.expiresAt, foreign.expiresAt) + 1;
           yield* atTime(afterExpiry, f.executor.tools.pruneApprovals({ owner }));
-          const rows = yield* f.options.storage.orm("1.8.2").findMany("toolApprovals", {});
+          const rows = yield* f.options.storage.orm("1.9.0").findMany("toolApprovals", {});
           assert.deepEqual(
             new Set(rows.map(({ id }) => id)),
             new Set([live.requestId, foreign.requestId]),
@@ -623,13 +623,13 @@ test(
           yield* Effect.promise(() => promise.tools.pruneApprovals({ owner: foreignOwner }));
           yield* atTime(afterExpiry, f.executor.tools.pruneApprovals());
           assert.deepEqual(
-            (yield* f.options.storage.orm("1.8.2").findMany("toolApprovals", {})).map(
+            (yield* f.options.storage.orm("1.9.0").findMany("toolApprovals", {})).map(
               ({ id }) => id,
             ),
             [live.requestId],
           );
           yield* atTime(live.expiresAt, f.executor.tools.pruneApprovals());
-          assert.deepEqual(yield* f.options.storage.orm("1.8.2").findMany("toolApprovals", {}), []);
+          assert.deepEqual(yield* f.options.storage.orm("1.9.0").findMany("toolApprovals", {}), []);
         }).pipe(Effect.provide(services)),
       ),
     ),
@@ -651,7 +651,7 @@ test("saving another approval prunes expired payloads and markers", { timeout: 2
           pending(f),
         );
         assert.deepEqual(
-          (yield* f.options.storage.orm("1.8.2").findMany("toolApprovals", {})).map(({ id }) => id),
+          (yield* f.options.storage.orm("1.9.0").findMany("toolApprovals", {})).map(({ id }) => id),
           [fresh.requestId],
         );
       }).pipe(Effect.provide(services)),
@@ -682,7 +682,7 @@ test("simultaneous pending resumes compete for one consumption", { timeout: 20_0
           { status: "completed", value: 1 },
         );
         const row = yield* f.options.storage
-          .orm("1.8.2")
+          .orm("1.9.0")
           .findFirst("toolApprovals", { where: (b) => b("id", "=", request.requestId) });
         assert.ok(row);
         assert.equal(row.encrypted.byteLength, 0);
@@ -716,7 +716,7 @@ test(
             },
           );
           const row = yield* f.options.storage
-            .orm("1.8.2")
+            .orm("1.9.0")
             .findFirst("toolApprovals", { where: (b) => b("id", "=", request.requestId) });
           assert.ok(row);
           assert.equal(row.encrypted.byteLength, 0);
@@ -763,7 +763,7 @@ test(
             );
           }
           const row = yield* f.options.storage
-            .orm("1.8.2")
+            .orm("1.9.0")
             .findFirst("toolApprovals", { where: (b) => b("id", "=", request.requestId) });
           assert.equal(row?.status, "pending");
           const result = yield* f.executor.tools.resume({

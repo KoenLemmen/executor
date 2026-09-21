@@ -1,3 +1,4 @@
+import type { WorkflowRunId } from "apps/contracts";
 import { appSlug } from "./app-slug.ts";
 /** Persisted records. Decode database results with these schemas before use. */
 import { Schema, Struct } from "effect";
@@ -63,11 +64,23 @@ export type StoredConnectionTarget = typeof StoredConnectionTarget.Type;
 /** The host owns encryption and key custody. Ciphertexts are bound to the account, client, attempt, or approval-request identity. */
 export interface Credentials {
   readonly encrypt: (
-    identity: AccountId | OAuthClientId | OAuthAttemptId | ApprovalRequestId | WebhookId,
+    identity:
+      | AccountId
+      | OAuthClientId
+      | OAuthAttemptId
+      | ApprovalRequestId
+      | WebhookId
+      | WorkflowRunId,
     fields: Redacted.Redacted<JsonObject>,
   ) => Effect.Effect<Uint8Array, CredentialsError>;
   readonly decrypt: (
-    identity: AccountId | OAuthClientId | OAuthAttemptId | ApprovalRequestId | WebhookId,
+    identity:
+      | AccountId
+      | OAuthClientId
+      | OAuthAttemptId
+      | ApprovalRequestId
+      | WebhookId
+      | WorkflowRunId,
     bytes: Redacted.Redacted<Uint8Array>,
   ) => Effect.Effect<Redacted.Redacted<JsonObject>, CredentialsError>;
 }

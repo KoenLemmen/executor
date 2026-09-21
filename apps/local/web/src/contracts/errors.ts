@@ -100,6 +100,16 @@ const errorMessage = Match.type<DashboardError>().pipe(
       message("The app took too long", "Its live tool catalog did not finish loading. Try again."),
     ToolCatalogChanged: () =>
       message("The tool catalog changed", "Try again to load the current tool catalog."),
+    AppWorkflowsActive: () =>
+      message(
+        "Workflows are still running",
+        "Wait for this app’s runs to finish or terminate them before deleting it.",
+      ),
+    AccountWorkflowsActive: () =>
+      message(
+        "Workflows still use this account",
+        "Wait for its runs to finish or terminate them before deleting it.",
+      ),
     AppWebhooksActive: () =>
       message(
         "Webhooks are still registered",

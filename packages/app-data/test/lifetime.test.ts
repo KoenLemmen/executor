@@ -1,8 +1,14 @@
-/** Exercise supervisor leases over real workerd RPC, including a call beyond the native gate deadline. */
+/** Exercise the supervisor queue over real workerd RPC, beyond the native gate deadline. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Miniflare } from "miniflare";
+import { Schema } from "effect";
 import { bundleHarness } from "./bundle.ts";
+
+const Reply = Schema.Struct({
+  ok: Schema.Literal(true),
+  value: Schema.Struct({ instance: Schema.String, id: Schema.String }),
+});
 
 const facet = `import { DurableObject } from "cloudflare:workers";
 export class ExecutorAppData extends DurableObject {
@@ -24,7 +30,7 @@ export class ExecutorAppData extends DurableObject {
 }`;
 
 test(
-  "long calls do not hold the DO event gate; replacement drains leases and cancellation targets one call",
+  "serialized data calls keep the supervisor responsive and queued cancellation preserves the active facet",
   { timeout: 50_000 },
   async () => {
     const mf = new Miniflare({
@@ -44,7 +50,7 @@ test(
       });
     try {
       const initial = await request("/data?app=a&version=v1", { write: false, delay: 0 });
-      const first = await initial.json();
+      const first = Schema.decodeUnknownSync(Reply)(await initial.json());
       const started = Date.now();
       const long = request("/data?app=a&version=v1&request=long", { write: false, delay: 31_500 });
       const cancelled = request("/data?app=a&version=v1&request=cancelled", {
@@ -52,9 +58,13 @@ test(
         delay: 60_000,
       });
       await new Promise((resolve) => setTimeout(resolve, 100));
-      const fast = await request("/data?app=a&version=v1", { write: false, delay: 0 });
-      assert.equal(fast.status, 200);
-      assert.ok(Date.now() - started < 5_000);
+      let fastFinished = false;
+      const fast = request("/data?app=a&version=v1", { write: false, delay: 0 }).then(
+        (response) => {
+          fastFinished = true;
+          return response;
+        },
+      );
       let replaced = false;
       const replacement = request("/data?app=a&version=v2", { write: false, delay: 0 }).then(
         (response) => {
@@ -65,11 +75,17 @@ test(
       await new Promise((resolve) => setTimeout(resolve, 50));
       assert.equal(replaced, false);
       assert.equal((await request("/cancel?app=a&request=cancelled")).status, 200);
+      assert.ok(Date.now() - started < 5_000);
       assert.equal((await cancelled).status, 500);
+      assert.equal(fastFinished, false);
       assert.equal(replaced, false);
       const completed = await long;
       assert.equal(completed.status, 200, await completed.clone().text());
       assert.ok(Date.now() - started > 30_000);
+      const drained = await fast;
+      assert.equal(drained.status, 200);
+      const retained = Schema.decodeUnknownSync(Reply)(await drained.json());
+      assert.equal(retained.value.instance, first.value.instance);
       const after = await replacement;
       assert.equal(after.status, 200);
       assert.notDeepEqual(await after.json(), first);

@@ -44,7 +44,9 @@ export const postgresExecutor = (
   runtime: AppRuntime,
   blobs: BlobStorage,
   oauth?: Pick<OAuthOptions, "clientMetadataUrl" | "urlPolicy">,
-  options?: Partial<Pick<ExecutorOptions, "storage" | "appStorage" | "webhookOrigin">>,
+  options?: Partial<
+    Pick<ExecutorOptions, "storage" | "appStorage" | "webhookOrigin" | "workflows">
+  >,
 ) =>
   Effect.gen(function* () {
     const storage = options?.storage ?? (yield* makeExecutorStorage({ provider: "postgresql" }));
@@ -52,6 +54,7 @@ export const postgresExecutor = (
     const httpClient = yield* HttpClient.HttpClient;
     return yield* createExecutor({
       storage,
+      ...(options?.workflows === undefined ? {} : { workflows: options.workflows }),
       ...(options?.webhookOrigin === undefined ? {} : { webhookOrigin: options.webhookOrigin }),
       ...(options?.appStorage === undefined ? {} : { appStorage: options.appStorage }),
       blobs,

@@ -1,3 +1,4 @@
+import { AppWorkflowsActive } from "@executor-js/sdk/core";
 import { AppWebhooksActive } from "@executor-js/sdk/core";
 /** App installation and configuration. Owners always come from authenticated organization context. */
 import {
@@ -106,7 +107,7 @@ export const HostedApps = HttpApiGroup.make("apps")
     HttpApiEndpoint.delete("remove", `${prefix}/:app`, {
       params: app,
       success: Schema.Struct({ app: AppId }),
-      error: [StorageError, AppWebhooksActive, OrganizationForbidden],
+      error: [StorageError, AppWebhooksActive, AppWorkflowsActive, OrganizationForbidden],
     }),
   )
   .add(
