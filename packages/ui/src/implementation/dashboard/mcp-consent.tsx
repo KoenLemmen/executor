@@ -56,8 +56,27 @@ export function McpConsentLoading() {
   );
 }
 
+/**
+ * A registered client chooses its own display name, so the name alone cannot tell
+ * the person who is asking. The authorization server has already matched this
+ * redirect URI against the client's registration, and it is where the
+ * authorization code is delivered, so it is shown as the destination.
+ */
+export const consentDestination = (redirectUri: string | null): string | undefined => {
+  if (redirectUri === null || redirectUri.length === 0) return undefined;
+  const target = URL.parse(redirectUri);
+  if (target === null) return undefined;
+  return target.origin === "null" ? `${target.protocol}//` : target.origin;
+};
+
 /** OAuth's requested resource determines this read-only approval summary. */
-export function McpConsentSummary({ target }: { readonly target: GrantTarget }) {
+export function McpConsentSummary({
+  target,
+  destination,
+}: {
+  readonly target: GrantTarget;
+  readonly destination?: string | undefined;
+}) {
   const approval =
     target.kind === "api"
       ? undefined
@@ -90,6 +109,18 @@ export function McpConsentSummary({ target }: { readonly target: GrantTarget }) 
         <div>
           <h2>{approval.title}</h2>
           <p>{approval.detail}</p>
+        </div>
+      )}
+      {destination !== undefined && (
+        <div className="mcp-consent-destination">
+          <h2>Where access is sent</h2>
+          <p>
+            Approving sends this connection’s access to{" "}
+            <span className="mcp-consent-destination-origin break-all text-foreground [font-weight:550]">
+              {destination}
+            </span>
+            . Only continue if you recognize it.
+          </p>
         </div>
       )}
     </div>

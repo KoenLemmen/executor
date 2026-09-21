@@ -14,3 +14,8 @@ export {
   type InvocationTelemetry,
 } from "./context.ts";
 export { collectTelemetry, forwardTelemetry, TelemetryBatch } from "./relay.ts";
+export {
+  allowlistedSpans,
+  httpSpanAttributeAllowlist,
+  spanAttributeAllowed,
+} from "./span-attributes.ts";

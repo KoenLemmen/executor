@@ -69,6 +69,24 @@ export const cloudflareRedirects = (): {
           fileName: "_redirects",
           source: [...rewrites].sort().join("\n") + "\n",
         });
+        // The dashboard carries the MCP consent page, which grants credentials on
+        // one click. No other site may frame any dashboard document. Marketing and
+        // documentation paths are left alone because they share this asset root.
+        const framed = [...rewrites]
+          .map((rewrite) => rewrite.split(" ")[0])
+          .filter((pattern): pattern is string => pattern !== undefined)
+          .sort();
+        this.emitFile({
+          type: "asset",
+          fileName: "_headers",
+          source:
+            framed
+              .map(
+                (pattern) =>
+                  `${pattern}\n  Content-Security-Policy: frame-ancestors 'none'\n  X-Frame-Options: DENY`,
+              )
+              .join("\n\n") + "\n",
+        });
       },
     },
   };

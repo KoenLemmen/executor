@@ -12,6 +12,10 @@ export const webFiles = Effect.gen(function* () {
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
+      // The MCP consent page grants credentials on one click, and a same-site
+      // loopback page on any other port would otherwise be able to frame it.
+      "content-security-policy": "frame-ancestors 'none'",
+      "x-frame-options": "DENY",
     },
   }).pipe(
     Effect.catch(() =>

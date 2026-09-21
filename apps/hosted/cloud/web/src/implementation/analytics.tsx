@@ -7,6 +7,14 @@ import { useEffect } from "react";
 
 let started = false;
 
+/** URL fingerprints are kept out of PostHog on every property channel, not just events. */
+const deniedUrlProperties = [
+  "$current_url",
+  "$initial_current_url",
+  "$referrer",
+  "$initial_referrer",
+];
+
 const deploymentProperties = () => ({
   product_version: "v2",
   surface: "dashboard",
@@ -27,6 +35,13 @@ export const startAnalytics = () => {
     // Keep SDK identity/attribution, but deliver analytics without vendor URL fingerprints.
     before_send: (event) => {
       if (event) {
+        // property_denylist covers event.properties only. Initial person properties
+        // travel on $set_once and $set, and $initial_current_url is the raw
+        // first-visit href, including an invitation token or an OAuth code.
+        for (const key of deniedUrlProperties) {
+          delete event.$set_once?.[key];
+          delete event.$set?.[key];
+        }
         try {
           const body = new Blob([JSON.stringify(event)], { type: "application/json" });
           if (!navigator.sendBeacon(`${path}/push`, body))
@@ -41,7 +56,7 @@ export const startAnalytics = () => {
     api_host: `${location.origin}${path}`,
     ui_host: import.meta.env.VITE_POSTHOG_HOST,
     autocapture: false,
-    property_denylist: ["$current_url", "$initial_current_url", "$referrer", "$initial_referrer"],
+    property_denylist: deniedUrlProperties,
     capture_pageview: false,
     capture_pageleave: false,
     capture_exceptions: false,

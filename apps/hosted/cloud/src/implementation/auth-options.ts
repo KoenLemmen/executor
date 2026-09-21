@@ -8,7 +8,7 @@ import { passkey } from "@better-auth/passkey";
 import { emailOTP } from "better-auth/plugins/email-otp";
 import { organization } from "better-auth/plugins/organization";
 import { oAuthProxy } from "better-auth/plugins/oauth-proxy";
-import { oauthProxyProductionGuard } from "./oauth-proxy-guard.ts";
+import { oauthProxyLocationGuard, oauthProxyProductionGuard } from "./oauth-proxy-guard.ts";
 import type { SendAuthEmail } from "../contracts/email.ts";
 import { Config, Effect, Option, Redacted, Schema } from "effect";
 import { emailCodeExpiresIn, emailCodeMessage } from "./email-messages.ts";
@@ -207,12 +207,16 @@ export const cloudAuthOptions = (
       // the code and returns the encrypted profile here. Production itself never proxies its own origin.
       // On production the guard runs first: it limits the return target to trusted origins and
       // refuses the completion endpoints, so the shared secret cannot mint a production session.
+      // The location guard runs last, because Better Auth runs after hooks in plugin order and
+      // the proxy plugin's after hook rewrites the outgoing redirect. It checks that rewrite
+      // wherever the plugin is registered, not only on the origin that acts as production.
       ...Option.match(settings.oauthProxy, {
         onSome: (proxy) => [
           ...(proxy.productionUrl === settings.url
             ? [oauthProxyProductionGuard(Redacted.value(proxy.secret))]
             : []),
           oAuthProxy({ productionURL: proxy.productionUrl, secret: Redacted.value(proxy.secret) }),
+          oauthProxyLocationGuard(),
         ],
         onNone: () => [],
       }),

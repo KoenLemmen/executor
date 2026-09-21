@@ -86,8 +86,7 @@ test("invocation fetch preserves request/response bodies and native trace propag
     const traces = captured.telemetry.traces.join("");
     assert.match(traces, /http.client POST/);
     assert.match(traces, /provider.http.response.read/);
-    assert.match(traces, /http.request.header.authorization/);
-    assert.match(traces, /<redacted>/);
+    assert.doesNotMatch(traces, /http.request.header.authorization/);
     assert.doesNotMatch(traces, /secret-sentinel/);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

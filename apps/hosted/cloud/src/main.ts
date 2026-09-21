@@ -29,7 +29,7 @@ import { cloudSite } from "./infrastructure/site.ts";
 import * as Output from "alchemy/Output";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import { Config, Effect, Layer, Option, Path } from "effect";
-import { HttpRouter, HttpServer, HttpMiddleware, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http";
 import { cloudAuth } from "./infrastructure/auth.ts";
 import { cloudOnboarding } from "./infrastructure/onboarding.ts";
 import { cloudMcp, McpSessionsLive } from "./infrastructure/mcp.ts";
@@ -236,11 +236,12 @@ export default Api.make(
         Effect.catchTag("AuthenticationUnavailable", () =>
           Effect.succeed(HttpServerResponse.empty({ status: 503 })),
         ),
-        // Unsubscribe links are bearer capabilities; keep them out of request spans.
-        Effect.provideService(
-          HttpMiddleware.TracerDisabledWhen,
-          (request) => request.url.split("?")[0] === "/api/email/unsubscribe",
-        ),
+        // Unsubscribe links are bearer capabilities. `TracerDisabledWhen` cannot keep
+        // them off a span here: the adapter reads the reference in an outer fiber,
+        // above anything this handler provides, so it always resolved to its default.
+        // The telemetry tracer allowlists HTTP span attributes instead, so neither the
+        // query string nor the redirect `Location` is ever recorded, on this route,
+        // on the RFC 8058 POST, or on any outbound provider request.
         analytics.wrap,
         reportErrors,
         requestTiming,

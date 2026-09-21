@@ -2,6 +2,12 @@
 import { Effect, FileSystem, Path, Result } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
+/** The dashboard carries the MCP consent page, so no other site may frame these documents. */
+const antiFraming = {
+  "content-security-policy": "frame-ancestors 'none'",
+  "x-frame-options": "DENY",
+};
+
 /** Serve only retained build files and browser page fallbacks; missing API/assets remain 404s. */
 export const dashboardFiles = (directory: string) =>
   Effect.gen(function* () {
@@ -52,6 +58,7 @@ export const dashboardFiles = (directory: string) =>
               ? "public, max-age=31536000, immutable"
               : "no-cache",
             "x-content-type-options": "nosniff",
+            ...(relative.endsWith(".html") ? antiFraming : {}),
           },
         });
       if (
@@ -62,7 +69,11 @@ export const dashboardFiles = (directory: string) =>
         return HttpServerResponse.empty({ status: 404 });
       }
       return yield* HttpServerResponse.file(path.join(directory, "index.html"), {
-        headers: { "cache-control": "no-cache", "x-content-type-options": "nosniff" },
+        headers: {
+          "cache-control": "no-cache",
+          "x-content-type-options": "nosniff",
+          ...antiFraming,
+        },
       });
     });
   });

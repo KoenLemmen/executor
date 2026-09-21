@@ -7,6 +7,7 @@ import {
   McpConsentLayout,
   McpConsentLoading,
   McpConsentSummary,
+  consentDestination,
 } from "@executor-js/ui/dashboard/mcp-consent";
 import { Button } from "@executor-js/ui/components/button";
 import { localMcpClientAtom, localMcpConsentAtom } from "../../contracts/mcp.ts";
@@ -17,6 +18,7 @@ export function LocalMcpAuthorizePage() {
     params = new URLSearchParams(query);
   const id = params.get("client_id") ?? "";
   const target = grantTarget(window.location.origin, params.getAll("resource"));
+  const destination = consentDestination(params.get("redirect_uri"));
   const client = useAtomValue(localMcpClientAtom(id));
   const submit = useAtomSet(localMcpConsentAtom, { mode: "promiseExit" });
   const pending = useAtomValue(localMcpConsentAtom);
@@ -44,7 +46,7 @@ export function LocalMcpAuthorizePage() {
         </p>
       }
     >
-      <McpConsentSummary target={target} />
+      <McpConsentSummary target={target} destination={destination} />
       {error && (
         <p role="alert" className="auth-error text-destructive text-[13px]">
           {error}

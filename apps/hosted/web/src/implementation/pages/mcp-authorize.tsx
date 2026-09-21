@@ -7,6 +7,7 @@ import {
   McpConsentLayout,
   McpConsentLoading,
   McpConsentSummary,
+  consentDestination,
 } from "@executor-js/ui/dashboard/mcp-consent";
 import { Button } from "@executor-js/ui/components/button";
 import {
@@ -26,6 +27,7 @@ export function McpAuthorizePage() {
     params = new URLSearchParams(query);
   const clientId = params.get("client_id") ?? "";
   const target = grantTarget(window.location.origin, params.getAll("resource"));
+  const destination = consentDestination(params.get("redirect_uri"));
   const client = useAtomValue(mcpClientAtom(clientId));
   const organizations = useAtomValue(organizationsAtom);
   const consent = useAtomSet(mcpConsentAtom, { mode: "promiseExit" });
@@ -86,7 +88,7 @@ export function McpAuthorizePage() {
       {available.length === 0 ? (
         <p>Join or create an organization in Executor, then return here to connect.</p>
       ) : (
-        <McpConsentSummary target={target} />
+        <McpConsentSummary target={target} destination={destination} />
       )}
       {error && (
         <p role="alert" className="auth-error text-destructive text-[13px]">
