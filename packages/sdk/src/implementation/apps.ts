@@ -409,6 +409,10 @@ export const makeApps = (db: Query, runtime: Runtime, crypto: Crypto.Crypto) => 
           );
           yield* query(() => tx.deleteMany("webhooks", { where: (b) => b("app", "=", app.id) }));
           yield* query(() => tx.deleteMany("appRecords", { where: (b) => b("app", "=", app.id) }));
+          yield* query(() =>
+            tx.deleteMany("scheduledRuns", { where: (b) => b("app", "=", app.id) }),
+          );
+          yield* query(() => tx.deleteMany("schedules", { where: (b) => b("app", "=", app.id) }));
           yield* query(() => tx.deleteMany("apps", { where: (b) => b("id", "=", app.id) }));
         }
         return { app: input.app };

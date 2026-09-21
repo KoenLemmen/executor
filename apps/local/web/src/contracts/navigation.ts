@@ -2,11 +2,11 @@ import { AccountId, AppId, ProviderId } from "@executor-js/sdk";
 import { Option, Schema } from "effect";
 
 /** Dashboard areas used by route metadata to highlight the sidebar. */
-export type NavigationSection = "apps" | "accounts" | "connect";
+export type NavigationSection = "apps" | "accounts" | "connect" | "approvals";
 
 /** Existing app-detail query parameters; an absent view displays tools. */
 export interface AppSearch {
-  readonly view?: "tools" | "accounts" | "source" | undefined;
+  readonly view?: "tools" | "accounts" | "source" | "schedules" | undefined;
   readonly tool?: string | undefined;
 }
 
@@ -27,9 +27,9 @@ const text = Schema.decodeUnknownOption(Schema.NonEmptyString);
 
 /** Ignore unsupported views and empty tool names, preserving existing deep links. */
 export function parseAppSearch(search: Record<string, unknown>): AppSearch {
-  const view = Schema.decodeUnknownOption(Schema.Literals(["tools", "accounts", "source"]))(
-    search.view,
-  );
+  const view = Schema.decodeUnknownOption(
+    Schema.Literals(["tools", "accounts", "source", "schedules"]),
+  )(search.view);
   const tool = text(search.tool);
   return {
     view: Option.getOrUndefined(view),
@@ -74,6 +74,7 @@ export function localPageTitle(pathname: string): string {
   if (section === "webhooks") return "Webhook setup";
   if (section === "mcp" && item === "approve") return "Review request";
   if (section === "app-auth") return "Sign in to app";
+  if (section === "approvals") return item ? "Review request" : "Approvals";
   if (section === "connect") return "Connect";
   if (section === "account-connect") return "Connect account";
   if (section === "api" && item === "oauth") return "Connecting account";

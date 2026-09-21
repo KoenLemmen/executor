@@ -7,6 +7,8 @@ import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
 import { PgClient } from "@effect/sql-pg";
 import {
   HostedExecutor,
+  ScheduledAuthority,
+  makeScheduledAuthority,
   OrganizationIcons,
   makeOrganizationIcons,
   OrganizationDefaults,
@@ -68,6 +70,9 @@ export const cloudExecutor = Effect.fn(function* (
         { urlPolicy, ...(clientMetadataUrl === undefined ? {} : { clientMetadataUrl }) },
         { storage, webhookOrigin: origin, workflows },
       ).pipe(Effect.provideContext(services), Effect.provide(BrowserCrypto.layer));
+      const scheduleAuthority = yield* makeScheduledAuthority(executor).pipe(
+        Effect.provideContext(services),
+      );
       const initialize = yield* organizationDefaults(
         executor,
         origin,
@@ -75,12 +80,18 @@ export const cloudExecutor = Effect.fn(function* (
         executorSkillFiles(authoring),
         executorCloudApiDocument(origin),
       ).pipe(Effect.provideContext(services));
-      return { executor, initialize };
+      return { executor, initialize, scheduleAuthority };
     }).pipe(Effect.mapError(() => new StorageError())),
   );
   // Alchemy's runtime requirement marks event-only operations; it is not a
   // service supplied to request fibers. Keep the live caller scope and tracer.
   return Layer.mergeAll(
+    Layer.succeed(ScheduledAuthority, (target) =>
+      executor.pipe(
+        Effect.flatMap((resources) => resources.scheduleAuthority(target)),
+        Effect.provide(RuntimeContext.phantom),
+      ),
+    ),
     Layer.succeed(OrganizationIcons, makeOrganizationIcons(blobs)),
     Layer.succeed(HostedAppRuntime, {
       asset: ({ build, path }) =>

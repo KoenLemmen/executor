@@ -1,3 +1,4 @@
+import { hostedScheduleHandlers } from "./schedules.ts";
 /** Shared hosted handlers. No Cloudflare, Node, or local-product dependencies. */
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -42,6 +43,7 @@ const apiContext = HttpApiBuilder.group(HostedApi, "context", (handlers) =>
 
 /** Common group implementations. Each host supplies HostedExecutor and HostedCatalog. */
 export const hostedHandlers = Layer.mergeAll(
+  hostedScheduleHandlers,
   health,
   catalog,
   apiContext,

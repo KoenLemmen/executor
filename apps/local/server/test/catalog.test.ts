@@ -1,3 +1,4 @@
+import { localScheduleHandlers } from "../src/implementation/schedules.ts";
 /** Generated apps run through real product HTTP contracts, storage, and the local Node runtime. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -163,6 +164,7 @@ async function withServer(
           });
           return HttpApiBuilder.layer(DashboardApi).pipe(
             Layer.provide(api.handlers),
+            Layer.provide(localScheduleHandlers(executor, config, auth)),
             Layer.provide(api.access),
           );
         }),

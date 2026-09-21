@@ -10,6 +10,7 @@ import { makeAccountConnections } from "./account-connections.ts";
 import { makeAccounts } from "./accounts.ts";
 import { makeApps } from "./apps.ts";
 import { makeOwners } from "./owners.ts";
+import { makeSchedules } from "./schedules.ts";
 import { makeTools } from "./tools.ts";
 import { makeSkills } from "./skills.ts";
 import { toEffectRuntime } from "./runtime.ts";
@@ -49,8 +50,20 @@ export const createExecutor = (
       workflows: { list: workflows.definitions },
       workflowRuns: workflows.runs,
     };
+    const tools = makeTools(
+      options.storage,
+      oauth.resolve,
+      runtime,
+      options.credentials,
+      crypto,
+      options.appStorage,
+      workflows.controls,
+    );
+    const schedules = makeSchedules(options.storage, apps, tools, options.credentials, crypto);
     return {
       [WorkflowHost]: workflows.host,
+      scheduler: schedules.dispatcher,
+      schedules: schedules.operations,
       accounts: makeAccounts(db, options.credentials, crypto),
       accountConnections: {
         ...makeAccountConnections(db, options.credentials, crypto),
@@ -67,15 +80,7 @@ export const createExecutor = (
         options.appStorage,
         workflows.controls,
       ),
-      tools: makeTools(
-        options.storage,
-        oauth.resolve,
-        runtime,
-        options.credentials,
-        crypto,
-        options.appStorage,
-        workflows.controls,
-      ),
+      tools,
     };
   });
 

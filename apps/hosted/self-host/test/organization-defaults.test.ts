@@ -211,7 +211,7 @@ test(
           assert.ok(app);
           const account = app.accounts.service;
           assert.equal(typeof account, "string");
-          yield* storage.orm("1.9.0").transaction(
+          yield* storage.orm("1.9.1").transaction(
             Effect.gen(function* () {
               yield* sql`set transaction read only`;
               for (let i = 0; i < 3; i++) {

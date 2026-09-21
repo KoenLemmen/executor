@@ -61,13 +61,21 @@ const request = <A>(endpoint: string, schema: Schema.Decoder<A>, answer?: Elicit
     }),
   );
 
+/** Construct one review and acknowledge its removal from any product-owned queue after an answer. */
+export const browserApproval = (
+  runtime: Atom.AtomRuntime<never>,
+  endpoint: string,
+  onAnswer?: (get: Atom.FnContext) => void,
+) => ({
+  view: runtime.atom(request(endpoint, BrowserApprovalView)),
+  answer: runtime.fn((response: ElicitationResponse, get) =>
+    request(endpoint, BrowserApprovalAcknowledgement, response).pipe(
+      Effect.tap(() => Effect.sync(() => onAnswer?.(get))),
+    ),
+  ),
+});
 /** Each link owns its query and submission state; answers from one request cannot overwrite another. */
 export const browserApprovalAtoms = (runtime: Atom.AtomRuntime<never>) =>
-  Atom.family((endpoint: string) => ({
-    view: runtime.atom(request(endpoint, BrowserApprovalView)),
-    answer: runtime.fn((response: ElicitationResponse) =>
-      request(endpoint, BrowserApprovalAcknowledgement, response),
-    ),
-  }));
+  Atom.family((endpoint: string) => browserApproval(runtime, endpoint));
 /** Bindings for the shared review page. */
-export type BrowserApprovalAtoms = ReturnType<ReturnType<typeof browserApprovalAtoms>>;
+export type BrowserApprovalAtoms = ReturnType<typeof browserApproval>;

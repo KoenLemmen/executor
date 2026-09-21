@@ -169,7 +169,7 @@ test(
             label: "Example",
             fields: Redacted.make({ token: "synthetic-token" }),
           });
-          const db = options.storage.orm("1.9.0");
+          const db = options.storage.orm("1.9.1");
           yield* db
             .transaction(add.pipe(Effect.andThen(Effect.fail("rollback"))))
             .pipe(Effect.result);

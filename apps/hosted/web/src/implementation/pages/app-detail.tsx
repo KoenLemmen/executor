@@ -1,4 +1,6 @@
 import { DetailSkeleton } from "@executor-js/ui/dashboard/loading";
+import { AppSchedules } from "@executor-js/ui/dashboard/schedules";
+import { scheduleBindings } from "../../contracts/schedules.ts";
 import { Exit, Option } from "effect";
 import { HostedFailure, useDashboardAtoms } from "../components/dashboard-bindings.tsx";
 import { useAtomSet } from "@effect/atom-react";
@@ -27,7 +29,7 @@ export function AppDetailPage({
   openApp,
 }: {
   readonly appId: string;
-  readonly view?: "tools" | "accounts" | "source" | undefined;
+  readonly view?: "tools" | "accounts" | "source" | "schedules" | undefined;
   readonly tool?: string | undefined;
   readonly openApp?: (app: App) => ReactNode;
 }) {
@@ -55,6 +57,7 @@ export function AppDetailPage({
       tabs={[
         { id: "tools", label: "Tools" },
         { id: "accounts", label: "Accounts" },
+        { id: "schedules", label: "Schedules" },
         ...(role === "owner" || role === "admin"
           ? [{ id: "source" as const, label: "Source" }]
           : []),
@@ -92,7 +95,15 @@ export function AppDetailPage({
     >
       <QueryResult result={result} Failure={HostedFailure} retry={refresh} pending={pending}>
         {(app) =>
-          view === "source" ? (
+          view === "schedules" ? (
+            <AppSchedules
+              bindings={scheduleBindings(
+                { organization, app: app.id },
+                role !== undefined && role !== "member",
+              )}
+              Failure={HostedFailure}
+            />
+          ) : view === "source" ? (
             role === undefined ? (
               <DetailSkeleton label="Loading source access" />
             ) : role === "member" ? (

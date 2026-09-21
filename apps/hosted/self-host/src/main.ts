@@ -1,4 +1,9 @@
 import { executorSelfHostApiDocument } from "./contracts/api.ts";
+import {
+  startScheduleWorker,
+  defaultScheduleWorkerOptions,
+  ScheduleHostReady,
+} from "@executor-js/sdk/scheduling";
 /** Docker/Node composition edge. Runtime imports resolve only here. */
 import { readExecutorSkills } from "@executor-js/app-templates/executor";
 import { createServer } from "node:http";
@@ -6,6 +11,8 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import {
   browserTelemetry,
+  HostedExecutor,
+  ScheduledAuthority,
   hostedOAuthCallback,
   hostedWebhookCallback,
   catalogLive,
@@ -22,7 +29,7 @@ import { AppSignInApi, appSignInPage, appSignInScript } from "apps/ui/auth";
 import { AppUiApi } from "apps/ui/contracts";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { dataDirectory, appUiBaseUrl } from "./contracts/config.ts";
-import { Config, Effect, Layer, Option, Path, Schema } from "effect";
+import { Config, Deferred, Effect, Layer, Option, Path, Schema } from "effect";
 import {
   HttpRouter,
   HttpServer,
@@ -55,6 +62,17 @@ export const selfHostRoutes = Effect.gen(function* () {
   const skills = yield* readExecutorSkills;
   const auth = yield* selfHostAuth;
   const executorServices = Layer.succeedContext(yield* Layer.build(selfHostExecutor(skills)));
+  yield* Effect.gen(function* () {
+    const executor = yield* Effect.flatten(HostedExecutor);
+    const authorize = yield* ScheduledAuthority;
+    yield* startScheduleWorker(executor, authorize, {
+      ...defaultScheduleWorkerOptions,
+      runner: "self-host",
+      concurrency: yield* Config.Number("EXECUTOR_SCHEDULE_CONCURRENCY").pipe(
+        Config.withDefault(defaultScheduleWorkerOptions.concurrency),
+      ),
+    });
+  }).pipe(Effect.provide(executorServices));
   const addresses = appAddresses(auth.origin, yield* appUiBaseUrl(auth.origin));
   const appUi = hostedAppUi(addresses);
   const mcp = yield* selfHostMcp.pipe(Effect.provide(HttpServer.layerServices));
@@ -157,8 +175,12 @@ export const selfHostRoutes = Effect.gen(function* () {
 const server = Layer.unwrap(
   Effect.gen(function* () {
     const { host, port } = yield* settings;
-    const routes = yield* selfHostRoutes;
+    const ready = yield* Deferred.make<void>();
+    const routes = yield* selfHostRoutes.pipe(
+      Effect.provideService(ScheduleHostReady, Deferred.await(ready)),
+    );
     return HttpRouter.serve(routes, { disableLogger: true }).pipe(
+      Layer.tap(() => Deferred.succeed(ready, undefined)),
       Layer.provide(
         NodeHttpServer.layer(createServer, { host, port, gracefulShutdownTimeout: 5_000 }),
       ),

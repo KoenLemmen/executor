@@ -210,7 +210,7 @@ test(
             const registration = remote.registrations.get(subscription.id);
             assert.ok(registration);
             const stored = yield* storage
-              .orm("1.9.0")
+              .orm("1.9.1")
               .findFirst("webhooks", { where: (b) => b("id", "=", subscription.id) });
             assert.ok(stored);
             assert.ok(!new TextDecoder().decode(stored.encrypted).includes(registration.secret));

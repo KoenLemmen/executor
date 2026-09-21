@@ -5,20 +5,17 @@ import {
   Config,
   Clock,
   Console,
-  Deferred,
   Effect,
   FileSystem,
   Layer,
   Option,
   Path,
   Redacted,
-  Schedule,
   Schema,
-  Stream,
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { Command, Flag } from "effect/unstable/cli";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/unstable/http";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { scenariosForSuite } from "./test-plan.ts";
@@ -29,6 +26,7 @@ import { SessionClients } from "./support/api.ts";
 import { provisionSelfHostActors } from "./support/actors.ts";
 import { provisionCloudActors } from "./support/actors.ts";
 import { startCloudEnvironment } from "./support/cloud-environment.ts";
+import { startManagedServer } from "./support/managed-server.ts";
 import { Target, driver, RecordingPaceMs } from "./support/platform.ts";
 
 class RunFailed extends Schema.TaggedError<RunFailed>()("RunFailed", { message: Schema.String }) {}
@@ -67,91 +65,6 @@ const CloudOrigin = Schema.String.check(
     { message: "Set E2E_CLOUD_URL to the exact test stage origin." },
   ),
 );
-const startServer = (target: typeof Target.Service) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem,
-      processes = yield* ChildProcessSpawner.ChildProcessSpawner,
-      http = yield* HttpClient.HttpClient;
-    if (target.metadata.target === "cloud") return;
-    const port = new URL(target.metadata.origin).port;
-    const child = yield* processes.spawn(
-      ChildProcess.make(
-        "node",
-        [
-          target.metadata.target === "local"
-            ? "apps/local/server/src/main.ts"
-            : "apps/hosted/self-host/src/main.ts",
-        ],
-        {
-          extendEnv: false,
-          env: {
-            PATH: process.env.PATH ?? "",
-            NODE_ENV: "test",
-            HOST: "127.0.0.1",
-            PORT: port,
-            EXECUTOR_PORT: port,
-            EXECUTOR_API_KEY: Redacted.value(target.apiKey),
-            EXECUTOR_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
-            EXECUTOR_DATA_DIR: `${target.directory}/data`,
-            BETTER_AUTH_URL: target.metadata.origin,
-            BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-            // Exercise named loopback callbacks and explicit private HTTP transport in the real host.
-            ...(target.metadata.target === "self-host"
-              ? {
-                  EXECUTOR_OAUTH_CALLBACK_URL: `http://account-picker.localhost:${port}/api/oauth/callback?tenant=fixture`,
-                  EXECUTOR_URL_ALLOW_HTTP_ORIGINS: '["http://oauth.internal:8080"]',
-                }
-              : {}),
-            EXECUTOR_ENVIRONMENT: "e2e",
-            EXECUTOR_BUILD_VERSION: target.metadata.commit,
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-          killSignal: "SIGTERM",
-          forceKillAfter: "15 seconds",
-        },
-      ),
-    );
-    const ready = yield* Deferred.make<void>();
-    const log = Stream.merge(child.stdout, child.stderr).pipe(
-      Stream.decodeText(),
-      Stream.splitLines,
-      Stream.runForEach((line) =>
-        Effect.gen(function* () {
-          yield* fs.writeFileString(
-            `${target.directory}/server.log`,
-            `${line.replace(/#pair=[a-f0-9]{64}/g, "#pair=<redacted>")}\n`,
-            { flag: "a", mode: 0o600 },
-          );
-          if (line.startsWith("Executor: http://127.0.0.1:"))
-            yield* Deferred.succeed(ready, undefined);
-        }),
-      ),
-    );
-    yield* Effect.forkScoped(log);
-    const check =
-      target.metadata.target === "local"
-        ? Deferred.await(ready)
-        : Effect.scoped(
-            http.get(`${target.metadata.origin}/health`).pipe(
-              Effect.flatMap((response) =>
-                Effect.gen(function* () {
-                  if (response.status !== 200)
-                    return yield* new RunFailed({ message: "Server not ready" });
-                  yield* response.text;
-                }),
-              ),
-            ),
-          ).pipe(Effect.retry({ schedule: Schedule.spaced("250 millis"), times: 240 }));
-    yield* Effect.raceFirst(
-      check,
-      child.exitCode.pipe(
-        Effect.flatMap((code) =>
-          Effect.fail(new RunFailed({ message: `Server exited before readiness (${code})` })),
-        ),
-      ),
-    ).pipe(Effect.timeout("90 seconds"));
-  });
 const command = Command.make("e2e", {
   target: Flag.Literals("target", ["self-host", "local", "cloud", "all", "hosted"]).pipe(
     Flag.withDefault("self-host"),
@@ -278,7 +191,8 @@ const command = Command.make("e2e", {
                           observeUI,
                         })
                       : undefined;
-                    if (!managedCloud) yield* startServer(config);
+                    const controlOrigin =
+                      target === "cloud" ? undefined : yield* startManagedServer(config);
                     if (target === "self-host" || managedCloud) {
                       yield* Effect.gen(function* () {
                         const actors = yield* environment !== undefined
@@ -335,6 +249,7 @@ const command = Command.make("e2e", {
                             E2E_TARGET: target,
                             EXECUTOR_E2E_RUN: directory,
                             EXECUTOR_E2E_API_KEY: Redacted.value(apiKey),
+                            EXECUTOR_E2E_CONTROL_ORIGIN: controlOrigin ?? "",
                             E2E_CLOUD_ACTORS: actors,
                             E2E_SUITE: selected === "hosted" ? "hosted" : "all",
                             E2E_INTERACTIVE: interactive ? "1" : "0",

@@ -11,6 +11,10 @@ export type HostedError =
   | Schema.SchemaError;
 const errorMessage = Match.type<HostedError>().pipe(
   Match.tagsExhaustive({
+    ScheduleNotFound: () => "This schedule or run is no longer available.",
+    ScheduleConflict: () =>
+      "The schedule is busy or changed. Check its current status and try again.",
+    ScheduleInvalid: () => "Update the interval or calendar timing in the app source.",
     ExecutionLimitReached: () =>
       "Your organization has reached its execution limit. The tool did not run. Ask an organization admin to review the limit.",
     ExecutionAdmissionUnavailable: () =>

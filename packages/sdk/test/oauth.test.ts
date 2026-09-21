@@ -495,7 +495,7 @@ test("dashboard reports expired sign-ins before tool discovery without refreshin
       state: "saved",
       reconnectAt: null,
     });
-    const db = f.storage.orm("1.9.0");
+    const db = f.storage.orm("1.9.1");
     const row = await Effect.runPromise(
       db.findFirst("oauthGrants", { where: (b) => b("id", "=", account.id) }),
     );
@@ -621,7 +621,7 @@ test("DCR, one-time callback, two owners, and coordinated refresh preserve reusa
     });
     const accounts = await f.executor.accounts.list();
     assert.ok(!JSON.stringify(accounts).includes("refresh-"));
-    for (const row of await Effect.runPromise(f.storage.orm("1.9.0").findMany("oauthGrants", {})))
+    for (const row of await Effect.runPromise(f.storage.orm("1.9.1").findMany("oauthGrants", {})))
       assert.ok(!new TextDecoder().decode(row.encrypted).includes("refresh-"));
   } finally {
     await f.close();
@@ -695,7 +695,7 @@ test("denied, expired and modified callbacks never create an account", async () 
     });
     const expiring = f.service.callback((await f.start()).authorizationUrl);
     await Effect.runPromise(
-      f.storage.orm("1.9.0").updateMany("oauthAttempts", { set: { expiresAt: new Date(0) } }),
+      f.storage.orm("1.9.1").updateMany("oauthAttempts", { set: { expiresAt: new Date(0) } }),
     );
     await assert.rejects(f.complete({ callbackUrl: expiring }), {
       _tag: "OAuthCompletionFailed",
@@ -771,7 +771,7 @@ test("OAuth reconnect keeps identity, current name and all app selections; denia
       { _tag: "AuthMethodInvalid" },
     );
     const before = await Effect.runPromise(
-      f.storage.orm("1.9.0").findFirst("accounts", { where: (b) => b("id", "=", account.id) }),
+      f.storage.orm("1.9.1").findFirst("accounts", { where: (b) => b("id", "=", account.id) }),
     );
     const denied = new URL(
       f.service.callback(
@@ -786,7 +786,7 @@ test("OAuth reconnect keeps identity, current name and all app selections; denia
     });
     assert.deepEqual(
       await Effect.runPromise(
-        f.storage.orm("1.9.0").findFirst("accounts", { where: (b) => b("id", "=", account.id) }),
+        f.storage.orm("1.9.1").findFirst("accounts", { where: (b) => b("id", "=", account.id) }),
       ),
       before,
     );
@@ -843,7 +843,7 @@ for (const phase of ["consent", "exchange"] as const)
         await f.executor.accounts.remove({ account: account.id });
         assert.deepEqual(await f.executor.accounts.list(), []);
         assert.deepEqual(
-          await Effect.runPromise(f.storage.orm("1.9.0").findMany("oauthGrants", {})),
+          await Effect.runPromise(f.storage.orm("1.9.1").findMany("oauthGrants", {})),
           [],
         );
         assert.equal((await f.executor.apps.get({ app: f.app.id })).accounts.service, account.id);
@@ -908,7 +908,7 @@ test(
       await listing;
       assert.deepEqual(await f.executor.accounts.list(), []);
       assert.deepEqual(
-        await Effect.runPromise(f.storage.orm("1.9.0").findMany("oauthGrants", {})),
+        await Effect.runPromise(f.storage.orm("1.9.1").findMany("oauthGrants", {})),
         [],
       );
       assert.deepEqual(f.seen, []);
@@ -987,7 +987,7 @@ test("connection requests save secrets once, survive a new SDK instance, and exp
       provider: f.provider,
     });
     await Effect.runPromise(
-      f.storage.orm("1.9.0").updateMany("accountConnections", {
+      f.storage.orm("1.9.1").updateMany("accountConnections", {
         where: (b) => b("id", "=", expired.id),
         set: { expiresAt: new Date(0) },
       }),
@@ -1120,7 +1120,7 @@ test("a changed single selection rolls back a targeted reconnect's credential wr
       account: original.id,
       target: { app: f.app.id, requirement: "service" },
     });
-    const db = f.storage.orm("1.9.0");
+    const db = f.storage.orm("1.9.1");
     const before = await Effect.runPromise(db.findMany("accounts", {}));
     await f.executor.apps.update({ app: f.app.id, accounts: { service: original.id } });
     await assert.rejects(
@@ -1297,7 +1297,7 @@ for (const changed of [false, true])
         await completion;
         assert.deepEqual(await f.executor.accounts.list(), [other]);
         assert.deepEqual(
-          await Effect.runPromise(f.storage.orm("1.9.0").findMany("oauthGrants", {})),
+          await Effect.runPromise(f.storage.orm("1.9.1").findMany("oauthGrants", {})),
           [],
         );
         assert.equal((await f.executor.apps.get({ app: f.app.id })).accounts.service, other.id);

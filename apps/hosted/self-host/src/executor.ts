@@ -10,6 +10,8 @@ import {
 } from "@executor-js/sdk/core";
 import {
   HostedExecutor,
+  ScheduledAuthority,
+  makeScheduledAuthority,
   OrganizationIcons,
   makeOrganizationIcons,
   OrganizationDefaults,
@@ -67,7 +69,9 @@ export const selfHostExecutor = (skills: readonly SourceFile[]) =>
         skills,
         executorSelfHostApiDocument(origin),
       );
+      const scheduleAuthority = yield* makeScheduledAuthority(executor);
       return Layer.mergeAll(
+        Layer.succeed(ScheduledAuthority, scheduleAuthority),
         Layer.succeed(OrganizationIcons, makeOrganizationIcons(blobs)),
         Layer.succeed(HostedExecutor, Effect.succeed(executor)),
         Layer.succeed(OrganizationDefaults, initialize),

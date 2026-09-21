@@ -12,6 +12,26 @@ export const executorHandlers = (executor: Executor) =>
         .handle("list", ({ params, query }) => executor.skills.list({ ...params, ...query }))
         .handle("read", ({ params, query }) => executor.skills.read({ ...params, ...query })),
     ),
+    HttpApiBuilder.group(ExecutorApi, "schedules", (handlers) =>
+      handlers
+        .handle("definitions", ({ params, query }) =>
+          executor.schedules.definitions({ ...params, ...query }),
+        )
+        .handle("list", ({ params, query }) => executor.schedules.list({ ...params, ...query }))
+        .handle("configure", ({ params, payload }) =>
+          executor.schedules.configure({ ...params, ...payload }),
+        )
+        .handle("runNow", ({ params, payload }) =>
+          executor.schedules.runNow({ ...params, ...payload }),
+        )
+        .handle("runs", ({ query }) => executor.schedules.runs(query))
+        .handle("approval", ({ params, query }) =>
+          executor.schedules.approval({ ...params, ...query }),
+        )
+        .handle("answer", ({ params, payload }) =>
+          executor.schedules.answer({ ...params, ...payload }),
+        ),
+    ),
     HttpApiBuilder.group(ExecutorApi, "accounts", (handlers) =>
       handlers
         .handle("add", ({ payload }) => executor.accounts.add(payload))

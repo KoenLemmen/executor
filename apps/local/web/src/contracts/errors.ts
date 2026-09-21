@@ -36,6 +36,15 @@ const unavailable = () =>
   message("Could not reach Executor", "Check that the local server is running, then retry.");
 const errorMessage = Match.type<DashboardError>().pipe(
   Match.tagsExhaustive({
+    ScheduleNotFound: () =>
+      message("Schedule unavailable", "This schedule or run is no longer available."),
+    ScheduleConflict: () =>
+      message(
+        "Schedule changed",
+        "The schedule is busy or changed. Check its current status and try again.",
+      ),
+    ScheduleInvalid: () =>
+      message("Invalid schedule", "Update the interval or calendar timing in the app source."),
     ConnectionLinkRejected: () =>
       message("This connection link is invalid", "Ask your agent for a new connection link."),
     AccountConnectionNotFound: () =>

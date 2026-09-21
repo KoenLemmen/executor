@@ -7,6 +7,7 @@ import { OwnersGroup } from "./owner.ts";
 import { AppDataGroup } from "./app-data.ts";
 import { WebhooksGroup } from "./webhooks.ts";
 import { AppWorkflowsGroup, AppWorkflowRunsGroup } from "./workflows.ts";
+import { SchedulesGroup } from "./schedules.ts";
 import { ToolsGroup } from "./tools.ts";
 import { AppSkillsGroup } from "./skills.ts";
 
@@ -17,6 +18,7 @@ export const ExecutorApi = HttpApi.make("executor")
   .add(AppsGroup)
   .add(AppSkillsGroup)
   .add(ToolsGroup)
+  .add(SchedulesGroup)
   .add(AppDataGroup)
   .add(WebhooksGroup)
   .add(OwnersGroup)

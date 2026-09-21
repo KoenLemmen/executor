@@ -251,6 +251,70 @@ export const scenarios = {
       local: na("This scenario tests hosted membership; local skills are covered through MCP."),
     },
   },
+  scheduledBrowser: {
+    file: "schedule-browser.spec.ts",
+    title: "browser schedule controls enable, run, approve and pause a mutation",
+    targets: {
+      local: scheduled,
+      "self-host": {
+        status: "not-applicable",
+        reason: "Shared UI exercised locally; hosted authority covered separately.",
+      },
+      cloud: {
+        status: "not-applicable",
+        reason: "Shared UI exercised locally; hosted authority covered separately.",
+      },
+    },
+  },
+  hostedScheduleBrowser: {
+    file: "hosted-schedule-browser.spec.ts",
+    title: "hosted schedule controls enable, run, approve and pause through the browser",
+    targets: {
+      cloud: scheduled,
+      "self-host": scheduled,
+      local: na("Local pairing drives the same shared controls in its own scenario."),
+    },
+  },
+  scheduleRestart: {
+    file: "schedule-restart.spec.ts",
+    title: "local restart coalesces overdue schedules and preserves pending approvals",
+    targets: {
+      local: scheduled,
+      "self-host": na(
+        "Restart scenario owns a local target; hosted authorization is tested separately.",
+      ),
+      cloud: na("A deployed cloud endpoint cannot be restarted by this local process controller."),
+    },
+  },
+  hostedSchedules: {
+    file: "hosted-schedules.spec.ts",
+    title: "hosted scheduled runs require current membership and browser approval",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Local does not have organization memberships."),
+    },
+  },
+  scheduledRuns: {
+    file: "local-schedule-runs.spec.ts",
+    title: "scheduled runs honor approval policy, browser review and overlap exclusion",
+    targets: {
+      local: scheduled,
+      "self-host": na(
+        "Local cookie review and runner fixture; hosted roles are covered separately.",
+      ),
+      cloud: na("Local cookie review and runner fixture; hosted roles are covered separately."),
+    },
+  },
+  schedules: {
+    file: "local-schedules.spec.ts",
+    title: "local app schedules are typed, paused by default and configurable",
+    targets: {
+      local: scheduled,
+      "self-host": na("SDK route fixture; hosted scheduling has separate authority checks."),
+      cloud: na("SDK route fixture; hosted scheduling has separate authority checks."),
+    },
+  },
   mcp: {
     file: "claude-mcp.spec.ts",
     title: "Claude Code connects through /mcp, browser authentication and a real tool call",

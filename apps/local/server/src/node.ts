@@ -1,3 +1,4 @@
+import { ScheduleHostReady } from "@executor-js/sdk/scheduling";
 /** Node composition edge shared by the CLI and a future desktop child process. */
 import { createReadStream } from "node:fs";
 import { createServer } from "node:http";
@@ -5,7 +6,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeStream from "@effect/platform-node/NodeStream";
 import { localTelemetry } from "@executor-js/telemetry/local";
-import { Effect, Layer, Schema } from "effect";
+import { Deferred, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { DesktopBootstrap } from "./contracts/auth.ts";
 import type { LocalServerOptions } from "./contracts/server.ts";
@@ -49,6 +50,7 @@ export const startLocalServer = (
       const auth = yield* makeLocalAuth(globalThis.crypto, settings.directory);
       if (bootstrap !== undefined) yield* auth.issue(bootstrap.token);
       const socket = yield* Effect.sync(() => createServer());
+      const ready = yield* Deferred.make<void>();
       let port = settings.port;
       const routes = Layer.unwrap(
         Effect.gen(function* () {
@@ -69,10 +71,12 @@ export const startLocalServer = (
       yield* Layer.build(
         HttpRouter.serve(routes, { disableLogger: true, disableListenLog: true }).pipe(
           Layer.provide(listener),
+          Layer.provide(Layer.succeed(ScheduleHostReady, Deferred.await(ready))),
           Layer.provide(NodeServices.layer),
           Layer.provide(Layer.succeedContext(telemetry)),
         ),
       ).pipe(Effect.mapError(() => new StartupFailed({ stage: "listen" })));
+      yield* Deferred.succeed(ready, undefined);
       yield* Effect.addFinalizer(() => Effect.sync(() => socket.closeAllConnections()));
       const url = `http://127.0.0.1:${port}`;
       yield* Effect.logInfo("Local server ready").pipe(

@@ -176,3 +176,4 @@ export {
   type WorkflowReads,
   type WorkflowControls,
 } from "./contracts/workflows.ts";
+export { interval, cron, type ScheduleDeclaration } from "./implementation/schedules.ts";

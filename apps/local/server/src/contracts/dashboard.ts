@@ -1,4 +1,5 @@
 import { AppWorkflowsActive, AccountWorkflowsActive } from "@executor-js/sdk/core";
+import { DashboardSchedules } from "./schedules.ts";
 import { AccountWebhooksActive } from "@executor-js/sdk/core";
 import { AppWebhooksActive } from "@executor-js/sdk/core";
 /** Browser-safe read contracts for inspecting the local Executor instance. */
@@ -523,4 +524,5 @@ export const DashboardApi = HttpApi.make("local-dashboard").add(
       }),
     )
     .middleware(DashboardAccess),
+  DashboardSchedules.middleware(DashboardAccess),
 );

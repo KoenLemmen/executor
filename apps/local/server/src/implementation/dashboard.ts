@@ -56,7 +56,7 @@ export const dashboard = (
 ) => {
   const owner = OwnerId.make("local");
   const appCatalog = createCatalog(catalog);
-  const db = storage.orm("1.9.0");
+  const db = storage.orm("1.9.1");
   const signIn = accountSignIn(storage, credentials);
   const query = <A, E>(work: () => Effect.Effect<A, E>) =>
     Effect.suspend(work).pipe(Effect.mapError(() => new StorageError()));

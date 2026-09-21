@@ -1,5 +1,8 @@
 /** App author boundary: Promise callbacks are adapted into one native Effect definition. */
-import { Effect } from "effect";
+import { Effect, Schema as EffectSchema } from "effect";
+import { JsonValue } from "../contracts/schema.ts";
+import { ScheduleTiming } from "../contracts/schedules.ts";
+import type { ScheduleDeclaration } from "./schedules.ts";
 import type { App as NativeApp, AppDefinition as NativeDefinition } from "../contracts/app.ts";
 import type {
   AppRequirements,
@@ -30,24 +33,30 @@ type PromiseCatalog<Catalog> =
 export type AppDefinition<Requirements extends AppRequirements> = {
   readonly [Key in keyof NativeDefinition<WebhookContext<Requirements>>]: Key extends "workflows"
     ? Readonly<Record<string, WorkflowDeclaration<WorkflowContext<Requirements>>>>
-    : Key extends "queries"
-      ? Readonly<Record<string, OperationDeclaration<"query", QueryContext<Requirements>>>>
-      : Key extends "mutations"
-        ? Readonly<Record<string, OperationDeclaration<"mutation", MutationContext<Requirements>>>>
-        : Key extends "webhooks"
-          ? PromiseCatalog<NonNullable<NativeDefinition<WebhookContext<Requirements>>[Key]>>
-          : NativeDefinition<WebhookContext<Requirements>>[Key];
+    : Key extends "schedules"
+      ? Readonly<Record<string, ScheduleDeclaration<MutationContext<Requirements>>>>
+      : Key extends "queries"
+        ? Readonly<Record<string, OperationDeclaration<"query", QueryContext<Requirements>>>>
+        : Key extends "mutations"
+          ? Readonly<
+              Record<string, OperationDeclaration<"mutation", MutationContext<Requirements>>>
+            >
+          : Key extends "webhooks"
+            ? PromiseCatalog<NonNullable<NativeDefinition<WebhookContext<Requirements>>[Key]>>
+            : NativeDefinition<WebhookContext<Requirements>>[Key];
 } & { readonly tools?: never; readonly call?: never };
 
 /** Adapt operation and webhook catalogs without evaluating their handlers. */
 export type EffectDefinition<Def> = {
   readonly [Key in keyof Def]: Key extends "workflows"
     ? Readonly<Record<string, import("../contracts/workflows.ts").AppWorkflow>>
-    : Key extends "queries" | "mutations"
-      ? Readonly<Record<string, import("../contracts/operations.ts").AppOperation>>
-      : Key extends "webhooks"
-        ? NonNullable<NativeDefinition<WebhookContext>["webhooks"]>
-        : Def[Key];
+    : Key extends "schedules"
+      ? NonNullable<NativeDefinition<unknown>["schedules"]>
+      : Key extends "queries" | "mutations"
+        ? Readonly<Record<string, import("../contracts/operations.ts").AppOperation>>
+        : Key extends "webhooks"
+          ? NonNullable<NativeDefinition<WebhookContext>["webhooks"]>
+          : Def[Key];
 };
 
 const InternalApp = Symbol("apps.App");
@@ -136,10 +145,39 @@ function adaptDefinition<
       ? {}
       : { mutations: operations("mutation", definition.mutations) }),
   };
+  const schedules =
+    definition.schedules === undefined
+      ? {}
+      : {
+          schedules: Object.fromEntries(
+            Object.entries(definition.schedules).map(([name, schedule]) => {
+              const matches = Object.entries(definition.mutations ?? {}).filter(
+                ([, operation]) => operation === schedule.operation,
+              );
+              const match = matches[0];
+              if (match === undefined || matches.length !== 1)
+                throw new Error("A schedule must reference exactly one named mutation in this app");
+              return [
+                name,
+                {
+                  timing: EffectSchema.decodeUnknownSync(ScheduleTiming)(schedule.timing),
+                  input: EffectSchema.decodeUnknownSync(JsonValue)(schedule.input),
+                  tool: `mutations.${match[0]}`,
+                },
+              ];
+            }),
+          ),
+        };
   // SAFETY: only the listed handler/schema fields are replaced. Each callback
   // forwards the same arguments/result; every other property and catalog key survives.
   // Object.entries/fromEntries erase those generic key associations.
-  return { ...definition, ...webhooks, ...workflows, ...data } as EffectDefinition<Def>;
+  return {
+    ...definition,
+    ...webhooks,
+    ...workflows,
+    ...data,
+    ...schedules,
+  } as EffectDefinition<Def>;
 }
 
 /** Assemble static declarations or evaluate a dynamic catalog using the same host path. */

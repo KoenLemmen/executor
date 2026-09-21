@@ -1,3 +1,5 @@
+import { AppSchedules } from "@executor-js/ui/dashboard/schedules";
+import { scheduleBindings } from "../../contracts/schedules.ts";
 import { useAtomSet } from "@effect/atom-react";
 import type { App, AppId } from "@executor-js/sdk";
 import type { DashboardOverview } from "@executor-js/local-server/contracts";
@@ -19,7 +21,7 @@ import { AppTools } from "./app-tools.tsx";
 import { AppAccounts } from "./app-accounts.tsx";
 import { AppSource } from "./app-source.tsx";
 
-type Tab = "tools" | "accounts" | "source";
+type Tab = "tools" | "accounts" | "source" | "schedules";
 
 /** Inspect a configured app without conflating its live tools with retained source versions. */
 export function AppDetailPage({
@@ -44,6 +46,7 @@ export function AppDetailPage({
       tabs={[
         { id: "tools", label: "Tools" },
         { id: "accounts", label: "Accounts" },
+        { id: "schedules", label: "Schedules" },
         { id: "source", label: "Source" },
       ]}
       onTabChange={(view) => {
@@ -91,7 +94,9 @@ export function AppDetailPage({
         pending={tab === "tools" ? <ToolBrowserLoading /> : <DetailSkeleton label="Loading app" />}
       >
         {(current) =>
-          tab === "tools" ? (
+          tab === "schedules" ? (
+            <AppSchedules bindings={scheduleBindings({ app: id })} Failure={Failure} />
+          ) : tab === "tools" ? (
             <AppTools app={current.app} accounts={overview.accounts} selected={tool} />
           ) : tab === "accounts" ? (
             <AppAccounts app={current.app} accounts={overview.accounts} />

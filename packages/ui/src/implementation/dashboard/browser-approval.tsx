@@ -7,7 +7,7 @@ import {
 import type { PendingInteraction, ElicitationResponse } from "@executor-js/mcp/browser";
 import { Cause, Exit, Match } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "../components/button.tsx";
 import { Input } from "../components/input.tsx";
 import { Spinner } from "../components/spinner.tsx";
@@ -43,6 +43,24 @@ const failureMessage = (cause: Cause.Cause<BrowserApprovalFailed>) => {
 
 /** Authentication is provided by the product; the server independently checks every read and answer. */
 export function BrowserApprovalPage({ atoms }: { readonly atoms: BrowserApprovalAtoms }) {
+  return (
+    <main className="mx-auto flex min-h-svh w-full max-w-2xl flex-col px-5 py-12 sm:py-20">
+      <div className="mb-8 flex items-center gap-2 text-lg font-semibold">
+        <img src="/favicon.png" alt="" className="size-7" />
+        executor
+      </div>
+      <BrowserApprovalCard atoms={atoms} />
+    </main>
+  );
+}
+/** Reuse the same form inside a product page; completion copy belongs to the delivery surface. */
+export function BrowserApprovalCard({
+  atoms,
+  completion,
+}: {
+  readonly atoms: BrowserApprovalAtoms;
+  readonly completion?: ReactNode;
+}) {
   const view = useAtomValue(atoms.view);
   const refresh = useAtomRefresh(atoms.view);
   const expires =
@@ -55,41 +73,42 @@ export function BrowserApprovalPage({ atoms }: { readonly atoms: BrowserApproval
     return () => clearTimeout(timer);
   }, [expires, refresh]);
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-2xl flex-col px-5 py-12 sm:py-20">
-      <div className="mb-8 flex items-center gap-2 text-lg font-semibold">
-        <img src="/favicon.png" alt="" className="size-7" />
-        executor
-      </div>
-      <section className="rounded-xl border bg-card p-6 shadow-sm sm:p-8">
-        {AsyncResult.isFailure(view) ? (
-          <>
-            <h1 className="text-[22px] font-semibold tracking-[-0.035em] leading-[1.35]">
-              Cannot open this request
-            </h1>
-            <p role="alert" className="my-4 text-sm text-muted-foreground">
-              {failureMessage(view.cause)}
-            </p>
-            <Button variant="outline" onClick={refresh}>
-              Try again
-            </Button>
-          </>
-        ) : !AsyncResult.isSuccess(view) ? (
-          <Spinner />
-        ) : view.value.status === "pending" ? (
-          <ApprovalForm
-            key={view.value.request.requestId}
-            request={view.value.request}
-            appName={view.value.appName}
-            atoms={atoms}
-          />
-        ) : (
-          <ApprovalResult status={view.value.status} />
-        )}
-      </section>
-    </main>
+    <section className="rounded-xl border bg-card p-6 shadow-sm sm:p-8">
+      {AsyncResult.isFailure(view) ? (
+        <>
+          <h1 className="text-[22px] font-semibold tracking-[-0.035em] leading-[1.35]">
+            Cannot open this request
+          </h1>
+          <p role="alert" className="my-4 text-sm text-muted-foreground">
+            {failureMessage(view.cause)}
+          </p>
+          <Button variant="outline" onClick={refresh}>
+            Try again
+          </Button>
+        </>
+      ) : !AsyncResult.isSuccess(view) ? (
+        <Spinner />
+      ) : view.value.status === "pending" ? (
+        <ApprovalForm
+          key={view.value.request.requestId}
+          request={view.value.request}
+          appName={view.value.appName}
+          atoms={atoms}
+          completion={completion}
+        />
+      ) : (
+        <ApprovalResult status={view.value.status} completion={completion} />
+      )}
+    </section>
   );
 }
-function ApprovalResult({ status }: { readonly status: "answered" | "unavailable" }) {
+function ApprovalResult({
+  status,
+  completion,
+}: {
+  readonly status: "answered" | "unavailable";
+  readonly completion?: ReactNode;
+}) {
   return (
     <>
       <h1 className="text-[22px] font-semibold tracking-[-0.035em] leading-[1.35]">
@@ -97,8 +116,8 @@ function ApprovalResult({ status }: { readonly status: "answered" | "unavailable
       </h1>
       <p className="mt-3 text-sm text-muted-foreground">
         {status === "answered"
-          ? "You can return to your agent."
-          : "This request has expired, was handled, or is no longer running. Return to your agent to check its status."}
+          ? (completion ?? "You can return to your agent.")
+          : "This request has expired, was handled, or is no longer running."}
       </p>
     </>
   );
@@ -107,7 +126,9 @@ function ApprovalForm({
   request,
   appName,
   atoms,
+  completion,
 }: {
+  readonly completion?: ReactNode;
   readonly request: PendingInteraction;
   readonly appName: string | undefined;
   readonly atoms: BrowserApprovalAtoms;
@@ -162,7 +183,7 @@ function ApprovalForm({
     if (Exit.isSuccess(result)) setSaved(result.value.status);
     else setError(failureMessage(result.cause));
   };
-  if (saved !== undefined) return <ApprovalResult status={saved} />;
+  if (saved !== undefined) return <ApprovalResult status={saved} completion={completion} />;
   const tool = request.status === "approval-required" ? request.invocation.tool : request.tool.tool;
   return (
     <form

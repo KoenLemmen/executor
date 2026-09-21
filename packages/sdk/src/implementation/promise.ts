@@ -17,6 +17,7 @@ import {
   StartConnectionOAuth,
   CompleteConnectionOAuth,
 } from "../contracts/account-connection.ts";
+import { ScheduleInputs } from "../contracts/schedules.ts";
 import { AppInputs } from "../contracts/apps.ts";
 import { OwnerInputs } from "../contracts/owner.ts";
 import { ElicitationFailed, ToolInputs, type ToolInvocationOptions } from "../contracts/tools.ts";
@@ -58,6 +59,16 @@ export const promiseExecutor = (executor: Executor): PromiseExecutor => {
     skills: {
       list: (input) => run(AppSkillInputs.list, input, executor.skills.list),
       read: (input) => run(AppSkillInputs.read, input, executor.skills.read),
+    },
+    schedules: {
+      definitions: (input) =>
+        run(ScheduleInputs.definitions, input, executor.schedules.definitions),
+      list: (input) => run(ScheduleInputs.list, input, executor.schedules.list),
+      configure: (input) => run(ScheduleInputs.configure, input, executor.schedules.configure),
+      runNow: (input) => run(ScheduleInputs.runNow, input, executor.schedules.runNow),
+      runs: (input = {}) => run(ScheduleInputs.runs, input, executor.schedules.runs),
+      approval: (input) => run(ScheduleInputs.approval, input, executor.schedules.approval),
+      answer: (input) => run(ScheduleInputs.answer, input, executor.schedules.answer),
     },
     accounts: {
       add: (input) => run(AccountInputs.add, input, executor.accounts.add),

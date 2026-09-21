@@ -1,3 +1,4 @@
+import { HostedSchedules } from "./schedules.ts";
 /** Common hosted contracts. Product reads require a hosted session. */
 import { CatalogEntry, CatalogUnavailable } from "@executor-js/catalog/contracts";
 import { Context, Schema } from "effect";
@@ -134,6 +135,7 @@ export const HostedApi = HttpApi.make("executor-hosted")
     HostedWorkflows,
     HostedApps,
     HostedSkills,
+    HostedSchedules,
     HostedAccounts,
     HostedTools,
     HostedOrganization,

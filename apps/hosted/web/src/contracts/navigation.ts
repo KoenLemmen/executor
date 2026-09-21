@@ -16,12 +16,14 @@ declare module "@tanstack/history" {
 }
 /** App tabs keep their selection on refresh in both hosted products. */
 export function parseAppSearch(search: Record<string, unknown>): {
-  readonly view?: "tools" | "accounts" | "source" | undefined;
+  readonly view?: "tools" | "accounts" | "source" | "schedules" | undefined;
   readonly tool?: string | undefined;
 } {
   return {
     view: Option.getOrUndefined(
-      Schema.decodeUnknownOption(Schema.Literals(["tools", "accounts", "source"]))(search.view),
+      Schema.decodeUnknownOption(Schema.Literals(["tools", "accounts", "source", "schedules"]))(
+        search.view,
+      ),
     ),
     tool: Option.getOrUndefined(Schema.decodeUnknownOption(Schema.NonEmptyString)(search.tool)),
   };
@@ -42,6 +44,7 @@ export function hostedPageTitle(
   if (root !== "org" || page === undefined) return "Organizations";
   if (extraPages[page] !== undefined) return extraPages[page];
   if (page === "organization") return "Settings";
+  if (page === "approvals") return item ? "Review request" : "Approvals";
   if (page === "connect") return "Connect";
   if (page === "webhooks") return "Webhook setup";
   if (page === "connections") return "Connect account";

@@ -1,3 +1,5 @@
+import { startScheduleWorker, defaultScheduleWorkerOptions } from "@executor-js/sdk/scheduling";
+import { localScheduleHandlers } from "./schedules.ts";
 import { localMcpApproval } from "./mcp-approvals.ts";
 import { makeLocalMcpOAuth } from "./mcp-oauth.ts";
 /** Local host composition. The SDK owns operations; this package owns local resources and access. */
@@ -13,7 +15,7 @@ import {
   webhookCallback,
 } from "@executor-js/sdk/core";
 import { filesystemBlobStore, workerdApps } from "@executor-js/sdk/node";
-import { Effect, Layer, Path, Redacted, Result, Deferred, Schedule } from "effect";
+import { Config, Effect, Layer, Path, Redacted, Result, Deferred, Schedule } from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -95,6 +97,13 @@ export const localApi = (
           Effect.repeat(Schedule.spaced("5 seconds")),
         ),
       );
+      yield* startScheduleWorker(executor, () => Effect.void, {
+        ...defaultScheduleWorkerOptions,
+        runner: "local",
+        concurrency: yield* Config.Number("EXECUTOR_SCHEDULE_CONCURRENCY").pipe(
+          Config.withDefault(defaultScheduleWorkerOptions.concurrency),
+        ),
+      });
       const managed = yield* installExecutorApp(executor, storage, credentialStore, config);
       const access = HttpRouter.middleware((httpEffect) =>
         Effect.gen(function* () {
@@ -105,13 +114,16 @@ export const localApi = (
           if (request.headers.authorization !== `Bearer ${Redacted.value(config.apiKey)}`) {
             return HttpServerResponse.empty({ status: 401 });
           }
+          const pathname = yield* Effect.try(() =>
+            decodeURIComponent(new URL(request.url, "http://localhost").pathname),
+          ).pipe(Effect.result);
+          if (Result.isFailure(pathname)) return HttpServerResponse.empty({ status: 400 });
+          const target = pathname.success.replace(/\/$/, "");
+          // SDK review primitives are only delivered through the product's browser session routes.
+          if (/^\/v1\/scheduled-runs\/[^/]+\/approval$/.test(target))
+            return HttpServerResponse.empty({ status: 403 });
           // Product protection stays at the host boundary, not in the reusable SDK.
           if (request.method !== "GET" && request.method !== "HEAD") {
-            const pathname = yield* Effect.try(() =>
-              decodeURIComponent(new URL(request.url, "http://localhost").pathname),
-            ).pipe(Effect.result);
-            if (Result.isFailure(pathname)) return HttpServerResponse.empty({ status: 400 });
-            const target = pathname.success.replace(/\/$/, "");
             if (
               (request.method === "DELETE" && target === `/v1/apps/${managed.app}`) ||
               (request.method === "PATCH" && target === `/v1/apps/${managed.app}/name`)
@@ -244,6 +256,7 @@ export const localApi = (
         ),
         HttpApiBuilder.layer(DashboardApi).pipe(
           Layer.provide(dashboardApi.handlers),
+          Layer.provide(localScheduleHandlers(executor, config, auth)),
           Layer.provide(dashboardApi.access),
         ),
         HttpApiBuilder.layer(LocalAuthApi).pipe(
@@ -259,6 +272,8 @@ export const localApi = (
         HttpRouter.add("GET", "/apps/:app/delete", web.document),
         HttpRouter.add("GET", "/accounts/add", web.document),
         HttpRouter.add("GET", "/connect", web.document),
+        HttpRouter.add("GET", "/approvals", web.document),
+        HttpRouter.add("GET", "/approvals/:run", web.document),
         HttpRouter.add("GET", "/account-connect/:connection", web.document),
         HttpRouter.add("GET", "/accounts", web.document),
         HttpRouter.add("GET", "/accounts/:account", web.document),

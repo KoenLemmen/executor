@@ -67,6 +67,17 @@ export function makeToolApprovals(
     });
   return {
     prune,
+    get: (requestId: ApprovalRequestId, owner?: OwnerId) =>
+      Effect.gen(function* () {
+        const row = yield* read(requestId, owner);
+        if (row.status !== "pending" || row.expiresAt.getTime() <= (yield* Clock.currentTimeMillis))
+          return yield* new ToolApprovalNotFound({ requestId });
+        const payload = yield* credentials.decrypt(row.id, row.encrypted).pipe(
+          Effect.flatMap((value) => Schema.decodeUnknownEffect(Payload)(Redacted.value(value))),
+          Effect.mapError(() => new StorageError()),
+        );
+        return { invocation: payload.invocation, expiresAt: row.expiresAt.getTime() };
+      }),
     save: (invocation: ToolInvocation, originalInput: Json, elicitation: ApprovalElicitation) =>
       Effect.gen(function* () {
         yield* prune(invocation.owner);

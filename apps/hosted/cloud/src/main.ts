@@ -33,6 +33,7 @@ import { cloudOnboarding } from "./infrastructure/onboarding.ts";
 import { cloudMcp, McpSessionsLive } from "./infrastructure/mcp.ts";
 import { cloudApi } from "./implementation/api.ts";
 import { billingLive } from "./implementation/billing.ts";
+import { cloudSchedules, ScheduleCoordinatorLive } from "./infrastructure/schedules.ts";
 import { cloudExecutor } from "./infrastructure/executor.ts";
 import { cloudAuthDatabase } from "./infrastructure/auth-database.ts";
 import {
@@ -135,6 +136,7 @@ export default Api.make(
     const welcomeEmails = yield* cloudWelcomeEmails(email.welcome);
     yield* AppWorkflows;
     const executor = yield* cloudExecutor(yield* AppDataSupervisor);
+    const schedules = yield* cloudSchedules;
     const appUi = hostedAppUi(appAddresses(auth.origin, yield* cloudAppUiBase.pipe(Effect.orDie)));
     const mcp = yield* cloudMcp;
     const billing = yield* billingLive.pipe(Effect.orDie);
@@ -168,6 +170,7 @@ export default Api.make(
       Layer.provide(appUi.dashboard),
       Layer.provide(requestServices(auth.appSessions)),
       HttpRouter.provideRequest(catalogLive(executorSkillFiles(authoring), document)),
+      Layer.provide(schedules),
       Layer.provide(billing),
       Layer.provide(Layer.succeed(ExecutionAdmission, meter.consume)),
       Layer.provide(onboarding),
@@ -238,6 +241,7 @@ export default Api.make(
       Layer.mergeAll(
         AppDataSupervisorLive,
         McpSessionsLive,
+        ScheduleCoordinatorLive,
         cloudAuthDatabase,
         cloudTelemetry,
         Cloudflare.Workers.CronEventSourceLive,

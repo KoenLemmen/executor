@@ -38,7 +38,7 @@ const fixture = (count: number) =>
   Effect.gen(function* () {
     const storage = yield* makeExecutorStorage({ provider: "postgresql" });
     yield* storage.migrate;
-    const db = storage.orm("1.9.0");
+    const db = storage.orm("1.9.1");
     const deployments = Array.from({ length: count + 1 }, (_, index) => ({
       id: DeploymentId.make(`dpl_list_${index}`),
       code: AppCodeId.make(`code_list_${index}`),

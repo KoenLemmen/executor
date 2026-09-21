@@ -359,6 +359,9 @@ function dispatch(
                   Effect.gen(function* () {
                     return yield* Schema.decodeUnknownEffect(HostedTool)({
                       name: `${prefix}${name}`,
+                      schedules: Object.entries(definition.schedules ?? {})
+                        .filter(([, schedule]) => schedule.tool === `${prefix}${name}`)
+                        .map(([name, { tool: _tool, ...schedule }]) => ({ name, ...schedule })),
                       description:
                         operation.description ?? `${readOnly ? "Query" : "Mutate"} ${name}`,
                       ...(operation.title === undefined ? {} : { title: operation.title }),

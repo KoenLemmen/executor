@@ -68,3 +68,6 @@ export { makeOrganizationIcons } from "./implementation/organization-icons.ts";
 export * from "./contracts/execution-admission.ts";
 
 export { resolveOrganizationReference } from "./implementation/organization-reference.ts";
+
+export * from "./contracts/schedules.ts";
+export { makeScheduledAuthority } from "./implementation/schedules.ts";

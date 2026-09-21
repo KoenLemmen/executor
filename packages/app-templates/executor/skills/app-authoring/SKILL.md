@@ -398,8 +398,8 @@ retained builds, configured copies, live discovery and tool calls. The local
 catalog imports OpenAPI and remote MCP apps. Custom Add also generates GraphQL
 and local stdio MCP apps. OAuth clients can be supplied or resolved through
 DCR/CIMD; the host stores and refreshes grants. Private local/self-host app UI,
-app data, and webhook lifecycle are implemented. Schedules, app-to-app calls and
-`executor dev` remain deferred.
+app data, webhook lifecycle and scheduled mutations are implemented. App-to-app
+calls and `executor dev` remain deferred.
 
 ## Remote MCP tools
 
@@ -684,3 +684,51 @@ The SDK namespace is `executor.apps.workflowRuns`, with discovery through
 
 V1 has no webhook/event wait, durable human-input request, or restart helper.
 Background operations retain approval rules and fail if they require live input.
+
+## Scheduled mutations
+
+Declare schedules against the same mutation objects registered on the app:
+
+```ts
+import { defineApp, mutation, interval, cron, object, string } from "apps";
+
+const record = mutation({ input: object({ message: string() }) }, async (_ctx, { message }) => ({
+  message,
+}));
+
+export default defineApp({ accounts: {} }, async () => ({
+  name: "Scheduled example",
+  mutations: { record },
+  schedules: {
+    heartbeat: interval({ minutes: 5 }, record, { message: "Heartbeat" }),
+    morning: cron({ expression: "0 9 * * MON-FRI", timezone: "America/Los_Angeles" }, record, {
+      message: "Morning",
+    }),
+  },
+}));
+```
+
+Intervals accept one positive integer unit: `seconds`, `minutes` or `hours`,
+and must resolve to at least 60 seconds. A shorter interval fails when the app
+is evaluated. Use Run now to try a schedule without waiting for its next tick.
+Calendar schedules accept five-field cron expressions and default to UTC.
+The mutation must appear once in the app's mutation catalog. Its input is
+checked during app evaluation. External handlers use
+`MutationContext<typeof requirements>`, exactly as ordinary mutations do. Read
+selected providers through `ctx.accounts` and declared storage through `ctx.db`;
+`interval` and `cron` retain that handler context type. No account-binding factory
+or database-specific mutation constructor is needed.
+
+Schedules start paused. Use the app's Schedules tab or the Executor management
+app's schedule definitions/configure operations to enable them. The management
+API also lists saved settings and runs, pauses schedules and requests a run now.
+Each run uses the current deployment and selected accounts. Only one run is
+active per schedule; overdue ticks coalesce into one run after downtime.
+
+The default `automatic` approval mode accepts approval prompts using the saved
+schedule authorization. Explicit denials still block execution. Select `browser`
+to review requests on the Approvals page. These requests expire after 15 minutes
+and occupy the active slot while waiting. Browser review requires the normal
+signed-in user; an agent cannot answer through the management app.
+Background input requests (`elicit`) are unsupported. No automatic retries,
+workflow checkpoints or replay of uncertain side effects are provided.

@@ -580,6 +580,12 @@
         "apps": "workspace:*",
       },
     },
+    "playground/demo-apps/scheduled-notes": {
+      "name": "@executor-js/app-scheduled-notes",
+      "dependencies": {
+        "apps": "workspace:*",
+      },
+    },
     "playground/demo-apps/vercel": {
       "name": "@executor-js/app-vercel",
       "dependencies": {
@@ -1080,6 +1086,8 @@
     "@executor-js/app-live-inbox": ["@executor-js/app-live-inbox@workspace:playground/demo-apps/live-inbox"],
 
     "@executor-js/app-mail": ["@executor-js/app-mail@workspace:playground/demo-apps/mail"],
+
+    "@executor-js/app-scheduled-notes": ["@executor-js/app-scheduled-notes@workspace:playground/demo-apps/scheduled-notes"],
 
     "@executor-js/app-templates": ["@executor-js/app-templates@workspace:packages/app-templates"],
 

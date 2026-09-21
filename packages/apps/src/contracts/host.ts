@@ -6,6 +6,7 @@ import {
   type WorkflowHostControls,
 } from "./workflows.ts";
 export * from "./workflows.ts";
+import { OperationSchedule } from "./schedules.ts";
 import { DatabaseSchema } from "@executor-js/app-data/contracts";
 /** Portable framework dispatch contracts. Requests never carry account bindings. */
 import { Schema, type Effect, type Redacted } from "effect";
@@ -108,6 +109,7 @@ export interface HostContext {
 
 /** Serializable live tool metadata; executable callbacks never cross this boundary. */
 export const HostedTool = Schema.Struct({
+  schedules: Schema.optionalKey(Schema.Array(OperationSchedule)),
   name: Schema.NonEmptyString,
   description: Schema.String,
   inputSchema: JsonObject,
@@ -261,3 +263,5 @@ export type HostResponse = typeof HostResponse.Type;
 export type AppHandler = (request: Request, context: HostContext) => Effect.Effect<Response>;
 
 export { OperationToolPrefixes, type AppOperation, type OperationContext } from "./operations.ts";
+
+export * from "./schedules.ts";

@@ -104,6 +104,7 @@ export type Executor = Omit<FlatExecutor, "apps" | "appWorkflows" | "appWorkflow
     readonly workflowRuns: FlatExecutor["appWorkflowRuns"];
   };
   readonly [WorkflowHost]: import("./workflow-runtime.ts").WorkflowHost;
+  readonly scheduler: import("./scheduler.ts").ScheduleDispatcher;
 };
 
 type Promisify<T> = T extends (...args: infer Args) => Effect.Effect<infer A, infer _E, never>
@@ -111,4 +112,4 @@ type Promisify<T> = T extends (...args: infer Args) => Effect.Effect<infer A, in
   : { readonly [Key in keyof T]: Promisify<T[Key]> };
 
 /** Root SDK facade over the same operations: plain inputs, Promises, and AsyncIterable subscriptions. */
-export type PromiseExecutor = Promisify<Omit<Executor, typeof WorkflowHost>>;
+export type PromiseExecutor = Promisify<Omit<Executor, typeof WorkflowHost | "scheduler">>;

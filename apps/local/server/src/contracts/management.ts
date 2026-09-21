@@ -1,3 +1,4 @@
+import { DashboardApi } from "./dashboard.ts";
 /** The local agent-facing API, projected from the contracts that serve its requests. */
 import { ExecutorApi } from "@executor-js/sdk/core";
 import { HttpApi, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
@@ -11,6 +12,15 @@ const api = HttpApi.make("local-management")
   .add(ExecutorApi.groups.webhooks)
   .add(ExecutorApi.groups.appWorkflows)
   .add(ExecutorApi.groups.appWorkflowRuns)
+  .add(
+    HttpApiGroup.make("schedules").add(
+      DashboardApi.groups.schedules.endpoints.list,
+      DashboardApi.groups.schedules.endpoints.definitions,
+      DashboardApi.groups.schedules.endpoints.configure,
+      DashboardApi.groups.schedules.endpoints.runNow,
+      DashboardApi.groups.schedules.endpoints.runs,
+    ),
+  )
   .add(HttpApiGroup.make("tools").add(ExecutorApi.groups.tools.endpoints.list))
   .add(
     HttpApiGroup.make("accountConnections").add(

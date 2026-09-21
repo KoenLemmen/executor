@@ -272,7 +272,7 @@ const appContextSchema = schema({
 });
 
 /** Additive workflow metadata. Existing identities, selections, credentials and app rows remain unchanged. */
-export const storageSchema = schema({
+const workflowSchema = schema({
   version: "1.9.0",
   tables: {
     ...appContextSchema.tables,
@@ -307,6 +307,72 @@ export const storageSchema = schema({
   },
 });
 
+/** Additive schedule state. Exact approval arguments remain in existing encrypted tool-approval rows. */
+export const storageSchema = schema({
+  version: "1.9.1",
+  up: ({ auto }) =>
+    auto.pipe(
+      Effect.map((operations) => [
+        ...operations,
+        {
+          type: "custom" as const,
+          sql: "CREATE INDEX executor_schedules_due ON executor_schedules (enabled, active_run, next_at)",
+        },
+        {
+          type: "custom" as const,
+          sql: "CREATE INDEX executor_scheduled_runs_pending ON executor_scheduled_runs (status, expires_at)",
+        },
+        {
+          type: "custom" as const,
+          sql: "CREATE INDEX executor_scheduled_runs_owner ON executor_scheduled_runs (owner, started_at)",
+        },
+      ]),
+    ),
+  tables: {
+    ...workflowSchema.tables,
+    // Relations attach constraints to their table declaration; do not share that
+    // mutable schema object with 1.9.0 or its migration gets the foreign key twice.
+    apps: table("executor_apps", { ...workflowSchema.tables.apps.columns })
+      .unique("executor_apps_owner_name", ["owner", "name"])
+      .unique("executor_apps_owner_slug", ["owner", "slug"]),
+    schedules: table("executor_schedules", {
+      id: idColumn("id", Schema.String, { type: "varchar(255)" }),
+      app: column("app", AppId, { type: "varchar(255)" }),
+      owner: column("owner", OwnerId, { type: "varchar(255)" }),
+      name: column("name", Schema.String, { type: "varchar(255)" }),
+      actor: column("actor", Schema.String, { type: "varchar(255)" }),
+      timing: column("timing", Schema.Json),
+      enabled: column("enabled", Schema.Boolean),
+      approvalMode: column("approval_mode", Schema.String, { type: "varchar(32)" }),
+      nextAt: column("next_at", Schema.NullOr(Schema.Date)),
+      activeRun: column("active_run", Schema.NullOr(Schema.String), { type: "varchar(255)" }),
+      revision: column("revision", Schema.String, { type: "varchar(255)" }),
+    }).unique("executor_schedules_app_name", ["app", "name"]),
+    scheduledRuns: table("executor_scheduled_runs", {
+      id: idColumn("id", Schema.String, { type: "varchar(255)" }),
+      scheduleId: column("schedule_id", Schema.String, { type: "varchar(255)" }),
+      app: column("app", AppId, { type: "varchar(255)" }),
+      owner: column("owner", OwnerId, { type: "varchar(255)" }),
+      name: column("name", Schema.String),
+      status: column("status", Schema.String, { type: "varchar(32)" }),
+      scheduledAt: column("scheduled_at", Schema.Date),
+      startedAt: column("started_at", Schema.Date),
+      finishedAt: column("finished_at", Schema.NullOr(Schema.Date)),
+      requestId: column("request_id", Schema.NullOr(ApprovalRequestId), { type: "varchar(255)" }),
+      expiresAt: column("expires_at", Schema.NullOr(Schema.Date)),
+      failure: column("failure", Schema.NullOr(Schema.String)),
+      runner: column("runner", Schema.String, { type: "varchar(255)" }),
+      revision: column("revision", Schema.String, { type: "varchar(255)" }),
+      answer: column("answer", Schema.NullOr(Schema.String), { type: "varchar(32)" }),
+    }),
+  },
+  relations: {
+    apps: ({ one }) => ({
+      deployment: one("deployments", ["activeDeployment", "id"], ["code", "code"]).foreignKey(),
+    }),
+  },
+});
+
 /** Versioned schema metadata. Use makeExecutorStorage.migrate for upgrades, including data backfills. */
 export const executorDatabase = fumadb({
   namespace: "executor",
@@ -323,6 +389,7 @@ export const executorDatabase = fumadb({
     webhookSchema,
     webhookSlugBackfillSchema,
     appContextSchema,
+    workflowSchema,
     storageSchema,
   ],
 });
@@ -333,12 +400,12 @@ export const makeExecutorStorage = (options: { readonly provider: SqlProvider })
     const sql = yield* SqlClient.SqlClient;
     const reactivity = yield* makeReactiveStore({ namespace: "executor" });
     const client = executorDatabase.client(sqlAdapter({ provider: options.provider }));
-    const db = bindOrm(client.orm("1.9.0"), sql, reactivity);
+    const db = bindOrm(client.orm("1.9.1"), sql, reactivity);
     const migrate = Effect.gen(function* () {
       const migrator = yield* client.createMigrator;
       const version = yield* migrator.version;
-      if (Option.isSome(version) && version.value === "1.9.0") return;
-      if (Option.isSome(version) && version.value === "1.8.2") {
+      if (Option.isSome(version) && version.value === "1.9.1") return;
+      if (Option.isSome(version) && (version.value === "1.8.2" || version.value === "1.9.0")) {
         yield* (yield* migrator.migrateToLatest()).execute;
         return;
       }
@@ -364,7 +431,7 @@ export const makeExecutorStorage = (options: { readonly provider: SqlProvider })
       Effect.provideService(SqlClient.SqlClient, sql),
       Effect.mapError((error) => (Schema.is(AppSlugTaken)(error) ? error : new StorageError())),
     );
-    return { orm: (_version: "1.9.0") => db, reactivity, migrate };
+    return { orm: (_version: "1.9.1") => db, reactivity, migrate };
   });
 
 /** Caller-owned, Effect-native persistence with commit-driven subscriptions. */

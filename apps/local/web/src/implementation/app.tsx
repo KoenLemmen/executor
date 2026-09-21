@@ -4,7 +4,13 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Cause, Option, Schema } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Key01Icon, LaptopIcon, PackageIcon, Plug01Icon } from "@hugeicons/core-free-icons";
+import {
+  Key01Icon,
+  LaptopIcon,
+  PackageIcon,
+  Plug01Icon,
+  Shield01Icon,
+} from "@hugeicons/core-free-icons";
 import { overviewAtom } from "../contracts/api.ts";
 import { bootstrapAtom, sessionAtom } from "../contracts/connection.ts";
 import { Link, Outlet, useMatches } from "@tanstack/react-router";
@@ -151,6 +157,16 @@ function Dashboard() {
             <HugeiconsIcon icon={Key01Icon} strokeWidth={2} aria-hidden size={16} />
             Accounts
             {Option.isSome(data) && <span>{data.value.accounts.length}</span>}
+          </Link>
+          <Link
+            to="/approvals"
+            className={cn(
+              section === "approvals" &&
+                "active [.sidebar_nav_a&]:bg-accent [.sidebar_nav_a&]:text-foreground",
+            )}
+          >
+            <HugeiconsIcon icon={Shield01Icon} strokeWidth={2} aria-hidden size={16} />
+            Approvals
           </Link>
         </>
       }

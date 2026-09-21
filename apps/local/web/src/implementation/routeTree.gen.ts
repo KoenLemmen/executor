@@ -17,6 +17,8 @@ import { Route as AccountConnectConnectionIdRouteImport } from './routes/account
 import { Route as McpAuthorizeRouteImport } from './routes/mcp.authorize'
 import { Route as DashboardInventoryIndexRouteImport } from './routes/_dashboard._inventory.index'
 import { Route as DashboardInventorySplatRouteImport } from './routes/_dashboard._inventory.$'
+import { Route as DashboardApprovalsIndexRouteImport } from './routes/_dashboard.approvals.index'
+import { Route as DashboardApprovalsRunIdRouteImport } from './routes/_dashboard.approvals.$runId'
 import { Route as McpApproveRequestIdRouteImport } from './routes/mcp.approve.$requestId'
 import { Route as DashboardInventoryAccountsIndexRouteImport } from './routes/_dashboard._inventory.accounts.index'
 import { Route as DashboardInventoryAccountsAccountIdRouteImport } from './routes/_dashboard._inventory.accounts.$accountId'
@@ -70,6 +72,16 @@ const DashboardInventorySplatRoute = DashboardInventorySplatRouteImport.update({
   id: '/$',
   path: '/$',
   getParentRoute: () => DashboardInventoryRoute,
+} as any)
+const DashboardApprovalsIndexRoute = DashboardApprovalsIndexRouteImport.update({
+  id: '/approvals/',
+  path: '/approvals/',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardApprovalsRunIdRoute = DashboardApprovalsRunIdRouteImport.update({
+  id: '/approvals/$runId',
+  path: '/approvals/$runId',
+  getParentRoute: () => DashboardRoute,
 } as any)
 const McpApproveRequestIdRoute = McpApproveRequestIdRouteImport.update({
   id: '/mcp/approve/$requestId',
@@ -162,7 +174,9 @@ export interface FileRoutesByFullPath {
   '/account-connect/$connectionId': typeof AccountConnectConnectionIdRoute
   '/mcp/authorize': typeof McpAuthorizeRoute
   '/$': typeof DashboardInventorySplatRoute
+  '/approvals/$runId': typeof DashboardApprovalsRunIdRoute
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
+  '/approvals/': typeof DashboardApprovalsIndexRoute
   '/accounts/$accountId': typeof DashboardInventoryAccountsAccountIdRoute
   '/accounts/add': typeof DashboardInventoryAccountsAddRoute
   '/apps/$appId': typeof DashboardInventoryAppsAppIdRoute
@@ -184,7 +198,9 @@ export interface FileRoutesByTo {
   '/account-connect/$connectionId': typeof AccountConnectConnectionIdRoute
   '/mcp/authorize': typeof McpAuthorizeRoute
   '/$': typeof DashboardInventorySplatRoute
+  '/approvals/$runId': typeof DashboardApprovalsRunIdRoute
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
+  '/approvals': typeof DashboardApprovalsIndexRoute
   '/accounts/$accountId': typeof DashboardInventoryAccountsAccountIdRoute
   '/accounts/add': typeof DashboardInventoryAccountsAddRoute
   '/apps/$appId': typeof DashboardInventoryAppsAppIdRoute
@@ -208,8 +224,10 @@ export interface FileRoutesById {
   '/account-connect/$connectionId': typeof AccountConnectConnectionIdRoute
   '/mcp/authorize': typeof McpAuthorizeRoute
   '/_dashboard/_inventory/$': typeof DashboardInventorySplatRoute
+  '/_dashboard/approvals/$runId': typeof DashboardApprovalsRunIdRoute
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
   '/_dashboard/_inventory/': typeof DashboardInventoryIndexRoute
+  '/_dashboard/approvals/': typeof DashboardApprovalsIndexRoute
   '/_dashboard/_inventory/accounts/$accountId': typeof DashboardInventoryAccountsAccountIdRoute
   '/_dashboard/_inventory/accounts/add': typeof DashboardInventoryAccountsAddRoute
   '/_dashboard/_inventory/apps/$appId': typeof DashboardInventoryAppsAppIdRoute
@@ -233,7 +251,9 @@ export interface FileRouteTypes {
     | '/account-connect/$connectionId'
     | '/mcp/authorize'
     | '/$'
+    | '/approvals/$runId'
     | '/mcp/approve/$requestId'
+    | '/approvals/'
     | '/accounts/$accountId'
     | '/accounts/add'
     | '/apps/$appId'
@@ -255,7 +275,9 @@ export interface FileRouteTypes {
     | '/account-connect/$connectionId'
     | '/mcp/authorize'
     | '/$'
+    | '/approvals/$runId'
     | '/mcp/approve/$requestId'
+    | '/approvals'
     | '/accounts/$accountId'
     | '/accounts/add'
     | '/apps/$appId'
@@ -278,8 +300,10 @@ export interface FileRouteTypes {
     | '/account-connect/$connectionId'
     | '/mcp/authorize'
     | '/_dashboard/_inventory/$'
+    | '/_dashboard/approvals/$runId'
     | '/mcp/approve/$requestId'
     | '/_dashboard/_inventory/'
+    | '/_dashboard/approvals/'
     | '/_dashboard/_inventory/accounts/$accountId'
     | '/_dashboard/_inventory/accounts/add'
     | '/_dashboard/_inventory/apps/$appId'
@@ -360,6 +384,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/$'
       preLoaderRoute: typeof DashboardInventorySplatRouteImport
       parentRoute: typeof DashboardInventoryRoute
+    }
+    '/_dashboard/approvals/': {
+      id: '/_dashboard/approvals/'
+      path: '/approvals'
+      fullPath: '/approvals/'
+      preLoaderRoute: typeof DashboardApprovalsIndexRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/_dashboard/approvals/$runId': {
+      id: '/_dashboard/approvals/$runId'
+      path: '/approvals/$runId'
+      fullPath: '/approvals/$runId'
+      preLoaderRoute: typeof DashboardApprovalsRunIdRouteImport
+      parentRoute: typeof DashboardRoute
     }
     '/mcp/approve/$requestId': {
       id: '/mcp/approve/$requestId'
@@ -507,12 +545,16 @@ const DashboardInventoryRouteWithChildren =
 interface DashboardRouteChildren {
   DashboardInventoryRoute: typeof DashboardInventoryRouteWithChildren
   DashboardConnectRoute: typeof DashboardConnectRoute
+  DashboardApprovalsRunIdRoute: typeof DashboardApprovalsRunIdRoute
+  DashboardApprovalsIndexRoute: typeof DashboardApprovalsIndexRoute
   DashboardWebhooksAppIdSubscriptionIdRoute: typeof DashboardWebhooksAppIdSubscriptionIdRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardInventoryRoute: DashboardInventoryRouteWithChildren,
   DashboardConnectRoute: DashboardConnectRoute,
+  DashboardApprovalsRunIdRoute: DashboardApprovalsRunIdRoute,
+  DashboardApprovalsIndexRoute: DashboardApprovalsIndexRoute,
   DashboardWebhooksAppIdSubscriptionIdRoute:
     DashboardWebhooksAppIdSubscriptionIdRoute,
 }

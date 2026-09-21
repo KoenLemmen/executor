@@ -1,6 +1,7 @@
 import type { DatabaseDefinition } from "./storage.ts";
 /** Native app contracts; factories and handlers compose in the host's Effect runtime. */
 import { type Effect, Schema } from "effect";
+import type { OperationSchedule } from "./schedules.ts";
 import type { AppOperation } from "./operations.ts";
 import type { AccountOf, AuthMethods, ManyAccounts, Provider } from "./provider.ts";
 import type { AppWorkflow, WorkflowReads } from "./workflows.ts";
@@ -13,6 +14,9 @@ type Handler<Context> = (context: Context, input: never) => Effect.Effect<unknow
 export interface AppDefinition<Context> {
   readonly name: string;
   readonly workflows?: Readonly<Record<string, AppWorkflow>>;
+  readonly schedules?: Readonly<
+    Record<string, Omit<OperationSchedule, "name"> & { readonly tool: string }>
+  >;
   readonly queries?: Readonly<Record<string, AppOperation>>;
   readonly mutations?: Readonly<Record<string, AppOperation>>;
   readonly webhooks?: Readonly<
