@@ -2,6 +2,7 @@
 import { Random } from "alchemy";
 import * as Output from "alchemy/Output";
 import { CurrentRuntimeContext } from "alchemy/RuntimeContext";
+import { Stage } from "alchemy/Stage";
 import { BillingCatalog } from "../contracts/billing-catalog.ts";
 import { Config, Effect, Option, Redacted, Schema } from "effect";
 import { testStage } from "./stage.ts";
@@ -89,14 +90,17 @@ export const billingSettings = Effect.gen(function* () {
   } satisfies BillingSettings;
 });
 
-/** Bind the already deployed catalog into the API and its Durable Objects. */
+/** Live catalogs use a separate stage so sandbox state and subscriptions stay intact. */
 export const billingBindings = Effect.gen(function* () {
   if (Option.isSome(yield* cloudEmulators.pipe(Effect.orDie))) return {};
   const mode = yield* Config.Literals(["emulator", "sandbox", "live"], "BILLING_MODE").pipe(
     Config.withDefault("emulator"),
   );
   if (mode === "emulator") return {};
-  const catalog = yield* Output.stackRef<BillingCatalog>("executor-next-billing");
+  const stage = yield* Stage;
+  const catalog = yield* Output.stackRef<BillingCatalog>("executor-next-billing", {
+    stage: mode === "live" ? `${stage}-live` : stage,
+  });
   return {
     EXECUTOR_BILLING_CATALOG: catalog.pipe(
       Output.map((value) => {
