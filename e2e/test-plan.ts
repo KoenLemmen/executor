@@ -331,6 +331,24 @@ export const scenarios = {
       local: na("Local pairing drives the same shared controls in its own scenario."),
     },
   },
+  scheduleDiscoveryStates: {
+    file: "hosted-schedule-browser.spec.ts",
+    title: "schedule discovery distinguishes loading, failure and confirmed empty results",
+    targets: {
+      cloud: scheduled,
+      "self-host": scheduled,
+      local: na("The shared schedule view is exercised through the hosted API."),
+    },
+  },
+  scheduleAccountSetup: {
+    file: "hosted-schedule-browser.spec.ts",
+    title: "schedule discovery offers account setup without a false empty result",
+    targets: {
+      cloud: scheduled,
+      "self-host": scheduled,
+      local: na("The shared schedule view is exercised through the hosted account routes."),
+    },
+  },
   scheduleRestart: {
     file: "schedule-restart.spec.ts",
     title: "local restart coalesces overdue schedules and preserves pending approvals",

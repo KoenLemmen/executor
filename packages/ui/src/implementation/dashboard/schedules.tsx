@@ -1,11 +1,17 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { Exit, Option, Schema, type Cause } from "effect";
+import { Cause, Exit, Option, Schema } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { ScheduleApprovalMode, type AppSchedule, type ScheduleSettings } from "@executor-js/sdk";
+import {
+  AccountRequired,
+  ScheduleApprovalMode,
+  type AppSchedule,
+  type ScheduleSettings,
+} from "@executor-js/sdk";
 import { useState, type ComponentType } from "react";
 import type { FailureProps } from "../../contracts/dashboard.ts";
 import type { ScheduleBindings, ScheduleControls } from "../../contracts/schedules.ts";
-import { QueryView, useQuery } from "./context.tsx";
+import { QueryView, useDashboard, useQuery } from "./context.tsx";
+import { Alert } from "../components/alert.tsx";
 import { Button } from "../components/button.tsx";
 import {
   Select,
@@ -71,20 +77,36 @@ function ScheduleList<E>({
         settings: rows.get(definition.name)?.settings,
         declared: true,
       });
+  const discoveryView = AsyncResult.match(discovery.result, {
+    onInitial: () => ({
+      error: null,
+      empty: (
+        <div className="rounded-lg border p-6 text-sm text-muted-foreground" role="status">
+          Loading schedule definitions…
+        </div>
+      ),
+    }),
+    onSuccess: () => ({
+      error: null,
+      empty: (
+        <div className="rounded-lg border p-6 text-sm text-muted-foreground">
+          This app has no schedules.
+        </div>
+      ),
+    }),
+    onFailure: (failure) => ({
+      error: <DiscoveryFailure cause={failure.cause} retry={discovery.refresh} Failure={Failure} />,
+      empty: null,
+    }),
+  });
   return (
     <section className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Schedules run with this app’s selected accounts. New schedules start paused.
       </p>
-      {AsyncResult.isFailure(discovery.result) && (
-        <Failure cause={discovery.result.cause} retry={discovery.refresh} />
-      )}
+      {discoveryView.error}
       {rows.size === 0 ? (
-        <div className="rounded-lg border p-6 text-sm text-muted-foreground">
-          {discovery.result.waiting
-            ? "Loading schedule definitions…"
-            : "This app has no schedules."}
-        </div>
+        discoveryView.empty
       ) : (
         <div className="divide-y rounded-lg border">
           {[...rows.values()]
@@ -119,6 +141,36 @@ function ScheduleList<E>({
     </section>
   );
 }
+
+function DiscoveryFailure<E>({
+  cause,
+  retry,
+  Failure,
+}: FailureProps<E> & {
+  readonly Failure: ComponentType<FailureProps<NoInfer<E>>>;
+}) {
+  const { AppLink } = useDashboard();
+  const error = Cause.findErrorOption(cause);
+  if (Option.isSome(error) && Schema.is(AccountRequired)(error.value)) {
+    return (
+      <Alert className="flex flex-wrap items-center justify-between gap-4 p-6">
+        <div>
+          <h2 className="text-sm font-medium">Choose accounts to load schedules</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This app needs an account selected before its schedules can load.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" asChild>
+          <AppLink app={error.value.app} view="accounts">
+            View accounts
+          </AppLink>
+        </Button>
+      </Alert>
+    );
+  }
+  return <Failure cause={cause} {...(retry ? { retry } : {})} />;
+}
+
 function Controls<E>({
   row,
   actions,

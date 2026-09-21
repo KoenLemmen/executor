@@ -7,6 +7,7 @@ import { Api, body } from "../support/api.ts";
 import { Browser } from "../support/browser.ts";
 import { HostedLive, withCase } from "../support/case.ts";
 import { scenarios } from "../test-plan.ts";
+import { holdQuery, refreshVisiblePage } from "../support/query-transition.ts";
 
 class Pending extends Schema.TaggedError<Pending>()("Pending", {}) {}
 const source = `import { defineApp, mutation, object, interval } from "apps";
@@ -14,6 +15,161 @@ import { always } from "apps/operations/approval";
 const send = mutation({ input: object({}), approval: always() }, async () => ({ done: true }));
 export default defineApp({ accounts: {} }, async () => ({ name: "Hosted browser schedules", mutations: { send }, schedules: { digest: interval({ hours: 1 }, send, {}) } }));`;
 layer(HostedLive, { excludeTestServices: true })("Hosted schedule dashboard", (it) => {
+  it.effect(scenarios.scheduleDiscoveryStates.title, (context) =>
+    withCase(
+      context,
+      Effect.gen(function* () {
+        const api = yield* Api,
+          browser = yield* Browser,
+          actors = yield* Actors;
+        const prefix = `/api/organizations/${actors.organization.id}`;
+        const name = `Schedule states ${randomUUID().slice(0, 8)}`;
+        const deployed = yield* api.request(actors.owner, "POST", `${prefix}/apps/deploy`, {
+          name,
+          files: [{ path: "index.ts", content: source }],
+        });
+        expect(deployed.status).toBe(200);
+        const app = yield* body(Schema.Struct({ id: Schema.String }), deployed);
+        yield* Effect.addFinalizer(() =>
+          api.request(actors.owner, "DELETE", `${prefix}/apps/${app.id}`).pipe(Effect.orDie),
+        );
+        const paths = [actors.organization.id, actors.organization.slug].map(
+          (organization) =>
+            `/api/organizations/${organization}/apps/${app.id}/schedules/definitions`,
+        );
+        const noFalseEmpty = (phase: string) =>
+          Effect.gen(function* () {
+            expect(
+              yield* browser.use(
+                `${phase}: failed discovery is not an empty schedule list`,
+                (page) => page.getByText("This app has no schedules.", { exact: true }).count(),
+              ),
+            ).toBe(0);
+          });
+        yield* browser.login(actors.owner);
+        const failed = yield* holdQuery(paths, "fail");
+        yield* browser.use("Open schedules with definition discovery held", (page) =>
+          page.goto(`/org/${actors.organization.slug}/apps/${app.id}?view=schedules`),
+        );
+        yield* failed.requested;
+        yield* browser.use("Definition discovery is loading", (page) =>
+          page.getByText("Loading schedule definitions…", { exact: true }).waitFor(),
+        );
+        yield* noFalseEmpty("Initial loading");
+        yield* failed.release;
+        yield* browser.use("The discovery failure is visible", (page) =>
+          page.getByText("Unable to complete this request", { exact: true }).waitFor(),
+        );
+        yield* noFalseEmpty("Initial failure");
+        yield* browser.checkpoint("Failed discovery without a false empty state");
+        yield* browser.use("Retry schedule discovery", (page) =>
+          page.getByRole("button", { name: "Retry", exact: true }).click(),
+        );
+        yield* browser.use("The declared schedule appears", (page) =>
+          page.getByRole("heading", { name: "digest", exact: true }).waitFor(),
+        );
+        const refreshFailure = yield* holdQuery(paths, "fail");
+        yield* refreshVisiblePage;
+        yield* refreshFailure.requested;
+        yield* refreshFailure.release;
+        yield* browser.use("The refresh failure is visible", (page) =>
+          page.getByText("Unable to complete this request", { exact: true }).waitFor(),
+        );
+        expect(
+          yield* browser.use("Refresh failure keeps the known schedule", (page) =>
+            page.getByRole("heading", { name: "digest", exact: true }).isVisible(),
+          ),
+        ).toBe(true);
+        yield* noFalseEmpty("Refresh failure");
+        const empty = yield* api.request(actors.owner, "POST", `${prefix}/apps/deploy`, {
+          name: `${name} empty`,
+          files: [
+            {
+              path: "index.ts",
+              content: `import { defineApp } from "apps";
+export default defineApp({ accounts: {} }, async () => ({ name: "Empty schedules" }));`,
+            },
+          ],
+        });
+        expect(empty.status).toBe(200);
+        const emptyApp = yield* body(Schema.Struct({ id: Schema.String }), empty);
+        yield* Effect.addFinalizer(() =>
+          api.request(actors.owner, "DELETE", `${prefix}/apps/${emptyApp.id}`).pipe(Effect.orDie),
+        );
+        yield* browser.use("Open the app without schedules", (page) =>
+          page.goto(`/org/${actors.organization.slug}/apps/${emptyApp.id}?view=schedules`),
+        );
+        yield* browser.use("Successful discovery can report an empty list", (page) =>
+          page.getByText("This app has no schedules.", { exact: true }).waitFor(),
+        );
+        yield* browser.checkpoint("Confirmed empty schedule list");
+      }),
+    ),
+  );
+
+  it.effect(scenarios.scheduleAccountSetup.title, (context) =>
+    withCase(
+      context,
+      Effect.gen(function* () {
+        const api = yield* Api,
+          browser = yield* Browser,
+          actors = yield* Actors;
+        const prefix = `/api/organizations/${actors.organization.id}`;
+        const deployed = yield* api.request(actors.owner, "POST", `${prefix}/apps/deploy`, {
+          name: `Schedule account ${randomUUID().slice(0, 8)}`,
+          files: [
+            {
+              path: "index.ts",
+              content: `import { defineApp, defineProvider, secrets, object, string } from "apps";
+const service = defineProvider({ name: "Schedule fixture", auth: {
+  key: secrets({ label: "API key", fields: object({ token: string() }) })
+} });
+export default defineApp({ accounts: { service } }, async () => ({ name: "Account needed" }));`,
+            },
+          ],
+        });
+        expect(deployed.status).toBe(200);
+        const app = yield* body(Schema.Struct({ id: Schema.String }), deployed);
+        yield* Effect.addFinalizer(() =>
+          api.request(actors.owner, "DELETE", `${prefix}/apps/${app.id}`).pipe(Effect.orDie),
+        );
+        expect(
+          (yield* api.request(
+            actors.owner,
+            "GET",
+            `${prefix}/apps/${app.id}/schedules/definitions`,
+          )).status,
+        ).toBe(409);
+        yield* browser.login(actors.owner);
+        yield* browser.use("Open schedules without a selected account", (page) =>
+          page.goto(`/org/${actors.organization.slug}/apps/${app.id}?view=schedules`),
+        );
+        yield* browser.use("Account setup explains the blocked discovery", (page) =>
+          page
+            .getByRole("heading", { name: "Choose accounts to load schedules", exact: true })
+            .waitFor(),
+        );
+        expect(
+          yield* browser.use("Missing accounts do not imply no schedules", (page) =>
+            page.getByText("This app has no schedules.", { exact: true }).count(),
+          ),
+        ).toBe(0);
+        expect(
+          yield* browser.use("Account setup replaces ineffective retry", (page) =>
+            page.getByRole("button", { name: "Retry", exact: true }).count(),
+          ),
+        ).toBe(0);
+        yield* browser.checkpoint("Schedules need account setup");
+        yield* browser.use("Open account recovery", (page) =>
+          page.getByRole("link", { name: "View accounts", exact: true }).click(),
+        );
+        yield* browser.use("The account selection action is available", (page) =>
+          page.getByRole("link", { name: "Choose accounts", exact: true }).waitFor(),
+        );
+      }),
+    ),
+  );
+
   it.effect(scenarios.hostedScheduleBrowser.title, (context) =>
     withCase(
       context,
