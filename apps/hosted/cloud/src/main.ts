@@ -146,8 +146,6 @@ export default Api.make(
     const mcp = yield* cloudMcp;
     const billing = yield* billingLive.pipe(Effect.orDie);
     const meter = yield* BillingMeter.pipe(Effect.provide(billing));
-    const billingEnabled =
-      (yield* Config.String("BILLING_MODE").pipe(Config.withDefault("emulator"))) !== "emulator";
     // One established schedule owns both independent background jobs. Each job
     // reports its own failure so billing cannot prevent optional email delivery.
     yield* Cloudflare.Workers.cron("*/5 * * * *", () =>
@@ -159,11 +157,9 @@ export default Api.make(
             Effect.provide(executor),
             Effect.catch(() => Effect.logWarning("Workflow queue reconciliation failed")),
           ),
-          billingEnabled
-            ? meter.reconcileSeats.pipe(
-                Effect.catch(() => Effect.logError("Billing seat reconciliation failed")),
-              )
-            : Effect.void,
+          meter.reconcileSeats.pipe(
+            Effect.catch(() => Effect.logError("Billing seat reconciliation failed")),
+          ),
         ],
         { concurrency: 2, discard: true },
       ),

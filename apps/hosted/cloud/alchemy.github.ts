@@ -23,7 +23,6 @@ import { stackState } from "./src/infrastructure/state.ts";
 const productionSecrets = [
   "AUTH_GITHUB_CLIENT_ID",
   "AUTH_GITHUB_CLIENT_SECRET",
-  "AUTUMN_EMULATOR_URL",
   "AUTUMN_SECRET_KEY",
   "AXIOM_TOKEN",
   "BETTER_AUTH_SECRET",
@@ -43,9 +42,9 @@ const productionVariables = [
   "AUTH_EMAIL_DOMAIN",
   "AUTH_EMAIL_PROVISION_SUBDOMAIN",
   "AUTH_TRUSTED_ORIGINS",
+  "AUTUMN_SERVER_URL",
   "AXIOM_ORG_ID",
   "BETTER_AUTH_URL",
-  "BILLING_MODE",
   "CLOUDFLARE_ZONE_ID",
   "CLOUD_DATABASE_CONNECTION_LIMIT",
   "CLOUD_PLACEMENT_REGION",

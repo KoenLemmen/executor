@@ -6,6 +6,29 @@ export const autumnApiVersion = "2.3.0";
 /** Bound a complete request, including response decoding. Billing writes are never retried. */
 export const autumnTimeout = "10 seconds";
 
+/**
+ * The provider endpoint is a capability: it receives the Autumn bearer secret on every call.
+ * Constrain the shape of the URL so the secret cannot ride along in userinfo, a query string or
+ * a fragment. Which endpoint an operator may point it at is a key-safety question, answered
+ * where the key is read.
+ */
+export const AutumnServerUrl = Schema.String.check(
+  Schema.makeFilter(
+    (value) => {
+      const url = URL.parse(value);
+      return (
+        url !== null &&
+        url.protocol === "https:" &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash
+      );
+    },
+    { message: "Use an HTTPS Autumn endpoint with no credentials, query or fragment" },
+  ),
+);
+
 const customer = { customerId: Schema.String };
 const customerKeys = { customerId: "customer_id" } as const;
 const featureKeys = { ...customerKeys, featureId: "feature_id" } as const;
@@ -103,7 +126,7 @@ export class AutumnRequestFailed extends Schema.TaggedError<AutumnRequestFailed>
   },
 ) {}
 
-/** The emulator URL is a private capability, so both settings remain redacted. */
+/** A private instance URL is a capability, so both settings remain redacted. */
 export interface AutumnOptions {
   readonly secretKey: Redacted.Redacted<string>;
   readonly serverUrl: Redacted.Redacted<string>;

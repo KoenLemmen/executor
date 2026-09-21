@@ -22,7 +22,6 @@ export const BillingPlan = Schema.Struct({
 });
 /** Current subscription state, never inferred from a checkout redirect. */
 export const BillingOverview = Schema.Struct({
-  mode: Schema.Literals(["emulator", "sandbox", "live"]),
   usage: Schema.NullOr(
     Schema.Struct({ used: Schema.Number, remaining: Schema.Number, unlimited: Schema.Boolean }),
   ),

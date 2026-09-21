@@ -21,3 +21,8 @@ export const cloudEmulators = Effect.gen(function* () {
   ).pipe(Effect.mapError(() => new Error("Invalid external emulator configuration")));
   return Option.some(Redacted.make(services));
 });
+
+/** Test stages address private service instances on the shared emulator host. */
+export const testStageEmulatorHost = Config.String("TEST_STAGE_EMULATOR_HOST").pipe(
+  Config.withDefault("https://emulators.dev"),
+);

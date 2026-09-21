@@ -9,7 +9,12 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "effect/unstable/http";
-import { AutumnClient, AutumnRequestFailed, autumnTimeout } from "../src/contracts/autumn.ts";
+import {
+  AutumnClient,
+  AutumnRequestFailed,
+  AutumnServerUrl,
+  autumnTimeout,
+} from "../src/contracts/autumn.ts";
 import { autumnLive } from "../src/implementation/autumn-client.ts";
 
 const secret = "synthetic-autumn-key";
@@ -300,4 +305,21 @@ test("the real Fetch adapter does not follow redirects or send the key to the ne
       server.close((error) => (error ? reject(error) : resolve())),
     );
   }
+});
+
+test("the provider endpoint is constrained like a credential", () => {
+  for (const allowed of [
+    "https://api.useautumn.com",
+    "https://billing.internal.example/autumn/instance",
+    "https://autumn.example.test/instance",
+  ])
+    assert.equal(Schema.is(AutumnServerUrl)(allowed), true, allowed);
+  for (const refused of [
+    "http://api.useautumn.com",
+    "https://user:pass@api.useautumn.com",
+    "https://api.useautumn.com?token=1",
+    "https://api.useautumn.com#fragment",
+    "not a url",
+  ])
+    assert.equal(Schema.is(AutumnServerUrl)(refused), false, refused);
 });

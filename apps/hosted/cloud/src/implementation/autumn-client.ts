@@ -67,7 +67,7 @@ export const autumnLive = (options: AutumnOptions) =>
           ).pipe(
             Effect.timeout(autumnTimeout),
             Effect.catchTag("TimeoutError", (cause) => Effect.fail(failed("timeout", cause))),
-            // Emit only the operation span: emulator paths carry a private capability.
+            // Emit only the operation span: a private instance path carries a capability.
             Effect.provideService(HttpClient.TracerDisabledWhen, () => true),
             Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
             Effect.withSpan(`autumn.${operation}`),

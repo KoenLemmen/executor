@@ -13,13 +13,9 @@ layer(BillingTarget.layer, { excludeTestServices: true })("Cloud billing sandbox
           const overview = yield* target.owner("GET", `${prefix}/billing`);
           expect(overview.status).toBe(200);
           const parsed = yield* target.json(
-            Schema.Struct({
-              mode: Schema.String,
-              plans: Schema.Array(Schema.Struct({ id: Schema.String })),
-            }),
+            Schema.Struct({ plans: Schema.Array(Schema.Struct({ id: Schema.String })) }),
             overview.text,
           );
-          expect(parsed.mode).toBe("sandbox");
           expect(parsed.plans.map((plan) => plan.id).sort()).toEqual(
             [`${target.namespace}-free`, `${target.namespace}-team`].sort(),
           );

@@ -19,6 +19,7 @@ import {
   BillingPlanUnavailable,
   BillingUnavailable,
 } from "../contracts/billing.ts";
+import { freeMembers } from "../contracts/billing-catalog.ts";
 import { ExecutorCloudApi } from "../contracts/api.ts";
 import { billingSettings } from "../infrastructure/billing.ts";
 
@@ -44,48 +45,31 @@ export const billingLive = Effect.gen(function* () {
   const overview: typeof Billing.Service.overview = (organization) =>
     Effect.gen(function* () {
       const { autumn, catalog } = yield* client;
-      const customerId = catalog
-        ? `${catalog.namespace}:${organizationOwner(organization)}`
-        : organizationOwner(organization);
+      const customerId = `${catalog.namespace}:${organizationOwner(organization)}`;
       const customer = yield* use(
-        autumn.getOrCreateCustomer({
-          customerId,
-          ...(catalog ? { autoEnablePlanId: catalog.free } : {}),
-        }),
+        autumn.getOrCreateCustomer({ customerId, autoEnablePlanId: catalog.free }),
       );
       const plans = yield* use(autumn.listPlans({ customerId }));
-      const balance = catalog ? customer.balances[catalog.executions] : undefined;
+      const balance = customer.balances[catalog.executions];
       return yield* Schema.decodeUnknownEffect(BillingOverview)({
-        mode: settings.mode,
         usage: balance
           ? { used: balance.usage, remaining: balance.remaining, unlimited: balance.unlimited }
           : null,
         plans: plans.list
-          .filter(
-            (plan) =>
-              !plan.archived &&
-              (!catalog ||
-                (plan.group === catalog.namespace &&
-                  [catalog.free, catalog.team].includes(plan.id))),
-          )
+          .filter((plan) => !plan.archived && [catalog.free, catalog.team].includes(plan.id))
           .map((plan) => {
-            const seats = catalog
-              ? plan.items.find((item) => item.featureId === catalog.members)?.price
-              : null;
+            const seats = plan.items.find((item) => item.featureId === catalog.members)?.price;
             const price = plan.price ?? seats;
             return {
               id: plan.id,
-              name: catalog ? (plan.id === catalog.free ? "Free" : "Team") : plan.name,
+              name: plan.id === catalog.free ? "Free" : "Team",
               price: price
                 ? { amount: price.amount, interval: price.interval, unit: seats ? "member" : null }
                 : null,
             };
           }),
         subscriptions: customer.subscriptions
-          .filter(
-            (subscription) =>
-              !catalog || [catalog.free, catalog.team].includes(subscription.planId),
-          )
+          .filter((subscription) => [catalog.free, catalog.team].includes(subscription.planId))
           .map((subscription) => ({
             planId: subscription.planId,
             status: subscription.status,
@@ -95,25 +79,18 @@ export const billingLive = Effect.gen(function* () {
   const customer = (organization: OrganizationId) =>
     Effect.gen(function* () {
       const { autumn, catalog } = yield* client;
-      const customerId = catalog
-        ? `${catalog.namespace}:${organizationOwner(organization)}`
-        : organizationOwner(organization);
+      const customerId = `${catalog.namespace}:${organizationOwner(organization)}`;
       const value = yield* use(
-        autumn.getOrCreateCustomer({
-          customerId,
-          ...(catalog ? { autoEnablePlanId: catalog.free } : {}),
-        }),
+        autumn.getOrCreateCustomer({ customerId, autoEnablePlanId: catalog.free }),
       );
       return { autumn, catalog, customerId, value };
     });
   const syncSeats = (organization: OrganizationId) =>
     Effect.gen(function* () {
-      if (settings.mode === "emulator") return;
       const rows = yield* members.read(organization);
       const row = rows[0];
       if (row === undefined) return yield* new BillingUnavailable();
       const { autumn, catalog, customerId, value } = yield* customer(organization);
-      if (catalog === null) return yield* new BillingUnavailable();
       const balance = value.balances[catalog.members];
       if (balance === undefined) return yield* new BillingUnavailable();
       if (balance.usage !== row.count)
@@ -124,9 +101,7 @@ export const billingLive = Effect.gen(function* () {
   const meter = BillingMeter.of({
     consume: (organization) =>
       Effect.gen(function* () {
-        if (settings.mode === "emulator") return;
         const { autumn, catalog, customerId } = yield* customer(organization);
-        if (catalog === null) return yield* new BillingUnavailable();
         // Atomic check-and-consume prevents concurrent requests from overspending the allowance.
         // No automatic retries: a lost response is not evidence that consumption failed.
         const result = yield* use(
@@ -152,20 +127,17 @@ export const billingLive = Effect.gen(function* () {
       ),
     memberLimit: (organization) =>
       Effect.gen(function* () {
-        if (settings.mode === "emulator") return Number.POSITIVE_INFINITY;
         const { catalog, value } = yield* customer(organization);
-        return catalog &&
-          value.subscriptions.some(
-            (subscription) =>
-              subscription.planId === catalog.team &&
-              ["active", "trialing"].includes(subscription.status),
-          )
+        return value.subscriptions.some(
+          (subscription) =>
+            subscription.planId === catalog.team &&
+            ["active", "trialing"].includes(subscription.status),
+        )
           ? Number.POSITIVE_INFINITY
-          : 3;
+          : freeMembers;
       }),
     syncSeats,
     reconcileSeats: Effect.gen(function* () {
-      if (settings.mode === "emulator") return;
       const rows = yield* members.read();
       yield* Effect.forEach(rows, (row) => syncSeats(row.organization), {
         concurrency: 4,
@@ -199,9 +171,7 @@ export const billingLive = Effect.gen(function* () {
             const { autumn, catalog } = yield* client;
             const result = yield* use(
               autumn.attach({
-                customerId: catalog
-                  ? `${catalog.namespace}:${organizationOwner(organization)}`
-                  : organizationOwner(organization),
+                customerId: `${catalog.namespace}:${organizationOwner(organization)}`,
                 planId: plan,
                 successUrl: success.href,
               }),
@@ -214,9 +184,7 @@ export const billingLive = Effect.gen(function* () {
             const { autumn, catalog } = yield* client;
             const result = yield* use(
               autumn.openCustomerPortal({
-                customerId: catalog
-                  ? `${catalog.namespace}:${organizationOwner(organization)}`
-                  : organizationOwner(organization),
+                customerId: `${catalog.namespace}:${organizationOwner(organization)}`,
                 returnUrl: returnUrl.href,
               }),
             );

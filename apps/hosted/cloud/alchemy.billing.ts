@@ -4,6 +4,7 @@ import { stackState } from "./src/infrastructure/state.ts";
 import { retain } from "alchemy/RemovalPolicy";
 import { Stage } from "alchemy/Stage";
 import { Config, Effect } from "effect";
+import { billingCatalogDeclaration } from "./src/contracts/billing-catalog.ts";
 import {
   AutumnFeature,
   AutumnPlan,
@@ -21,59 +22,13 @@ export default Alchemy.Stack(
     if (!/^[a-z0-9-]+$/.test(stage))
       return yield* Effect.die("Billing stage must be a lowercase slug");
     const environment = yield* Config.Literals(["sandbox", "live"], "AUTUMN_ENVIRONMENT");
-    const namespace = `executor-next-${stage}`;
-    const executions = yield* AutumnFeature("Executions", {
-      featureId: `${namespace}-executions`,
-      name: `Executions (${stage})`,
-      consumable: true,
-    }).pipe(retain());
-    const members = yield* AutumnFeature("Members", {
-      featureId: `${namespace}-members`,
-      name: `Members (${stage})`,
-      consumable: false,
-    }).pipe(retain());
-    const free = yield* AutumnPlan("Free", {
-      planId: `${namespace}-free`,
-      group: namespace,
-      name: `Free (${stage})`,
-      freeTrial: null,
-      items: [
-        { featureId: members.featureId, included: 3, unlimited: false },
-        {
-          featureId: executions.featureId,
-          included: 100_000,
-          unlimited: false,
-          reset: { interval: "month" },
-        },
-      ],
-    }).pipe(retain());
-    const team = yield* AutumnPlan("Team", {
-      planId: `${namespace}-team`,
-      group: namespace,
-      name: `Team (${stage})`,
-      freeTrial: { durationLength: 14, durationType: "day", cardRequired: true },
-      items: [
-        {
-          featureId: members.featureId,
-          included: 0,
-          unlimited: false,
-          price: { amount: 15, billingUnits: 1, billingMethod: "usage_based", interval: "month" },
-        },
-        {
-          featureId: executions.featureId,
-          included: 0,
-          unlimited: true,
-          reset: { interval: "month" },
-        },
-      ],
-    }).pipe(retain());
-    return {
-      environment,
-      namespace,
-      executions: executions.featureId,
-      members: members.featureId,
-      free: free.planId,
-      team: team.planId,
-    };
+    // The same declaration a private Autumn instance is seeded with; only the transport differs.
+    const { catalog, features, plans } = billingCatalogDeclaration(stage);
+    // Features are created first so a plan never references an identity Autumn has not seen.
+    yield* AutumnFeature("Executions", features.executions).pipe(retain());
+    yield* AutumnFeature("Members", features.members).pipe(retain());
+    yield* AutumnPlan("Free", { ...plans.free, items: [...plans.free.items] }).pipe(retain());
+    yield* AutumnPlan("Team", { ...plans.team, items: [...plans.team.items] }).pipe(retain());
+    return { environment, ...catalog };
   }),
 );

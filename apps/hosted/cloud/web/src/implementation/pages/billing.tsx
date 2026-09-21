@@ -11,6 +11,19 @@ import { Exit, Option } from "effect";
 import { useState } from "react";
 import { billingAtom, checkoutAtom, portalAtom } from "../../contracts/billing.ts";
 
+/**
+ * The checkout and portal answers are navigation targets, so the browser checks one thing at the
+ * moment it navigates: an HTTPS URL that carries no credentials. `javascript:`, `data:` and plain
+ * HTTP never reach `location.assign`.
+ */
+const openBillingUrl = (url: string) => {
+  const target = URL.parse(url);
+  if (target === null || target.protocol !== "https:" || target.username || target.password)
+    return false;
+  window.location.assign(url);
+  return true;
+};
+
 /** Checkout return context is only a UI hint, never evidence of payment or authority. */
 export const billingSearch = (search: Record<string, unknown>) => ({
   organization: typeof search.organization === "string" ? search.organization : "",
@@ -47,19 +60,14 @@ function BillingDetails({ returned }: { readonly returned: ReturnType<typeof bil
           onClick={async () => {
             setError(null);
             const result = await portal({ params: { organization: organization.organization } });
-            if (Exit.isFailure(result)) setError("Unable to open billing settings. Try again.");
-            else window.location.assign(result.value.url);
+            if (Exit.isFailure(result) || !openBillingUrl(result.value.url))
+              setError("Unable to open billing settings. Try again.");
           }}
         >
           Manage billing
         </Button>
       </div>
       <p className="muted text-muted-foreground">{organization.name}</p>
-      {Option.isSome(data) && data.value.mode !== "live" && (
-        <Alert className="notice border border-border rounded-[8px] py-[12px] px-[16px] my-[20px] mx-0 text-[13px]">
-          <AlertDescription>Test billing · No real charges</AlertDescription>
-        </Alert>
-      )}
       {returned.organization && returned.organization !== organization.id && (
         <Alert className="notice border border-border rounded-[8px] py-[12px] px-[16px] my-[20px] mx-0 text-[13px]">
           <AlertDescription>
@@ -139,9 +147,11 @@ function BillingDetails({ returned }: { readonly returned: ReturnType<typeof bil
                           setError(
                             "Unable to confirm the plan change. Check your current plan before trying again.",
                           );
-                        else if (result.value.url !== null)
-                          window.location.assign(result.value.url);
-                        else refresh();
+                        else if (result.value.url === null) refresh();
+                        else if (!openBillingUrl(result.value.url))
+                          setError(
+                            "Unable to confirm the plan change. Check your current plan before trying again.",
+                          );
                       }}
                     >
                       {subscription
