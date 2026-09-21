@@ -35,7 +35,7 @@ layer(BillingTarget.layer, { excludeTestServices: true })("Cloud billing sandbox
                 content: `
       import { defineApp, mutation, object, string } from "apps";
       import { always } from "apps/operations/approval";
-      export default defineApp({accounts:{}}, async () => ({name:${JSON.stringify(name)}, mutations:{
+      export default defineApp({accounts:{}}, async () => ({ mutations:{
         echo: mutation({input:object({message:string()})},async(_,input)=>input),
         guarded: mutation({input:object({message:string()}),approval:always()},async(_,input)=>input)
       }}));`,

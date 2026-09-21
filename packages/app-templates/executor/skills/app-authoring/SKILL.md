@@ -7,7 +7,11 @@ description: Build and deploy Executor apps with queries, mutations, provider ac
 
 An app is TypeScript source with a default `defineApp` export from `apps`.
 The host supplies that package. You can start with one `index.ts`; no
-`package.json` is needed unless you add third-party dependencies.
+`package.json` is needed until you add package metadata, publishing, or third-party dependencies.
+
+`defineApp` declares behavior and does not take a name. Set the package name
+in `package.json`, such as `"name": "@team/calendar"` when publishing. The name
+you choose when creating or renaming an installed app is its editable display label.
 
 Write normal async TypeScript. App authors do not need to import Effect or the
 Executor SDK. The framework validates operation input and supplies selected accounts.
@@ -24,7 +28,6 @@ const Greet = object({ name: string().default("world") });
 export default defineApp(
   { accounts: {} },
   {
-    name: "Hello",
     queries: {
       greet: query(
         { description: "Greet someone by name", input: Greet },
@@ -310,7 +313,7 @@ const listProjects = query(
   },
 );
 
-export default defineApp(requirements, { name: "Vercel", queries: { listProjects } });
+export default defineApp(requirements, { queries: { listProjects } });
 ```
 
 Deploy the source, then request a connection for its account requirement:
@@ -434,7 +437,6 @@ import { defineApp } from "apps";
 import { mcpOperations } from "apps/mcp";
 
 export default defineApp({ accounts: {} }, async ({ signal }) => ({
-  name: "DeepWiki",
   ...(await mcpOperations({
     url: "https://mcp.deepwiki.com/mcp",
     ...(signal === undefined ? {} : { signal }),
@@ -598,7 +600,6 @@ const add = mutation(
   async ({ db }: MutationContext<typeof requirements>, message) => db.messages.insert(message),
 );
 export default defineApp(requirements, {
-  name: "Inbox",
   queries: { list },
   mutations: { add },
 });
@@ -719,7 +720,6 @@ const record = mutation({ input: object({ message: string() }) }, async (_ctx, {
 }));
 
 export default defineApp({ accounts: {} }, async () => ({
-  name: "Scheduled example",
   mutations: { record },
   schedules: {
     heartbeat: interval({ minutes: 5 }, record, { message: "Heartbeat" }),

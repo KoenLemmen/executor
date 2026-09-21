@@ -13,7 +13,7 @@ class Pending extends Schema.TaggedError<Pending>()("Pending", {}) {}
 const source = `import { defineApp, mutation, object, interval } from "apps";
 import { always } from "apps/operations/approval";
 const send = mutation({ input: object({}), approval: always() }, async () => ({ done: true }));
-export default defineApp({ accounts: {} }, async () => ({ name: "Hosted browser schedules", mutations: { send }, schedules: { digest: interval({ hours: 1 }, send, {}) } }));`;
+export default defineApp({ accounts: {} }, async () => ({  mutations: { send }, schedules: { digest: interval({ hours: 1 }, send, {}) } }));`;
 layer(HostedLive, { excludeTestServices: true })("Hosted schedule dashboard", (it) => {
   it.effect(scenarios.scheduleDiscoveryStates.title, (context) =>
     withCase(
@@ -87,7 +87,7 @@ layer(HostedLive, { excludeTestServices: true })("Hosted schedule dashboard", (i
             {
               path: "index.ts",
               content: `import { defineApp } from "apps";
-export default defineApp({ accounts: {} }, async () => ({ name: "Empty schedules" }));`,
+export default defineApp({ accounts: {} }, async () => ({  }));`,
             },
           ],
         });
@@ -124,7 +124,7 @@ export default defineApp({ accounts: {} }, async () => ({ name: "Empty schedules
 const service = defineProvider({ name: "Schedule fixture", auth: {
   key: secrets({ label: "API key", fields: object({ token: string() }) })
 } });
-export default defineApp({ accounts: { service } }, async () => ({ name: "Account needed" }));`,
+export default defineApp({ accounts: { service } }, async () => ({  }));`,
             },
           ],
         });

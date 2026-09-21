@@ -26,6 +26,17 @@ const cloudOnboarding = {
 
 /** Scenario names and applicability used by both test declarations and test selection. */
 export const scenarios = {
+  appPackageMetadata: {
+    file: "app-package-metadata.spec.ts",
+    title: "App templates retain package names independently of installed labels",
+    targets: {
+      "self-host": scheduled,
+      cloud: na(
+        "This scenario uses a loopback upstream; hosted templates share the same implementation.",
+      ),
+      local: na("This scenario exercises the hosted import API."),
+    },
+  },
   cloudDashboardRoutes: {
     file: "cloud-dashboard-routes.spec.ts",
     title: "Cloud dashboard deep links preserve API, docs and asset routing",

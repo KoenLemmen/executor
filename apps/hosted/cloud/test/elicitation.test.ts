@@ -9,7 +9,7 @@ import { appBridge, appRpcBridge } from "../src/implementation/app-bridge.ts";
 
 const source = `import { query, mutation, defineApp, object } from "apps";
 let starts = 0;
-export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Live input", mutations: { ask: mutation({ description: "Ask",
+export default defineApp({ accounts: {} }, async (appContext) => ({  mutations: { ask: mutation({ description: "Ask",
             input: object({}) }, async (operationContext, _input) => {
             const { elicit } = { ...appContext, ...operationContext };
             const marker = ++starts;
@@ -322,7 +322,7 @@ test("cached Worker code evaluates fresh and owns each call's cancellation indep
     let boot; let evaluations = 0;
     export default defineApp({ accounts: {} }, async () => {
       boot ??= crypto.randomUUID(); const evaluation = ++evaluations;
-      return { name: "Sessions", mutations: { wait: mutation({ input: object({ delay: number() }) }, async ({ signal }, { delay }) => {
+      return {  mutations: { wait: mutation({ input: object({ delay: number() }) }, async ({ signal }, { delay }) => {
         await new Promise((resolve, reject) => { const timer = setTimeout(resolve, delay); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("cancelled")); }, { once: true }); });
         return { boot, evaluation };
       }) } };

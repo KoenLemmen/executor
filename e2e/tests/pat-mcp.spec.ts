@@ -102,7 +102,7 @@ layer(HostedLive, { excludeTestServices: true })("PAT MCP", (it) => {
               content: `
 import { defineApp, mutation, object } from "apps";
 import { always } from "apps/operations/approval";
-export default defineApp({ accounts: {} }, async () => ({ name: "PAT MCP", mutations: {
+export default defineApp({ accounts: {} }, async () => ({  mutations: {
   echo: mutation({ description: "Echo receipt", input: object({}) }, async () => ({ receipt: ${JSON.stringify(receipt)} })),
   approved: mutation({ description: "Requires approval", input: object({}), approval: always() }, async () => ({ receipt: ${JSON.stringify(receipt)} }))
 } }));`,

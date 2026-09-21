@@ -111,7 +111,7 @@ export const fatal = workflow({ input: object({}) }, async (ctx: WorkflowCtx) =>
 import { requirements } from "./context.ts";
 import { rows, save, denied, approval, interactive, timeoutWrite, launch, history, isolation } from "./operations.ts";
 import * as workflows from "./workflows.ts";
-export default defineApp(requirements, { name: "Workflow fixture",
+export default defineApp(requirements, {
   queries: { rows, interactive, history, isolation }, mutations: { save, denied, approval, timeoutWrite, launch }, workflows
 });`,
   },

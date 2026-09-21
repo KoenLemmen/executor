@@ -24,7 +24,6 @@ const list = query({ input: object({}) }, async (ctx: QueryContext<typeof requir
 );
 
 export default defineApp(requirements, {
-  name: "Scheduled notes",
   queries: { list },
   mutations: { record },
   schedules: {

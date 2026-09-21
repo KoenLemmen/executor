@@ -42,7 +42,6 @@ function fixture() {
     defineApp({ accounts: {} }, async (appContext) => {
       const context = appContext;
       return {
-        name: "Interaction",
         mutations: {
           ask: mutation(
             { description: "Ask", input: object({}) },
@@ -119,7 +118,7 @@ test("discovery and app evaluation cannot trigger a user interaction", async () 
     defineApp({ accounts: {} }, async (appContext) => {
       const { elicit } = appContext;
       await elicit(form);
-      return { name: "Invalid evaluation" };
+      return {};
     }),
   );
   const response = await handler(
@@ -177,7 +176,6 @@ for (const mode of ["promise", "native"] as const) {
     let finished = false;
     const handler = createIsolatedAppHandler(
       defineApp({ accounts: {} }, async (context) => ({
-        name: "Traced interaction",
         mutations: {
           ask: mutation(
             {

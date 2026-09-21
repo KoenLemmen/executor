@@ -78,7 +78,6 @@ const accounts = { mailboxes: gmail.many() };
 export default defineApp(
   { accounts },
   {
-    name: "Mail",
     queries: {
       listMessages: query(
         {

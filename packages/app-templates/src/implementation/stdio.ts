@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { defaultMcpClientLimits } from "apps/contracts";
 import type { StdioAppInput } from "../contracts/templates.ts";
-import { dependencyFile, sourceFiles } from "./files.ts";
+import { packageFile, sourceFiles } from "./files.ts";
 
 /** Generate a local MCP declaration; no process is started during generation. */
 export const generateStdioApp = (input: StdioAppInput) =>
@@ -25,12 +25,11 @@ import { stdioOperations } from "apps/mcp/stdio";
 ${account ? 'import { provider } from "./provider.ts"\n' : ""}
 const process = ${serialize(config)};
 export default defineApp({ accounts: ${account ? "{ service: provider }" : "{}"} }, async ({ accounts, signal }) => ({
-    name: ${serialize(input.name)},
     ...await stdioOperations({ ...process, env: ${account ? "accounts.service.fields" : "{}"} }, signal),
 }));
 `,
         },
-        dependencyFile({ "@modelcontextprotocol/sdk": "1.30.0" }),
+        packageFile(input.name, { "@modelcontextprotocol/sdk": "1.30.0" }),
         ...(account
           ? [
               {

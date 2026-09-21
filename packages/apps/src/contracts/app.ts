@@ -10,9 +10,8 @@ import type { Elicit } from "./elicitation.ts";
 /** Composition-only view. Specific handler inputs and outputs stay on the inferred definition. */
 type Handler<Context> = (context: Context, input: never) => Effect.Effect<unknown, unknown>;
 
-/** App capabilities share one account context. No callbacks run during declaration. */
+/** App capabilities share one account context. Package metadata belongs in package.json. */
 export interface AppDefinition<Context> {
-  readonly name: string;
   readonly workflows?: Readonly<Record<string, AppWorkflow>>;
   readonly schedules?: Readonly<
     Record<string, Omit<OperationSchedule, "name"> & { readonly tool: string }>

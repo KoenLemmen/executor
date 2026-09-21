@@ -175,6 +175,14 @@ test(
                   "package.json",
                   "provider.ts",
                 ]);
+                const manifest = source.files.find((file) => file.path === "package.json");
+                assert.ok(manifest);
+                assert.equal(
+                  Schema.decodeUnknownSync(
+                    Schema.fromJsonString(Schema.Struct({ name: Schema.String })),
+                  )(manifest.content).name,
+                  "local-account-mcp",
+                );
                 assert.ok(
                   source.files
                     .find((file) => file.path === "index.ts")

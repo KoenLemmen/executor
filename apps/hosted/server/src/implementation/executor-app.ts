@@ -48,7 +48,6 @@ import { provider } from "./provider.ts";
 import metadata from "./operations.json";
 
 export default defineApp({ accounts: { service: provider } }, async (context) => ({
-  name: "Executor",
   ...await openapiOperations({
     ...metadata,
     account: context.accounts.service,

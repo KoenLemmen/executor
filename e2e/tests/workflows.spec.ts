@@ -247,7 +247,7 @@ layer(HostedLive, { excludeTestServices: true })("App workflows", (it) => {
             {
               path: "index.ts",
               content:
-                'import { defineApp } from "apps"; export default defineApp({accounts:{}}, {name:"Other"});',
+                'import { defineApp } from "apps"; export default defineApp({accounts:{}}, {});',
             },
           ],
         });

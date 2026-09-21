@@ -8,7 +8,6 @@ import { createIsolatedAppHandler, hostContext } from "../src/host.ts";
 
 test("isolated app returns correlated records without receiving an OTLP secret", async () => {
   const app = defineApp({ accounts: {} }, async (_appContext) => ({
-    name: "Synthetic",
     mutations: {
       ping: mutation(
         { description: "Ping", input: object({}) },

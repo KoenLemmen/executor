@@ -19,7 +19,7 @@ const service = defineProvider({ name: "Parity service", auth: {
   key: secrets({ label: "API key", fields: object({ token: string() }) })
 } });
 export default defineApp({ accounts: { service } }, async ({ accounts }) => ({
-  name: "Hosted parity", mutations: {
+   mutations: {
     echo: mutation({ description: "Echo with the connected account", input: object({ message: string() })},
       async (_, input) => ({ message: input.message, connected: accounts.service.fields.token === "synthetic-parity-token" }))
   }

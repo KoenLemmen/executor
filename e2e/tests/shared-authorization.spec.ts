@@ -30,7 +30,7 @@ layer(HostedLive, { excludeTestServices: true })("Shared authorization", (it) =>
         const oauth = yield* McpOAuth,
           mcp = yield* McpClient;
         const anonymous = yield* api.session();
-        const { app, name, receipt } = yield* deployMcpApp;
+        const { app, receipt } = yield* deployMcpApp;
         const hidden = yield* deployMcpApp;
         const prefix = `/api/organizations/${actors.organization.id}`;
         yield* browser.login(actors.owner);
@@ -144,7 +144,7 @@ layer(HostedLive, { excludeTestServices: true })("Shared authorization", (it) =>
                   path: "index.ts",
                   content: `
 import { defineApp, mutation, object, string } from "apps";
-export default defineApp({ accounts: {} }, async () => ({ name: ${JSON.stringify(name)}, mutations: {
+export default defineApp({ accounts: {} }, async () => ({  mutations: {
   echo: mutation({ description: "Allowed echo", input: object({ message: string() }) }, async (_, input) => ({ message: input.message, receipt: ${JSON.stringify(receipt)} })),
   later: mutation({ description: "Added after consent", input: object({ message: string() }) }, async () => ({ forbidden: "later" }))
 } }));`,

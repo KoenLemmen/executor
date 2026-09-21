@@ -46,11 +46,10 @@ const write = mutation({ input: object({ body: string() }) }, async (ctx: Mutati
   await ctx.db.messages.insert({ body: 123 });
   return ctx.db.messages.insert(input);
 });
-defineApp(requirements, { name: "External handlers", queries: { read }, mutations: { write } });
+defineApp(requirements, { queries: { read }, mutations: { write } });
 queryReference<typeof read>("read");
 
 defineApp(requirements, {
-  name: "Inline handlers",
   queries: {
     read: query({ input: object({}) }, async (ctx) => {
       const token: string = ctx.accounts.service.fields.token;
@@ -68,7 +67,6 @@ defineApp(requirements, {
   },
 });
 defineApp(requirements, async () => ({
-  name: "Dynamic handlers",
   queries: {
     read: query({ input: object({}) }, async (ctx) =>
       ctx.db.messages.withIndex("by_creation").collect(),
@@ -77,23 +75,23 @@ defineApp(requirements, async () => ({
 }));
 
 // @ts-expect-error A handler requiring storage cannot be mounted without it.
-defineApp({ accounts: { service } }, { name: "Missing database", queries: { read } });
+defineApp({ accounts: { service } }, { queries: { read } });
 defineApp(
   { accounts: {}, database: requirements.database },
   // @ts-expect-error Required accounts must match the installed app declaration.
-  { name: "Missing account", queries: { read } },
+  { queries: { read } },
 );
 defineApp(
   { accounts: { service }, database: defineDatabase({ other: table({ body: string() }) }) },
   // @ts-expect-error A different table schema cannot satisfy this handler.
-  { name: "Wrong database", queries: { read } },
+  { queries: { read } },
 );
 
 const requiresWrites = query({ input: object({}) }, async (ctx: MutationCtx) =>
   ctx.db.messages.insert({ body: "bad" }),
 );
 // @ts-expect-error A query must receive a read-only context, even with an explicit incorrect annotation.
-defineApp(requirements, { name: "Wrong query context", queries: { requiresWrites } });
+defineApp(requirements, { queries: { requiresWrites } });
 
 const webhook = async (ctx: WebhookCtx) => {
   // @ts-expect-error Background handlers cannot request interactive input.
@@ -103,3 +101,10 @@ const webhook = async (ctx: WebhookCtx) => {
 void webhook;
 // @ts-expect-error Database-bound operation constructors have been removed.
 requirements.database.query;
+
+// Package metadata is not app behavior, including when supplied through an inferred variable.
+const namedDefinition = { name: "Wrong source", queries: { read } };
+// @ts-expect-error Package names belong in package.json.
+defineApp(requirements, namedDefinition);
+// @ts-expect-error Dynamic factories cannot supply a package name either.
+defineApp(requirements, async () => namedDefinition);

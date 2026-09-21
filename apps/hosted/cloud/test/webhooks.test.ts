@@ -14,7 +14,7 @@ import { appBridge, appRpcBridge } from "../src/implementation/app-bridge.ts";
 
 const source = `import {defineApp,defineProvider,secrets,object,string} from "apps";
 const provider=defineProvider({name:"Synthetic",auth:{key:secrets({label:"Key",fields:object({token:string()})})}});
-export default defineApp({accounts:{service:provider}},async()=>({name:"Webhook",webhooks:{change:{
+export default defineApp({accounts:{service:provider}},async()=>({webhooks:{change:{
  account:"service",config:object({repository:string()}),state:object({registration:string()}),
  async register(ctx,{subscriptionId}){return {registration:subscriptionId}},
  async unregister(){},

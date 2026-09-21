@@ -24,7 +24,6 @@ const database = defineDatabase({ messages: table({ body: string() }) });
 const message = object({ body: string() });
 const service = defineProvider({ name: "Fixture", auth: { key: secrets({ label: "Key", fields: object({ token: string() }) }) } });
 export default defineApp({ accounts: { service }, database }, async ({ accounts }) => ({
-    name: "Private UI",
     queries: {
         messages: query({ input: object({}), output: array(message) }, async ({ db }) => db.messages.withIndex("by_creation").collect()),
     },

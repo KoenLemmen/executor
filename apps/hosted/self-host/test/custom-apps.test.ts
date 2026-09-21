@@ -231,7 +231,7 @@ test(
                     content: `import { withApproval, query, mutation, defineApp, object } from "apps";
 import { always } from "apps/operations/approval";
 const base = mutation({ description: "Guarded", input: object({}) }, async () => { throw new Error("Tool must not run"); });
-export default defineApp({ accounts: {} }, async () => ({ name: "Approval errors", mutations: {
+export default defineApp({ accounts: {} }, async () => ({  mutations: {
         blocked: withApproval(base, () => "denied"),
         pending: withApproval(base, always()),
         failed: withApproval(base, () => { throw new Error("synthetic-private-policy"); }),

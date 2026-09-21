@@ -26,7 +26,6 @@ test("shared JSON Schema inputs retain metadata and validate only the selected t
   let calls = 0;
   const handler = createAppHandler(
     defineApp({ accounts: {} }, async (appContext) => ({
-      name: "Schema fixture",
       mutations: {
         valid: mutation({ description: "Valid tool", input }, async (operationContext, value) => {
           const _context = { ...appContext, ...operationContext };

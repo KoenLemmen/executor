@@ -30,7 +30,7 @@ const ask = mutation({ description: "Ask for a name", input: object({}) }, async
     finishes++;
     return { before, answer: response.content.name };
 });
-export default defineApp({ accounts: {} }, async () => ({ name: "Live input", mutations: { ask, guarded: withApproval(ask, always()), counts: mutation({ description: "Counts", input: object({}) }, async () => ({ starts, finishes })) } }));
+export default defineApp({ accounts: {} }, async () => ({  mutations: { ask, guarded: withApproval(ask, always()), counts: mutation({ description: "Counts", input: object({}) }, async () => ({ starts, finishes })) } }));
 `;
 const services = Layer.mergeAll(NodeServices.layer, BrowserCrypto.layer, pgliteLayer());
 

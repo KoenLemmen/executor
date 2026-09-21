@@ -63,7 +63,6 @@ test("only the selected tool's approval runs, with decoded input; shared functio
     );
   const handler = createAppHandler(
     defineApp({ accounts: {} }, async () => ({
-      name: "Approvals",
       mutations: {
         read: make("read", never()),
         write: make("write", always()),
@@ -129,7 +128,6 @@ test("invalid and unknown calls never reach approval; request JSON cannot approv
   let executions = 0;
   const handler = createAppHandler(
     defineApp({ accounts: {} }, async (_appContext) => ({
-      name: "Validation",
       mutations: {
         write: mutation(
           {
@@ -184,7 +182,7 @@ test("typed async approval sees this tool's input and runs for every call", asyn
     async () => ++executed,
   );
   const handler = createAppHandler(
-    defineApp({ accounts: {} }, async () => ({ name: "Dynamic approval", mutations: { write } })),
+    defineApp({ accounts: {} }, async () => ({ mutations: { write } })),
   );
   assert.deepEqual(
     (await dispatch(handler, { operation: "call", tool: "mutations.write", input: { amount: 5 } }))
@@ -220,7 +218,6 @@ for (const approval of [
         const options = { input: object({}) };
         Object.defineProperty(options, "approval", { value: approval, enumerable: true });
         return {
-          name: "Malformed module",
           mutations: {
             write: mutation(options, async () => {
               executions++;
@@ -264,7 +261,6 @@ test("generated OpenAPI tools receive approval when composing the catalog", asyn
         ],
       });
       return {
-        name: "Generated tools",
         mutations: Object.fromEntries(
           Object.entries(generated.mutations).map(([name, operation]) => [
             name,
@@ -296,7 +292,6 @@ test("cancelling a waiting tool approval aborts it and prevents the tool body", 
   };
   const handler = createAppHandler(
     defineApp({ accounts: {} }, async (_appContext) => ({
-      name: "Cancellation",
       mutations: {
         write: mutation(
           { description: "Write", input: object({}), approval },
@@ -337,7 +332,6 @@ test("trusted resume matches decoded arguments and tool identity without asking 
   );
   const handler = createAppHandler(
     defineApp({ accounts: {} }, async () => ({
-      name: "Resume",
       mutations: { write: guarded, other: guarded },
     })),
   );

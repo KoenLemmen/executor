@@ -9,7 +9,7 @@ import { HostResponse } from "apps/contracts";
 
 const server = `import { defineApp, object, query } from "apps";
 const SERVER_ONLY_VALUE = "synthetic-server-private-marker";
-export default defineApp({ accounts: {} }, async () => ({ name: "React fixture", queries: {
+export default defineApp({ accounts: {} }, async () => ({  queries: {
   greet: query({ description: "Greet", input: object({}) }, async () => ({ hello: "server", privateValue: SERVER_ONLY_VALUE }))
 } }));`;
 const files = [

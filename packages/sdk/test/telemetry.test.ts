@@ -119,7 +119,7 @@ test(
                 {
                   path: "index.ts",
                   content: `import { query, mutation, defineApp, object } from "apps";
-export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Trace fixture", mutations: { ping: mutation({ description: "Synthetic provider",
+export default defineApp({ accounts: {} }, async (appContext) => ({  mutations: { ping: mutation({ description: "Synthetic provider",
             input: object({}) }, async (operationContext, _input) => {
             const ctx = { ...appContext, ...operationContext };
             return (await ctx.fetch(${JSON.stringify(origin + "/provider")})).json();

@@ -751,7 +751,7 @@ async function verify(directory: string, source: string) {
                 path: "index.ts",
                 content: `import { defineApp, defineProvider, secrets, object, string } from "apps";
 const executor = defineProvider({ name: "Executor", auth: { apiKey: secrets({ label: "API key", fields: object({ baseUrl: string(), apiKey: string() }) }) } });
-export default defineApp({ accounts: { executor } }, async () => ({ name: "Executor" }));`,
+export default defineApp({ accounts: { executor } }, async () => ({  }));`,
               },
             ],
           },
@@ -1170,7 +1170,7 @@ test(
               const source = `import { withApproval, query, mutation, defineApp, object, string } from "apps";
 import { always } from "apps/operations/approval";
 const events = [];
-export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Approvals", mutations: { record: mutation({ description: "Record",
+export default defineApp({ accounts: {} }, async (appContext) => ({  mutations: { record: mutation({ description: "Record",
             input: object({ value: string() }) }, async (operationContext, { value }) => {
             const _ = { ...appContext, ...operationContext };
             events.push(value);
@@ -1385,7 +1385,7 @@ const parallel = mutation({ description: "Ask twice", input: object({}) }, async
     finishes++;
     return { marker, replies: replies.map(reply => reply.action === "accept" ? reply.content.name : reply.action) };
 });
-export default defineApp({ accounts: {} }, async () => ({ name: "Live input", mutations: { ask, parallel, guarded: withApproval(ask, always()), counts: mutation({ description: "Counts", input: object({}) }, async () => ({ starts, finishes })) } }));
+export default defineApp({ accounts: {} }, async () => ({  mutations: { ask, parallel, guarded: withApproval(ask, always()), counts: mutation({ description: "Counts", input: object({}) }, async () => ({ starts, finishes })) } }));
 `;
               const deployed = await fetch(new URL("/v1/apps/deploy", server.url), {
                 method: "POST",
@@ -1609,7 +1609,7 @@ for (const upstream of ["http", "stdio"] as const)
                     const source = `import { defineApp, withApproval } from "apps";
 import { ${upstream === "http" ? "mcpOperations" : "stdioOperations"} } from "${upstream === "http" ? "apps/mcp" : "apps/mcp/stdio"}";
 import { always } from "apps/operations/approval";
-export default defineApp({ accounts: {} }, async (ctx) => { const operations = await ${helper}; return { name: "Upstream input", ...operations, mutations: { ...operations.mutations, ask: withApproval(operations.mutations.ask, always()) } }; });
+export default defineApp({ accounts: {} }, async (ctx) => { const operations = await ${helper}; return {  ...operations, mutations: { ...operations.mutations, ask: withApproval(operations.mutations.ask, always()) } }; });
 `;
                     const deployed = await fetch(new URL("/v1/apps/deploy", server.url), {
                       method: "POST",
@@ -1821,7 +1821,7 @@ test(
               const source = `import { defineApp, defineDatabase, table, object, string, array , query, mutation} from "apps";
 const database = defineDatabase({ messages: table({ body: string() }) });
 const Message = object({ id: string(), body: string() });
-export default defineApp({ accounts: {}, database }, async () => ({ name: "Agent database", queries: {
+export default defineApp({ accounts: {}, database }, async () => ({  queries: {
         list: query({ description: "Read persisted agent messages", input: object({}), output: array(Message) }, async ({ db }) => db.messages.withIndex("by_creation").collect()),
         forbidden: query({ input: object({}), output: Message }, async ({ db }) => db.messages.insert({ body: "forbidden" }))
     }, mutations: {
@@ -1910,7 +1910,7 @@ test(
               assert.ok(cookie);
               const source = `import {defineApp,object,query,mutation} from "apps";import {always} from "apps/operations/approval";
 let starts=0;
-export default defineApp({accounts:{}},async()=>({name:"Browser fixture",mutations:{ask:mutation({description:"Ask",input:object({}),approval:always()},async({elicit})=>{const marker=++starts;const response=await elicit({mode:"form",message:"Choose a name",requestedSchema:{type:"object",properties:{name:{type:"string",minLength:1}},required:["name"]}});return {marker,response};})},queries:{count:query({description:"Count",input:object({})},async()=>starts)}}));`;
+export default defineApp({accounts:{}},async()=>({mutations:{ask:mutation({description:"Ask",input:object({}),approval:always()},async({elicit})=>{const marker=++starts;const response=await elicit({mode:"form",message:"Choose a name",requestedSchema:{type:"object",properties:{name:{type:"string",minLength:1}},required:["name"]}});return {marker,response};})},queries:{count:query({description:"Count",input:object({})},async()=>starts)}}));`;
               const deployed = await fetch(new URL("/v1/apps/deploy", server.url), {
                 method: "POST",
                 headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },

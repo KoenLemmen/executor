@@ -325,7 +325,7 @@ test(
                 });
               const source = `import { query, mutation, defineApp, defineProvider, secrets, object, string } from "apps";
 const service = defineProvider({ name: "HTTP fixture", auth: { key: secrets({ label: "API key", fields: object({ token: string() }) }) } });
-export default defineApp({ accounts: { service } }, async (appContext) => ({ name: "HTTP fixture", mutations: { hello: mutation({ description: "Say hello",
+export default defineApp({ accounts: { service } }, async (appContext) => ({  mutations: { hello: mutation({ description: "Say hello",
             input: object({}) }, async (operationContext, _input) => {
             const { accounts } = { ...appContext, ...operationContext };
             return ({ connected: accounts.service.fields.token === "synthetic-http-token" });

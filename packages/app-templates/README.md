@@ -13,8 +13,13 @@ Generated entry points import helpers from `apps/mcp`, `apps/mcp/stdio`,
 we do not copy their implementation into each deployment. App/provider source
 and OpenAPI's `operations.json` remain editable.
 
-MCP and GraphQL templates include only their required optional peer in
-`package.json`: `@modelcontextprotocol/sdk` or `graphql`. OpenAPI needs no extra
+Every template includes `package.json` with an npm-safe name derived from the
+import name. An explicit scoped name is preserved. `defineApp` declares behavior
+without a name; renaming an installed app does not edit its package metadata.
+Public listings still require an owned `@scope/name`.
+
+MCP and GraphQL templates include only their required optional peer in the
+manifest: `@modelcontextprotocol/sdk` or `graphql`. OpenAPI needs no extra
 dependency. The host supplies `apps` and Effect; the runtime resolves optional
 peers from the app's own retained dependency installation.
 

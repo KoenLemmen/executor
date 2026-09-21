@@ -43,7 +43,7 @@ for (const signingSecret of ["executor", "provider"] as const) {
               content: `
 import {defineApp,defineProvider,secrets,object,string} from "apps";
 const provider=defineProvider({name:"Manual",auth:{key:secrets({label:"Key",fields:object({token:string()})})}});
-export default defineApp({accounts:{provider}},async()=>({name:"Manual",webhooks:{changed:{
+export default defineApp({accounts:{provider}},async()=>({webhooks:{changed:{
  account:"provider",config:object({}),state:object({webhookId:string()}),
  setup:{instructions:"Paste the callback URL into the provider.",signingSecret:${JSON.stringify(signingSecret)}},
  async handle(ctx,{request,secret,state}) {return request.headers.get("x-signature")===secret ? Response.json(state) : new Response(null,{status:401})}

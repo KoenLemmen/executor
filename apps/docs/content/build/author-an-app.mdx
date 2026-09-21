@@ -5,7 +5,11 @@ description: "Write an app in plain TypeScript: a provider, some queries and mut
 
 An app is TypeScript source with a default `defineApp` export from the `apps`
 package. The host supplies that package. One `index.ts` is enough; you only need
-a `package.json` if you add a third-party dependency.
+a `package.json` for package metadata, publishing, or third-party dependencies.
+
+`defineApp` declares behavior and does not take a name. Set the package name
+in `package.json`, such as `"name": "@team/calendar"` when publishing. The name
+you choose when creating or renaming an installed app is its editable display label.
 
 Write ordinary async TypeScript. You do not import Effect and you do not import
 the Executor SDK. The framework validates input and supplies the selected
@@ -21,7 +25,6 @@ const Greet = object({ name: string().default("world") });
 export default defineApp(
   { accounts: {} },
   {
-    name: "Hello",
     queries: {
       greet: query(
         { description: "Greet someone by name", input: Greet },
@@ -84,7 +87,7 @@ const listProjects = query(
   },
 );
 
-export default defineApp(requirements, { name: "Vercel", queries: { listProjects } });
+export default defineApp(requirements, { queries: { listProjects } });
 ```
 
 `accounts.vercel.fields` holds exactly the fields the method declared. The token
@@ -156,7 +159,6 @@ import { defineApp } from "apps";
 import { mcpOperations } from "apps/mcp";
 
 export default defineApp({ accounts: {} }, async ({ signal }) => ({
-  name: "DeepWiki",
   ...(await mcpOperations({
     url: "https://mcp.deepwiki.com/mcp",
     ...(signal === undefined ? {} : { signal }),

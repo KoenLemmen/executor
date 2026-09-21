@@ -22,7 +22,7 @@ export const list = query({ input: object({}) }, async ({ db }) =>
 export const save = mutation({ input: object({ body: string() }) }, async ({ db }, input) => {
   await db.messages.insert(input); return input.body;
 });
-export default defineApp({ accounts: {}, database }, { name: "Private app", queries: { list }, mutations: { save } });`,
+export default defineApp({ accounts: {}, database }, {  queries: { list }, mutations: { save } });`,
   },
   {
     path: "ui/index.html",

@@ -32,7 +32,6 @@ const service = defineProvider({ name: "Connection fixture", auth: {
   key: secrets({ label: "API key", fields: object({ token: string() }) })
 } });
 export default defineApp({ accounts: { service } }, async ({ accounts }) => ({
-  name: "Connection fixture",
   mutations: { echo: mutation({ description: "Echo with the connected account", input: object({ text: string() }) },
     async (_, input) => ({ text: input.text, connected: accounts.service.fields.token === "synthetic-connection-token" })) }
 }));

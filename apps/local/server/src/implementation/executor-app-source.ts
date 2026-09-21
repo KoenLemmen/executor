@@ -22,7 +22,6 @@ import { executor } from "./provider.ts";
 import metadata from "./operations.json";
 
 export default defineApp({ accounts: { executor } }, async (context) => ({
-  name: "Executor",
   ...await openapiOperations({
     ...metadata,
     operations: metadata.operations.map(operation => ({

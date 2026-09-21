@@ -90,7 +90,6 @@ layer(HostedLive, { excludeTestServices: true })("Dashboard refresh", (it) => {
               content: `
 import { defineApp, mutation, object, string } from "apps";
 export default defineApp({ accounts: {} }, async () => ({
-  name: "Refresh example",
   mutations: { echo: mutation({ description: "Echo text", input: object({ text: string() }) },
     async (_, input) => input.text) }
 }));

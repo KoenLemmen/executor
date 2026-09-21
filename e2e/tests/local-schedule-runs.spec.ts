@@ -30,7 +30,7 @@ const slow = mutation({ input: object({}) }, async ({ signal }) => {
   return { finished: true };
 });
 export default defineApp(requirements, async () => ({
-  name: "Scheduled execution", queries: { events: query({ input: object({}) }, async (ctx: QueryContext<typeof requirements>) => ctx.db.events.withIndex("by_creation").take(100)) },
+   queries: { events: query({ input: object({}) }, async (ctx: QueryContext<typeof requirements>) => ctx.db.events.withIndex("by_creation").take(100)) },
   mutations: { record, blocked, input, slow }, schedules: {
     automatic: interval({ minutes: 1 }, record, { message: "automatic" }),
     review: interval({ minutes: 1 }, record, { message: "review" }),

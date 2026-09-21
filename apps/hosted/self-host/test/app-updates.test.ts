@@ -65,7 +65,7 @@ const service = defineProvider({ name: "Fixture", auth: { key: secrets({ label: 
 export default defineApp({ accounts: { service } }, async (appContext) => {
     const { accounts } = appContext;
     return ({
-        name: "Fixture", webhooks: { manual: { account: "service", config: object({}), state: object({}), setup: { instructions: "Configure the provider.", signingSecret: "executor" }, async handle() { return new Response(null, {status: 204}); } } }, mutations: { version: mutation({ description: "Version",
+         webhooks: { manual: { account: "service", config: object({}), state: object({}), setup: { instructions: "Configure the provider.", signingSecret: "executor" }, async handle() { return new Response(null, {status: 204}); } } }, mutations: { version: mutation({ description: "Version",
                 input: object({}) }, async (operationContext, _input) => {
                 return ({ version: "${version}", account: accounts.service.id });
             }) }

@@ -30,7 +30,7 @@ test(
               loader: "ts",
               resolveDir: process.cwd(),
               contents: `import { query, mutation, defineApp, object } from "apps";
-export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Synthetic", mutations: { fail: mutation({ description: "Synthetic failure",
+export default defineApp({ accounts: {} }, async (appContext) => ({  mutations: { fail: mutation({ description: "Synthetic failure",
             input: object({}) }, async (operationContext, _input) => {
             throw new Error("Synthetic tool failure");
         }) } }));

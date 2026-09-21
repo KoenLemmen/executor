@@ -34,7 +34,7 @@ const service = defineProvider({ name: "Removal service", auth: {
   key: secrets({ label: "API key", fields: object({ token: string() }) })
 } });
 export default defineApp({ accounts: { service } }, async ({ accounts }) => ({
-  name: "Removal subject", mutations: {
+   mutations: {
     echo: mutation({ description: "Echo with the connected account", input: object({ message: string() })},
       async (_, input) => ({ message: input.message, connected: accounts.service.fields.token === "synthetic-removal-token" }))
   }

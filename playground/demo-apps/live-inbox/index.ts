@@ -29,7 +29,6 @@ export const receiveMessage = mutation(
     await db.messages.insert(message),
 );
 export default defineApp(requirements, {
-  name: "Live inbox",
   queries: { listMessages },
   mutations: { receiveMessage },
 });

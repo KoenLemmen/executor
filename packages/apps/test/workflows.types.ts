@@ -61,10 +61,9 @@ const process = workflow({ input: object({ body: string() }) }, async (ctx: Ctx,
   return text;
 });
 defineApp(requirements, {
-  name: "Typed workflows",
   queries: { read },
   mutations: { write },
   workflows: { process },
 });
 // @ts-expect-error The workflow's operation context requires its declared database and accounts.
-defineApp({ accounts: {} }, { name: "Missing requirements", workflows: { process } });
+defineApp({ accounts: {} }, { workflows: { process } });

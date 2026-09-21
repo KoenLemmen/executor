@@ -24,6 +24,6 @@ const sleep = workflow({ input: object({ hold: number() }) }, async (ctx, input)
   const after = await ctx.step.runMutation("after", save, { label: "after" });
   return { before: before.id, after: after.id, deadline };
 });
-export default defineApp(requirements, { name: "Workflow durability", queries: { rows }, mutations: { save, writeAndWait }, workflows: { inserted, write, sleep } });`,
+export default defineApp(requirements, {  queries: { rows }, mutations: { save, writeAndWait }, workflows: { inserted, write, sleep } });`,
   },
 ];

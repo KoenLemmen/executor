@@ -109,7 +109,7 @@ const starter = SourceFiles.make([
   {
     path: "index.ts",
     content:
-      'import {defineApp,object,query} from "apps";\nexport default defineApp({accounts:{}},async()=>({name:"My app",queries:{hello:query({description:"Say hello",input:object({})},async()=>({message:"Hello"}))}}));\n',
+      'import {defineApp,object,query} from "apps";\nexport default defineApp({accounts:{}},async()=>({queries:{hello:query({description:"Say hello",input:object({})},async()=>({message:"Hello"}))}}));\n',
   },
 ]);
 

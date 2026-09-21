@@ -17,7 +17,6 @@ const appSource = (
 ) => `import { defineApp, object, mutation } from "apps";
 ${imports};
 export default defineApp({ accounts: {} }, async () => ({
-    name: "Dependency fixture",
     mutations: { info: mutation({ description: ${description}, input: object({}) }, async () => ${result}) },
 }));
 `;
@@ -63,7 +62,6 @@ await server.connect(new StdioServerTransport());
 import { defineApp } from "apps";
 import { stdioOperations } from "apps/mcp/stdio";
 export default defineApp({ accounts: {} }, async () => ({
-  name: "Stdio fixture",
   ...await stdioOperations({ command: ${JSON.stringify(process.execPath)}, args: [${JSON.stringify(server)}], env: {}, timeoutMs: 5000 }),
 }));
 `,

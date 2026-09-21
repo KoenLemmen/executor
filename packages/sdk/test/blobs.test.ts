@@ -66,7 +66,7 @@ const source = [
     path: "index.ts",
     content: `import { query, mutation, defineApp, object } from "apps";
 import { parse } from "yaml";
-export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Blob fixture", mutations: { read: mutation({ description: "Read with a retained dependency",
+export default defineApp({ accounts: {} }, async (appContext) => ({  mutations: { read: mutation({ description: "Read with a retained dependency",
             input: object({}) }, async (operationContext, _input) => {
             return parse("hello: blobs");
         }) } }));
@@ -192,7 +192,7 @@ test("a failed artifact write cannot produce a successful build or committed man
               {
                 path: "index.ts",
                 content:
-                  'import {query,mutation, defineApp } from "apps"; export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Fixture",  }));',
+                  'import {query,mutation, defineApp } from "apps"; export default defineApp({ accounts: {} }, async (appContext) => ({   }));',
               },
             ],
           })

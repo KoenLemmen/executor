@@ -2,7 +2,6 @@ import { query, mutation, defineApp, defineDatabase, json, object, string, table
 const database = defineDatabase({ messages: table({ body: string() }).index("by_body", ["body"]) });
 let reads = 0;
 export default defineApp({ accounts: {}, database }, async () => ({
-  name: "Storage fixture",
   queries: {
     external: query({ input: object({}), output: string() }, async ({ fetch }) =>
       (await fetch("https://fixture.example/read")).text(),

@@ -32,7 +32,6 @@ const inspect = async (app: unknown) =>
 
 test("query and mutation names may match and keep distinct enforced routes", async () => {
   const app = defineApp({ accounts: {}, database }, async () => ({
-    name: "Database",
     queries: { same: query },
     mutations: { same: mutation },
   }));
@@ -50,7 +49,6 @@ test("query and mutation names may match and keep distinct enforced routes", asy
 test("JavaScript cannot put a mutation in the query catalog", async () => {
   // @ts-expect-error Deliberately bypass the author type at the runtime boundary.
   const app = defineApp({ accounts: {}, database }, async () => ({
-    name: "Invalid",
     queries: {
       wrong: mutation,
     },
@@ -61,7 +59,6 @@ test("authored tools are rejected rather than silently ignored", async () => {
   let ran = false;
   // @ts-expect-error Deliberately exercise JavaScript using the removed authoring surface.
   const app = defineApp({ accounts: {} }, async () => ({
-    name: "Invalid",
     tools: {
       "queries.shadow": {
         description: "Invalid",
@@ -91,7 +88,6 @@ test("external queries and mutations need no database and both enforce approval"
   const write = mutation({ input: object({}) }, async () => ++calls);
   const handler = createAppHandler(
     defineApp({ accounts: {} }, async () => ({
-      name: "External operations",
       queries: { read, guarded: withApproval(read, always()) },
       mutations: { write, guarded: withApproval(write, always()) },
     })),
@@ -141,9 +137,7 @@ test("protocol helpers classify reads, default unknowns to mutation, and accept 
     },
     { override: "query" },
   );
-  const result = await inspect(
-    defineApp({ accounts: {} }, async () => ({ name: "Protocol", ...operations })),
-  );
+  const result = await inspect(defineApp({ accounts: {} }, async () => ({ ...operations })));
   assert.equal(result.ok, true);
   if (!result.ok) throw new Error("Inspection failed");
   const metadata = Schema.decodeUnknownSync(

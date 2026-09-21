@@ -140,7 +140,7 @@ test(
             const credentials = yield* aesGcmCredentials(Redacted.make(encryptionKey), crypto);
             const storage = yield* makeExecutorStorage({ provider: "postgresql" });
             const source = `import { query, mutation, defineApp, object } from "apps";
-export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Fixture", mutations: { hello: mutation({ description: "Say hello",
+export default defineApp({ accounts: {} }, async (appContext) => ({  mutations: { hello: mutation({ description: "Say hello",
             input: object({}) }, async (operationContext, _input) => {
             return "hello";
         }) } }));
@@ -914,7 +914,7 @@ export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Fixtu
                   path: "index.ts",
                   content: `import { query, mutation, defineApp, defineProvider, secrets, object, string } from "apps";
 const service = defineProvider({ name: "Fixture service", auth: { key: secrets({ label: "Token", fields: object({ token: string() }) }) } });
-export default defineApp({ accounts: { service } }, async (appContext) => ({ name: "Secured", }));
+export default defineApp({ accounts: { service } }, async (appContext) => ({  }));
 `,
                 },
               ],
@@ -959,7 +959,7 @@ export default defineApp({ accounts: { service } }, async (appContext) => ({ nam
                   content: `import { query, mutation, defineApp, object } from "apps";
 import { always } from "apps/operations/approval";
 let writes = 0;
-export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Approval role check", mutations: { write: mutation({ description: "Write",
+export default defineApp({ accounts: {} }, async (appContext) => ({  mutations: { write: mutation({ description: "Write",
             input: object({}),
             approval: always() }, async (operationContext, _input) => {
             return ++writes;

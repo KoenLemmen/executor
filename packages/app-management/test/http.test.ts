@@ -42,7 +42,7 @@ import {
 const source = SourceFiles.make([
   {
     path: "index.ts",
-    content: `import {defineApp,object,query} from 'apps'; export default defineApp({accounts:{}},async()=>({name:'Example',queries:{hello:query({description:'Say hello',input:object({})},async()=>({message:'Hello'}))}}));`,
+    content: `import {defineApp,object,query} from 'apps'; export default defineApp({accounts:{}},async()=>({queries:{hello:query({description:'Say hello',input:object({})},async()=>({message:'Hello'}))}}));`,
   },
   {
     path: "package.json",

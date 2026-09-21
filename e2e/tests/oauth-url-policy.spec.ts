@@ -33,7 +33,7 @@ import { defineApp, defineProvider, oauth2 } from "apps";
 const service = defineProvider({ name: "URL policy fixture", auth: {
   oauth: oauth2({ authorizationUrl: ${JSON.stringify(origin + "/authorize")}, tokenUrl: ${JSON.stringify(origin + "/token")}, scopes: ["read"] })
 } });
-export default defineApp({ accounts: { service } }, async () => ({ name: "URL policy fixture", queries: {} }));`,
+export default defineApp({ accounts: { service } }, async () => ({  queries: {} }));`,
               },
             ],
           });

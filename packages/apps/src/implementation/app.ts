@@ -44,7 +44,7 @@ export type AppDefinition<Requirements extends AppRequirements> = {
           : Key extends "webhooks"
             ? PromiseCatalog<NonNullable<NativeDefinition<WebhookContext<Requirements>>[Key]>>
             : NativeDefinition<WebhookContext<Requirements>>[Key];
-} & { readonly tools?: never; readonly call?: never };
+} & { readonly name?: never; readonly tools?: never; readonly call?: never };
 
 /** Adapt operation and webhook catalogs without evaluating their handlers. */
 export type EffectDefinition<Def> = {
@@ -180,7 +180,7 @@ function adaptDefinition<
   } as EffectDefinition<Def>;
 }
 
-/** Assemble static declarations or evaluate a dynamic catalog using the same host path. */
+/** Assemble app behavior. Package names belong in package.json; hosts name installed copies. */
 export const defineApp = <
   const Requirements extends AppRequirements,
   Def extends AppDefinition<Requirements>,

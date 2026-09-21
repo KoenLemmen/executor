@@ -14,7 +14,6 @@ export const axiom = defineProvider({
 });
 
 export default defineApp({ accounts: { axiom } }, async ({ accounts, signal }) => ({
-  name: "Axiom",
   ...(await mcpOperations({
     url: "https://mcp.axiom.co/mcp",
     headers: { Authorization: `Bearer ${accounts.axiom.fields.access_token}` },

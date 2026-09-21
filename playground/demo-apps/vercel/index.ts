@@ -29,7 +29,6 @@ const accounts = { vercel };
 export default defineApp(
   { accounts },
   {
-    name: "Vercel",
     queries: {
       listProjects: query(
         { description: "List the account's Vercel projects.", input: object({}) },

@@ -32,7 +32,7 @@ import { always } from "apps/operations/approval";
 const service = defineProvider({ name: "Synthetic", auth: { key: secrets({ label: "Key", fields: object({ token: string() }) }) } });
 let calls = 0;
 export default defineApp({ accounts: { service } }, async (appContext) => ({
-    name: "Approval fixture", mutations: { write: mutation({ description: "Write",
+     mutations: { write: mutation({ description: "Write",
             input: object({ amount: number().default(7), message: string().default("synthetic message") }),
             approval: always() }, async (operationContext, input) => {
             const { accounts } = { ...appContext, ...operationContext };

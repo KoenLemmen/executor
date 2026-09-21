@@ -23,7 +23,7 @@ const App = Schema.Struct({
 const files = (message: string) => [
   {
     path: "index.ts",
-    content: `import {defineApp,object,query} from 'apps'; export default defineApp({accounts:{}},async()=>({name:'Copy example',queries:{hello:query({input:object({})},async()=>${JSON.stringify(message)})}}));`,
+    content: `import {defineApp,object,query} from 'apps'; export default defineApp({accounts:{}},async()=>({queries:{hello:query({input:object({})},async()=>${JSON.stringify(message)})}}));`,
   },
 ];
 

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { RemoteAuth } from "../contracts/templates.ts";
-import { dependencyFile, sourceFiles } from "./files.ts";
+import { packageFile, sourceFiles } from "./files.ts";
 
 /** All runtime behavior is retained in editable files and public app-framework helpers. */
 export const generateRemoteApp = (
@@ -34,7 +34,7 @@ export const generateRemoteApp = (
       files: yield* sourceFiles([
         {
           path: "index.ts",
-          content: `import { defineApp } from "apps"\nimport { ${helper} } from "apps/${kind}"\n${methods.length ? 'import { provider } from "./provider.ts"\n' : ""}\nexport default defineApp({ accounts: ${methods.length ? "{ service: provider }" : "{}"} }, async ({ accounts, signal }) => ({\n  name: ${serialize(name)},\n  ...await ${helper}({\n    url: ${serialize(url)},\n${headers ? `    headers: ${headers},\n` : ""}    ...(signal === undefined ? {} : { signal }),\n  }),\n}))\n`,
+          content: `import { defineApp } from "apps"\nimport { ${helper} } from "apps/${kind}"\n${methods.length ? 'import { provider } from "./provider.ts"\n' : ""}\nexport default defineApp({ accounts: ${methods.length ? "{ service: provider }" : "{}"} }, async ({ accounts, signal }) => ({\n  ...await ${helper}({\n    url: ${serialize(url)},\n${headers ? `    headers: ${headers},\n` : ""}    ...(signal === undefined ? {} : { signal }),\n  }),\n}))\n`,
         },
         ...(methods.length
           ? [
@@ -44,7 +44,8 @@ export const generateRemoteApp = (
               },
             ]
           : []),
-        dependencyFile(
+        packageFile(
+          name,
           kind === "mcp" ? { "@modelcontextprotocol/sdk": "1.30.0" } : { graphql: "16.11.0" },
         ),
       ]),

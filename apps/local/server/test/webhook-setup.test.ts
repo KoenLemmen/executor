@@ -53,7 +53,7 @@ test("API keys get links, while paired cookies and same-origin writes control se
               path: "index.ts",
               content: `import {defineApp,defineProvider,secrets,object,string} from "apps";
 const service=defineProvider({name:"Manual",auth:{key:secrets({label:"Key",fields:object({token:string()})})}});
-export default defineApp({accounts:{service}},async()=>({name:"Manual",webhooks:{events:{account:"service",config:object({}),state:object({id:string()}),setup:{instructions:"Paste the callback URL.",signingSecret:"executor"},async handle(){return new Response(null,{status:204})}}}}));`,
+export default defineApp({accounts:{service}},async()=>({webhooks:{events:{account:"service",config:object({}),state:object({id:string()}),setup:{instructions:"Paste the callback URL.",signingSecret:"executor"},async handle(){return new Response(null,{status:204})}}}}));`,
             },
           ]),
         });

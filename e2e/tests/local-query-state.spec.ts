@@ -32,7 +32,7 @@ import { defineApp, defineProvider, secrets, object, string } from "apps";
 const service = defineProvider({ name: "Draft test service", auth: {
   key: secrets({ label: "API key", fields: object({ token: string() }) })
 } });
-export default defineApp({ accounts: { service } }, async () => ({ name: "Drafts" }));
+export default defineApp({ accounts: { service } }, async () => ({  }));
 `,
               },
             ],

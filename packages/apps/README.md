@@ -9,7 +9,6 @@ import { defineApp } from "apps";
 import { mcpOperations } from "apps/mcp";
 
 export default defineApp({ accounts: {} }, async ({ signal }) => ({
-  name: "Public MCP",
   ...(await mcpOperations({
     url: "https://mcp.deepwiki.com/mcp",
     ...(signal === undefined ? {} : { signal }),
@@ -29,10 +28,13 @@ optional peers keep unused libraries out of the dependency installation. The
 MCP HTTP entry point does not import the stdio process adapter. Stdio requires
 a host with process support.
 
+`defineApp` declares behavior, not a name. Package identity lives in
+`package.json.name`; the host separately names each installed copy.
+
 Declare the needed peer in the deployed app's `package.json`, for example:
 
 ```json
-{ "dependencies": { "@modelcontextprotocol/sdk": "1.30.0" } }
+{ "name": "deepwiki", "dependencies": { "@modelcontextprotocol/sdk": "1.30.0" } }
 ```
 
 The product runtimes supply `apps` and Effect. They compile authored source and

@@ -39,7 +39,7 @@ const source = (url: string, version = 1) =>
       content: `
 import {defineApp,defineProvider,secrets,object,string,boolean} from "apps";
 const provider=defineProvider({name:"Webhook fixture",auth:{key:secrets({label:"Key",fields:object({token:string()})})}});
-export default defineApp({accounts:{source:provider.many(),other:provider}},async()=>({name:"Hooks",webhooks:{changed:{
+export default defineApp({accounts:{source:provider.many(),other:provider}},async()=>({webhooks:{changed:{
  account:"source",config:object({loseResponse:boolean()}),state:object({registration:string()}),
  async register(ctx,{subscriptionId,account,callbackUrl,secret,config}){
   const response=await ctx.fetch(${JSON.stringify(url)}+"/register",{method:"POST",body:JSON.stringify({subscriptionId,callbackUrl,secret,token:account.fields.token,...config})});

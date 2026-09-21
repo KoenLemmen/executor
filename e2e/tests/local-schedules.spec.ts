@@ -21,7 +21,7 @@ const definitions = Schema.Array(
 );
 const source = `import { defineApp, mutation, interval, cron, object, string } from "apps";
 const send = mutation({ input: object({ channel: string() }) }, async () => { throw new Error("Discovery must not execute"); });
-export default defineApp({ accounts: {} }, async () => ({ name: "Schedule fixture", mutations: { send }, schedules: {
+export default defineApp({ accounts: {} }, async () => ({  mutations: { send }, schedules: {
   digest: interval({ minutes: 5 }, send, { channel: "support" }),
   morning: cron({ expression: "0 9 * * MON-FRI", timezone: "America/Los_Angeles" }, send, { channel: "daily" }),
 } }));`;

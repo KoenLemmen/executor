@@ -25,7 +25,7 @@ const source = [
     content: `
 import { defineApp, mutation, object } from "apps";
 import { always } from "apps/operations/approval";
-export default defineApp({ accounts: {} }, async () => ({ name: "PAT fixture", mutations: {
+export default defineApp({ accounts: {} }, async () => ({  mutations: {
   echo: mutation({ description: "Return a receipt", input: object({}) }, async () => ({ receipt: "pat-ok" })),
   approved: mutation({ description: "Needs approval", input: object({}), approval: always() }, async () => ({ receipt: "should-not-run" })),
 } }));`,

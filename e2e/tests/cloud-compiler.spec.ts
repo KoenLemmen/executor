@@ -121,7 +121,7 @@ layer(HostedLive, { excludeTestServices: true })("Cloud compiler", (it) => {
 import { defineApp, query, object } from "apps";
 import { z } from "zod";
 import manifest from "./package.json";
-export default defineApp({accounts:{}}, {name:"Dependency proof", queries:{
+export default defineApp({accounts:{}}, { queries:{
   inspect: query({description:"Check the installed dependency and original manifest",input:object({})},
     async () => ({value:z.string().parse("real-package"),version:manifest.dependencies.zod}))
 }});`,
@@ -140,7 +140,7 @@ export default defineApp({accounts:{}}, {name:"Dependency proof", queries:{
           `
 import { defineApp, query, object } from "apps";
 import manifest from "./package.json";
-export default defineApp({accounts:{}},{name:"Unused dependency proof",queries:{
+export default defineApp({accounts:{}},{queries:{
   inspect:query({description:"Read the original declaration",input:object({})},async()=>manifest.dependencies)
 }});`,
           { "@executor-fixture/unused-package": "0.0.0-synthetic" },

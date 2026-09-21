@@ -32,7 +32,6 @@ layer(TestLive, { excludeTestServices: true })("Local app navigation", (it) => {
                 content: `
 import { defineApp, query, object } from "apps";
 export default defineApp({ accounts: {} }, async () => ({
-  name: "Example",
   queries: { hello: query({ description: "A simple greeting", input: object({}) }, async () => "Hello") }
 }));`,
               },

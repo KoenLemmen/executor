@@ -72,7 +72,7 @@ export const messages = {
     content: `import { defineApp } from "apps";
 import { requirements } from "./context.ts";
 import { list, save, broken, invalid, guarded, forbidden, messages } from "./handlers.ts";
-export default defineApp(requirements, { name: "Context fixture",
+export default defineApp(requirements, {
   queries: { list, forbidden }, mutations: { save, broken, invalid, guarded }, webhooks: { messages }
 });`,
   },

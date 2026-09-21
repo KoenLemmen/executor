@@ -11,7 +11,7 @@ class Pending extends Schema.TaggedError<Pending>()("Pending", {}) {}
 const source = `import { defineApp, mutation, object, interval } from "apps";
 import { always } from "apps/operations/approval";
 const send = mutation({ input: object({}), approval: always() }, async () => ({ done: true }));
-export default defineApp({ accounts: {} }, async () => ({ name: "Browser schedules", mutations: { send }, schedules: { digest: interval({ hours: 1 }, send, {}) } }));`;
+export default defineApp({ accounts: {} }, async () => ({  mutations: { send }, schedules: { digest: interval({ hours: 1 }, send, {}) } }));`;
 layer(TestLive, { excludeTestServices: true })("Schedule dashboard", (it) => {
   it.effect(scenarios.scheduledBrowser.title, (context) =>
     withCase(

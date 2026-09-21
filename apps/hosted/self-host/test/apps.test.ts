@@ -41,7 +41,7 @@ const service = defineProvider({ name: "Fixture", auth: { key: secrets({ label: 
 export default defineApp({ accounts: { service } }, async (appContext) => {
     const { accounts } = appContext;
     return ({
-        name: "Fixture", mutations: { greeting: mutation({ description: "A test greeting",
+         mutations: { greeting: mutation({ description: "A test greeting",
                 input: object({ name: string() }) }, async (operationContext, input) => {
                 const _ = { ...appContext, ...operationContext };
                 return ({ hello: input.name, connected: accounts.service.fields.token === "synthetic-token" });

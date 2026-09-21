@@ -20,7 +20,6 @@ const source = `import { query, mutation, array, defineApp, defineDatabase, tabl
 const Message = object({ id: string(), subject: string(), tag: string() });
 const database = defineDatabase({ messages: table({ subject: string(), score: number().optional(), tag: string().optional().default("inbox") }).index("by_score", ["score"]) });
 export default defineApp({ accounts: {}, database }, async (appContext) => ({
-    name: "Live inbox",
     mutations: {
         inside: mutation({ input: object({}) }, async ({ db, elicit }) => { await db.messages.insert({ subject: "Must roll back" }); return elicit({ mode: "form", message: "Inside transaction", requestedSchema: { type: "object", properties: {} } }); }),
         captured: mutation({ input: object({}) }, async ({ db }) => { await db.messages.insert({ subject: "Captured callback must roll back" }); return appContext.elicit({ mode: "form", message: "Inside transaction", requestedSchema: { type: "object", properties: {} } }); }),

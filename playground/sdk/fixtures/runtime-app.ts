@@ -41,7 +41,6 @@ export default defineApp(
       throw new Error(`Synthetic evaluation failure ${accounts.service.fields.token}`);
     const catalog = await decodeJson(response, Catalog);
     return {
-      name: "Runtime fixture",
       queries: {
         ...Object.fromEntries(
           catalog.names.map((name) => [

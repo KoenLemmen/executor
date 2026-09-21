@@ -28,7 +28,7 @@ layer(HostedLive, { excludeTestServices: true })("Request observability", (it) =
               {
                 path: "index.ts",
                 content:
-                  'import { defineApp } from "apps"; export default defineApp({accounts:{}},{name:"Timing fixture"});',
+                  'import { defineApp } from "apps"; export default defineApp({accounts:{}},{});',
               },
             ],
           }),

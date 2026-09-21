@@ -16,7 +16,7 @@ const files = [
     content: `
 import { mutation, defineApp, defineProvider, secrets, object, string } from "apps";
 const service=defineProvider({name:"Evidence service",auth:{key:secrets({label:"API key",fields:object({token:string()})})}});
-export default defineApp({accounts:{service:service.many()}},async()=>({name:"Evidence app",mutations:{echo:mutation({description:"Return input",input:object({message:string()})},async(_,input)=>({message:input.message}))}}));
+export default defineApp({accounts:{service:service.many()}},async()=>({mutations:{echo:mutation({description:"Return input",input:object({message:string()})},async(_,input)=>({message:input.message}))}}));
 `,
   },
 ];

@@ -15,7 +15,7 @@ const source = `import { defineApp, mutation, interval, object } from "apps";
 import { always } from "apps/operations/approval";
 const tick = mutation({ input: object({}) }, async () => ({ done: true }));
 const review = mutation({ input: object({}), approval: always() }, async () => ({ done: true }));
-export default defineApp({ accounts: {} }, async () => ({ name: "Restart fixture", mutations: { tick, review }, schedules: { tick: interval({ minutes: 1 }, tick, {}), review: interval({ minutes: 1 }, review, {}) } }));`;
+export default defineApp({ accounts: {} }, async () => ({  mutations: { tick, review }, schedules: { tick: interval({ minutes: 1 }, tick, {}), review: interval({ minutes: 1 }, review, {}) } }));`;
 layer(TestLive, { excludeTestServices: true })("Schedule persistence", (it) => {
   it.effect(scenarios.scheduleRestart.title, (context) =>
     withCase(

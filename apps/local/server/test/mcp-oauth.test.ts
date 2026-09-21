@@ -80,7 +80,7 @@ test(
                 files: [
                   {
                     path: "index.ts",
-                    content: `import {defineApp,object,mutation} from "apps";import {always} from "apps/operations/approval";let effects=0;export default defineApp({accounts:{}},async()=>({name:"Grant probe",mutations:{count:mutation({description:"Count",input:object({})},async()=>effects),write:mutation({description:"Write",input:object({}),approval:always()},async()=>++effects)}}));`,
+                    content: `import {defineApp,object,mutation} from "apps";import {always} from "apps/operations/approval";let effects=0;export default defineApp({accounts:{}},async()=>({mutations:{count:mutation({description:"Count",input:object({})},async()=>effects),write:mutation({description:"Write",input:object({}),approval:always()},async()=>++effects)}}));`,
                   },
                 ],
               },

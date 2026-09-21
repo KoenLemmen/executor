@@ -13,7 +13,7 @@ import {
   type GeneratedOperation,
   type GeneratedSecrets,
 } from "../contracts/openapi.ts";
-import { sourceFiles } from "./files.ts";
+import { packageFile, sourceFiles } from "./files.ts";
 
 function fail(reason: string): never {
   throw new TemplateError({ reason });
@@ -396,7 +396,7 @@ const generateDefinition = (
         files: Schema.decodeUnknownSync(SourceFiles)([
           {
             path: "index.ts",
-            content: `import { defineApp } from "apps"\nimport { openapiOperations } from "apps/openapi"\n${hasAccount ? 'import { provider } from "./provider.ts"\n' : ""}import operations from "./operations.json"\n\nexport default defineApp({ accounts: ${hasAccount ? "{ service: provider }" : "{}"} }, async (context) => ({\n  name: ${serialize(entry.name)},\n  ...await openapiOperations({\n    operations,\n    methods: ${serialize(Object.fromEntries(secrets.map((m) => [m.name, m.bindings])))},\n    oauth: ${serialize(oauth.map(({ name }) => name))},\n${hasAccount ? "    account: context.accounts.service,\n" : ""}    ...(context.signal === undefined ? {} : { signal: context.signal }),\n  }),\n}))\n`,
+            content: `import { defineApp } from "apps"\nimport { openapiOperations } from "apps/openapi"\n${hasAccount ? 'import { provider } from "./provider.ts"\n' : ""}import operations from "./operations.json"\n\nexport default defineApp({ accounts: ${hasAccount ? "{ service: provider }" : "{}"} }, async (context) => ({\n  ...await openapiOperations({\n    operations,\n    methods: ${serialize(Object.fromEntries(secrets.map((m) => [m.name, m.bindings])))},\n    oauth: ${serialize(oauth.map(({ name }) => name))},\n${hasAccount ? "    account: context.accounts.service,\n" : ""}    ...(context.signal === undefined ? {} : { signal: context.signal }),\n  }),\n}))\n`,
           },
           ...(hasAccount
             ? [
@@ -407,6 +407,7 @@ const generateDefinition = (
               ]
             : []),
           { path: "operations.json", content: serialize(operations) },
+          packageFile(entry.name),
         ]),
       };
     },

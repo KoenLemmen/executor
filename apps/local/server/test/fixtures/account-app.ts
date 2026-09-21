@@ -29,7 +29,6 @@ export default defineApp({ accounts: slots }, async ({ accounts }) => {
     async () => ({ account: accounts.service.id, identity }),
   );
   return {
-    name: "Account fixture",
     webhooks: {
       events: {
         account: "service",

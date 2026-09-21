@@ -25,7 +25,6 @@ import { always, never } from "apps/operations/approval";
 let count = 0;
 const write = mutation({ description: "Synthetic write", input: object({ amount: number().default(1) }), approval: ({ toolInput }) => toolInput.amount > 1 ? "user-approval" : "approved" }, async () => ++count);
 export default defineApp({ accounts: {} }, async () => ({
-    name: "Policy example",
     mutations: { write,
         blocked: withApproval(write, () => "denied"),
         broken: withApproval(write, () => { throw new Error("synthetic private policy detail"); }),

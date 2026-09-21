@@ -27,7 +27,7 @@ const files = (message: string, extra: object = {}) =>
   SourceFiles.make([
     {
       path: "index.ts",
-      content: `import {defineApp,object,query} from 'apps'; export default defineApp({accounts:{}},async()=>({name:'Example',queries:{hello:query({input:object({})},async()=>({message:${JSON.stringify(message)}}))}}));`,
+      content: `import {defineApp,object,query} from 'apps'; export default defineApp({accounts:{}},async()=>({queries:{hello:query({input:object({})},async()=>({message:${JSON.stringify(message)}}))}}));`,
     },
     {
       path: "package.json",
@@ -73,6 +73,7 @@ test(
             app: app.id,
             commit: first.revision.commit,
           });
+          assert.equal(publication.name, "@fixture/example");
           assert.equal(publication.commit, first.revision.commit);
           assert.deepEqual(yield* registry.list(), [publication]);
           assert.deepEqual(
@@ -103,6 +104,7 @@ test(
             owner: recipient,
             name: "My copy",
           });
+          assert.equal(installed.name, "My copy");
           assert.equal(installed.owner, recipient);
           assert.notEqual(installed.code, app.code);
           assert.deepEqual(installed.accounts, {});
