@@ -1,5 +1,13 @@
-import { HostedApi } from "@executor-js/hosted-server/contracts";
+import { HostedAppUi } from "@executor-js/hosted-server/app-ui/contracts";
+import { HostedApi, hostedApiDocument } from "@executor-js/hosted-server/contracts";
 import { OpenApi } from "effect/unstable/httpapi";
 
-/** SelfHost API contract. Extend the common API here with host-specific groups. */
-export const SelfHostApi = HostedApi.annotate(OpenApi.Title, "Executor Self-host");
+/** Complete Executor Self-host API. Compose every self-host product endpoint here. */
+export const ExecutorSelfHostApi = HostedApi.add(HostedAppUi).annotate(
+  OpenApi.Title,
+  "Executor Self-host",
+);
+
+/** The exact product contract used by the router, published spec and generated Executor app. */
+export const executorSelfHostApiDocument = (origin: string) =>
+  hostedApiDocument(ExecutorSelfHostApi, origin, "executor-hosted");

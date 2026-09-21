@@ -205,13 +205,14 @@ export const hostedAppUi = (addresses: ReturnType<typeof appAddresses>) => {
     handlers
       .handle("location", ({ params }) =>
         Effect.gen(function* () {
+          const access = yield* CurrentOrganization;
+          const { app, version } = yield* source({
+            app: params.app,
+            organization: access.organization,
+          });
           if (!addresses.enabled) return { url: null };
           const sessions = yield* HostedAppSessions;
-          const organization = yield* sessions.organization({ reference: params.organization });
-          const target = { ...params, organization: organization.id };
-          const principal = yield* CurrentPrincipal;
-          yield* sessions.access(principal, target);
-          const { app, version } = yield* source(target);
+          const organization = yield* sessions.organization({ id: access.organization });
           return {
             url: version.files.some((file) => file.path === "ui/index.html")
               ? yield* addresses.origin(app, organization.slug)

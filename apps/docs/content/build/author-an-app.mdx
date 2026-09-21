@@ -264,11 +264,39 @@ deploy.
 There is no `executor deploy` command. The Executor CLI starts the local server;
 it does not deploy app source.
 
+## Update a hosted app
+
+Read the current source with `apps_source`. Submit the complete edited file set
+through `apps_update`, with `expectedDeployment` set to the source response's
+`id`. The app keeps its ID and stored data. If another deployment won the race,
+read the source again before retrying. Use `apps_activate` to select a retained
+deployment; activation does not roll back stored data.
+
+## Open an app UI
+
+Include `ui/index.html` and its browser scripts and styles in the deployment.
+The host builds and activates them with the server code. No separate publish
+step is needed.
+
+For hosted apps, discover `appUi_location` through `tools.search` and call it:
+
+```js
+return await tools.executor.queries.appUi_location({
+  path: { organization: "<approved-organization-id>", app: "<app-id>" },
+});
+```
+
+Open the returned `url` in a browser. Executor Cloud uses
+`https://<app-slug>--<org-slug>.executor.website`; self-host uses its configured
+app domain. Use the returned URL instead of guessing it. A null URL means the
+app has no UI or the host has no app domain configured.
+
+App pages are private. Opening the link starts browser sign-in through Executor.
+A successful tool call or a `403` from a guessed address does not verify that
+the UI renders. Check the actual page before reporting it as working.
+
 ## What is coming later
 
-- Updating hosted app source through the deploy call. It currently creates a new
-  named app and rejects a name that already exists. Local deploy does update in
-  place.
 - Scheduled and background work.
 - Calling one app from another.
 - Authoring general HTTP endpoints.

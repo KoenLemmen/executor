@@ -2,11 +2,11 @@ import { organizationHttpClient } from "@executor-js/hosted-web/contracts/organi
 import { DashboardRuntime } from "@executor-js/hosted-web/contracts/telemetry";
 import { Atom, AtomHttpApi } from "effect/unstable/reactivity";
 import type { OrganizationReference } from "@executor-js/hosted-server/organization";
-import { CloudApi } from "../../../src/contracts/api.ts";
+import { ExecutorCloudApi } from "../../../src/contracts/api.ts";
 
 /** Only the cloud browser imports the cloud API contract. */
 export class CloudClient extends AtomHttpApi.Service<CloudClient>()("CloudClient", {
-  api: CloudApi,
+  api: ExecutorCloudApi,
   httpClient: organizationHttpClient,
   runtime: DashboardRuntime,
 }) {}

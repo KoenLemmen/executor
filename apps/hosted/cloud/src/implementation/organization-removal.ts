@@ -2,10 +2,10 @@
 import { removeCurrentOrganization } from "@executor-js/hosted-server";
 import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { CloudApi } from "../contracts/api.ts";
+import { ExecutorCloudApi } from "../contracts/api.ts";
 
 export const organizationRemovalHandlers = HttpApiBuilder.group(
-  CloudApi,
+  ExecutorCloudApi,
   "organizationRemoval",
   (handlers) => Effect.succeed(handlers.handle("remove", () => removeCurrentOrganization)),
 );

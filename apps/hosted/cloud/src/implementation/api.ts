@@ -2,18 +2,24 @@ import { billingHandlers } from "./billing.ts";
 import { onboardingHandlers } from "./onboarding-handlers.ts";
 import { organizationRemovalHandlers } from "./organization-removal.ts";
 import { hostedHandlers } from "@executor-js/hosted-server";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { CloudApi } from "../contracts/api.ts";
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import type { HostedApiDocument } from "@executor-js/hosted-server/contracts";
+import { ExecutorCloudApi } from "../contracts/api.ts";
 
 /** Register this host's complete API and one OpenAPI document. */
-export const cloudApi = HttpApiBuilder.layer(CloudApi, { openapiPath: "/openapi.json" }).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      hostedHandlers,
-      billingHandlers,
-      onboardingHandlers,
-      organizationRemovalHandlers,
+export const cloudApi = (document: HostedApiDocument) =>
+  Layer.mergeAll(
+    HttpApiBuilder.layer(ExecutorCloudApi),
+    HttpRouter.add("GET", "/openapi.json", Effect.succeed(HttpServerResponse.jsonUnsafe(document))),
+  ).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        hostedHandlers,
+        billingHandlers,
+        onboardingHandlers,
+        organizationRemovalHandlers,
+      ),
     ),
-  ),
-);
+  );

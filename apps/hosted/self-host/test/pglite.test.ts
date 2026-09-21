@@ -1,3 +1,4 @@
+import { executorSelfHostApiDocument } from "../src/contracts/api.ts";
 /** Persisted PGlite auth and product storage through the real self-host composition. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -45,7 +46,12 @@ import { selfHostDatabase } from "../src/database.ts";
 import { AuthDatabase, DatabaseUnavailable } from "../src/contracts/database.ts";
 import { selfHostAuth } from "../src/auth.ts";
 import { selfHostExecutor } from "../src/executor.ts";
-import { selfHostApi } from "../src/implementation/api.ts";
+import { hostedHandlers } from "@executor-js/hosted-server";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HostedApi } from "@executor-js/hosted-server/contracts";
+
+// This legacy fixture exercises shared handlers; full product composition is verified in e2e.
+const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(Layer.provide(hostedHandlers));
 import { Authentication, OrganizationForbidden, OrganizationId } from "@executor-js/hosted-server";
 
 const secret = "synthetic-storage-auth-signing-key-only";
@@ -256,7 +262,7 @@ test(
               const identity = yield* selfHostAuth;
               const services = yield* Effect.context<AuthDatabase | SqlClient.SqlClient>();
               const routes = selfHostApi.pipe(
-                HttpRouter.provideRequest(catalogLive([])),
+                HttpRouter.provideRequest(catalogLive([], executorSelfHostApiDocument(origin))),
                 HttpRouter.provideRequest(selfHostExecutor([])),
                 Layer.provide(requireUserLive),
                 Layer.provide(requireOrganizationLive),

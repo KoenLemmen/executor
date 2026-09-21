@@ -1,3 +1,4 @@
+import { executorSelfHostApiDocument } from "../src/contracts/api.ts";
 import { OrganizationId as ReferenceOrganizationId } from "@executor-js/hosted-server";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -33,7 +34,12 @@ import {
 import { Principal, Unauthorized } from "../../server/src/contracts/auth.ts";
 import { OrganizationDefaultsError } from "../../server/src/contracts/organization-defaults.ts";
 import { execute, defaultMcpLimits } from "@executor-js/mcp";
-import { selfHostApi } from "../src/implementation/api.ts";
+import { hostedHandlers } from "@executor-js/hosted-server";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HostedApi } from "@executor-js/hosted-server/contracts";
+
+// This legacy fixture exercises shared handlers; full product composition is verified in e2e.
+const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(Layer.provide(hostedHandlers));
 
 import { nodeRuntime } from "@executor-js/sdk/node";
 
@@ -62,12 +68,19 @@ test("default setup preserves source, build and storage failures through HTTP an
             mutate: () => Effect.die("No build should be available"),
           }),
         });
-        const normal = yield* organizationDefaults(executor, origin, storage, []);
+        const normal = yield* organizationDefaults(
+          executor,
+          origin,
+          storage,
+          [],
+          executorSelfHostApiDocument(origin),
+        );
         const invalidSource = yield* organizationDefaults(
           executor,
           "ftp://executor.example.test",
           storage,
           [],
+          executorSelfHostApiDocument(origin),
         );
         const initialize = OrganizationDefaults.of((organization) =>
           organization === "org_source" ? invalidSource(organization) : normal(organization),
@@ -177,7 +190,13 @@ test(
             credentials,
             runtime: nodeRuntime({ workDirectory: directory }),
           });
-          const initialize = yield* organizationDefaults(executor, origin, storage, []);
+          const initialize = yield* organizationDefaults(
+            executor,
+            origin,
+            storage,
+            [],
+            executorSelfHostApiDocument(origin),
+          );
           const user = {
             userId: "fixture",
             name: "Fixture",

@@ -1,3 +1,4 @@
+import type { HostedApiDocument } from "../contracts/api.ts";
 /** Supply shared catalog reads and source preparation to hosted handlers. */
 import { CatalogImportFailed, createCatalog } from "@executor-js/catalog";
 import type { SourceFile } from "@executor-js/sdk/core";
@@ -7,7 +8,7 @@ import { Authentication } from "../contracts/auth.ts";
 import { executorAppSource, executorCatalogEntry } from "./executor-app.ts";
 
 /** Fetch the public integrations.sh feed on request. Layer construction performs no network I/O. */
-export const catalogLive = (skills: readonly SourceFile[]) =>
+export const catalogLive = (skills: readonly SourceFile[], document: HostedApiDocument) =>
   Layer.effect(
     HostedCatalog,
     Effect.gen(function* () {
@@ -23,7 +24,7 @@ export const catalogLive = (skills: readonly SourceFile[]) =>
         ),
         prepare: (input) =>
           input.entry === executor.id
-            ? executorAppSource(origin, skills).pipe(
+            ? executorAppSource(origin, skills, document).pipe(
                 Effect.map(({ files }) => ({ files })),
                 Effect.mapError((error) => new CatalogImportFailed({ reason: error.reason })),
               )

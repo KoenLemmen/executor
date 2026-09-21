@@ -39,6 +39,7 @@ export const RequestBody = Schema.Struct({
 /** Operation transport details. We never interpolate upstream executable code. */
 export const Operation = Schema.Struct({
   operationId: Schema.optional(Schema.String),
+  responses: Schema.optional(Schema.Record(Schema.String, JsonObject)),
   summary: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
   parameters: Schema.optional(Schema.Array(JsonObject)),

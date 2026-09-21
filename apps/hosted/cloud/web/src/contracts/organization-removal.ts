@@ -6,10 +6,10 @@ import { Atom } from "effect/unstable/reactivity";
 import type { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import type { HttpClientError } from "effect/unstable/http";
 import type { OrganizationId } from "@executor-js/hosted-server/organization";
-import { CloudApi } from "../../../src/contracts/api.ts";
+import { ExecutorCloudApi } from "../../../src/contracts/api.ts";
 import { CloudClient } from "./billing.ts";
 
-type Removal = HttpApiGroup.Endpoints<(typeof CloudApi.groups)["organizationRemoval"]>;
+type Removal = HttpApiGroup.Endpoints<(typeof ExecutorCloudApi.groups)["organizationRemoval"]>;
 /** The precise failures this one destructive request can produce. */
 export type OrganizationRemovalError =
   | HttpApiEndpoint.Errors<Removal>

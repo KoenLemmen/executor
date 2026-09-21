@@ -64,6 +64,7 @@ const message = Match.type<AppUiError>().pipe(
         Match.exhaustive,
       ),
     UiUnauthorized: () => "This sign-in attempt ended. Open the app URL again.",
+    OrganizationForbidden: () => "You do not have access to this team.",
     UiForbidden: () => "You do not have access to this app.",
     UiFailed: (error) =>
       error.reason === "account_required"

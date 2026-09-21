@@ -3,8 +3,7 @@ import { Effect } from "effect";
 /** Executor uses the same source generator, provider accounts and deployments as other API apps. */
 import { CatalogEntry } from "@executor-js/catalog/contracts";
 import { compileOpenApi, generateOpenApiApp } from "@executor-js/app-templates";
-import { OpenApi } from "effect/unstable/httpapi";
-import { HostedApi } from "../contracts/api.ts";
+import type { HostedApiDocument } from "../contracts/api.ts";
 
 /** This installation's public API, available as an ordinary OpenAPI app. */
 export const executorCatalogEntry = (origin: string) =>
@@ -19,25 +18,13 @@ export const executorCatalogEntry = (origin: string) =>
     feeds: ["curated"],
   });
 
-const executorDocument = () => {
-  const document = OpenApi.fromApi(HostedApi);
-  return {
-    ...document,
-    paths: Object.fromEntries(
-      Object.entries(document.paths).filter(
-        ([path]) =>
-          path === "/api/context" ||
-          (path.startsWith("/api/organizations/") &&
-            !path.endsWith("/submit") &&
-            !path.includes("/oauth/")),
-      ),
-    ),
-  };
-};
-
 /** The catalog retains the ordinary OAuth connection for explicitly installed copies. */
-export const executorAppSource = (origin: string, skills: readonly SourceFile[]) =>
-  generateOpenApiApp(executorCatalogEntry(origin), executorDocument(), { baseUrl: origin }).pipe(
+export const executorAppSource = (
+  origin: string,
+  skills: readonly SourceFile[],
+  document: HostedApiDocument,
+) =>
+  generateOpenApiApp(executorCatalogEntry(origin), document, { baseUrl: origin }).pipe(
     Effect.map((generated) => ({
       ...generated,
       files: SourceFiles.make([...generated.files, ...skills]),
@@ -45,8 +32,12 @@ export const executorAppSource = (origin: string, skills: readonly SourceFile[])
   );
 
 /** The default app accepts a saved user API key through the ordinary secrets method. */
-export const defaultExecutorAppSource = (origin: string, skills: readonly SourceFile[]) =>
-  compileOpenApi(executorCatalogEntry(origin), executorDocument(), { baseUrl: origin }).pipe(
+export const defaultExecutorAppSource = (
+  origin: string,
+  skills: readonly SourceFile[],
+  document: HostedApiDocument,
+) =>
+  compileOpenApi(executorCatalogEntry(origin), document, { baseUrl: origin }).pipe(
     Effect.map((metadata) => ({
       files: SourceFiles.make([
         {

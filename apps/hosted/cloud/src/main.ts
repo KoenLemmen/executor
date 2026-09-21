@@ -1,5 +1,5 @@
-import { HostedAppUiApi, hostedAppUi, appAddresses } from "@executor-js/hosted-server/app-ui";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { executorCloudApiDocument } from "./contracts/api.ts";
+import { hostedAppUi, appAddresses } from "@executor-js/hosted-server/app-ui";
 import { cloudAppUiBase } from "./contracts/app-ui.ts";
 import { BillingMeter } from "./contracts/billing-meter.ts";
 import { ExecutionAdmission } from "@executor-js/hosted-server";
@@ -159,8 +159,11 @@ export default Api.make(
     );
 
     const onboarding = yield* cloudOnboarding.pipe(Effect.orDie);
-    const api = cloudApi.pipe(
-      HttpRouter.provideRequest(catalogLive(executorSkillFiles(authoring))),
+    const document = executorCloudApiDocument(auth.origin);
+    const api = cloudApi(document).pipe(
+      Layer.provide(appUi.dashboard),
+      Layer.provide(requestServices(auth.appSessions)),
+      HttpRouter.provideRequest(catalogLive(executorSkillFiles(authoring), document)),
       Layer.provide(billing),
       Layer.provide(Layer.succeed(ExecutionAdmission, meter.consume)),
       Layer.provide(onboarding),
@@ -183,13 +186,6 @@ export default Api.make(
     ).pipe(HttpRouter.provideRequest(auth.mcpIdentity));
     const routes = Layer.mergeAll(
       api,
-      HttpApiBuilder.layer(HostedAppUiApi).pipe(
-        Layer.provide(appUi.dashboard),
-        Layer.provide(requireUserLive),
-        Layer.provide(auth.identity),
-        Layer.provide(requestServices(auth.appSessions)),
-        HttpRouter.provideRequest(executor),
-      ),
       HttpRouter.add("*", "/api/:channel/*", analytics.proxy),
       HttpRouter.add("POST", "/api/:channel/submit", errorTunnel),
       browserTelemetry.pipe(HttpRouter.provideRequest(auth.identity)),

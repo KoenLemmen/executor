@@ -1,7 +1,7 @@
 /** Authored app operations, scoped to an explicit hosted organization and configured app. */
 import { AppDataErrors, AppDataSnapshot, AppId, DeploymentId, Json } from "@executor-js/sdk/core";
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import {
   OrganizationReference,
   OrganizationForbidden,
@@ -46,6 +46,6 @@ export const HostedAppData = HttpApiGroup.make("appData")
       payload,
       success: HttpApiSchema.StreamSse({ data: AppDataSnapshot, error: Schema.Union(errors) }),
       error: errors,
-    }).annotate(OpenApi.Exclude, true),
+    }),
   )
   .middleware(RequireOrganization);

@@ -6,7 +6,6 @@ import {
   HttpApiGroup,
   HttpApiMiddleware,
   HttpApiSchema,
-  OpenApi,
 } from "effect/unstable/httpapi";
 import { Account, App, OwnerId } from "@executor-js/sdk/core";
 import {
@@ -141,18 +140,14 @@ export const HostedOrganization = HttpApiGroup.make("organization")
       payload: UploadedOrganizationIcon,
       success: Schema.Struct({ logo: OrganizationIconUrl }),
       error: [OrganizationIconInvalid, OrganizationIconUnavailable, OrganizationForbidden],
-    })
-      .annotate(OpenApi.Exclude, true)
-      .middleware(RequireUser),
+    }).middleware(RequireUser),
   )
   .add(
     HttpApiEndpoint.get("icon", "/api/organizations/:organization/icons/:key", {
       params: { organization: OrganizationReference, key: OrganizationIconKey },
       success: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
       error: [OrganizationIconUnavailable, OrganizationIconNotFound],
-    })
-      .annotate(OpenApi.Exclude, true)
-      .middleware(RequireUser),
+    }).middleware(RequireUser),
   )
   .add(
     HttpApiEndpoint.get("catalog", "/api/organizations/:organization/catalog", {

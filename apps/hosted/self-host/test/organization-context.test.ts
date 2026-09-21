@@ -51,7 +51,12 @@ import {
 } from "@executor-js/sdk/core";
 import { selfHostDatabase } from "../src/database.ts";
 import { AuthDatabase } from "../src/contracts/database.ts";
-import { selfHostApi } from "../src/implementation/api.ts";
+import { hostedHandlers } from "@executor-js/hosted-server";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HostedApi } from "@executor-js/hosted-server/contracts";
+
+// This legacy fixture exercises shared handlers; full product composition is verified in e2e.
+const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(Layer.provide(hostedHandlers));
 
 const origin = "http://127.0.0.1:55440";
 const secret = "synthetic-organization-session-secret";

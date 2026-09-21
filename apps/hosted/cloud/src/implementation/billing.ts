@@ -19,7 +19,7 @@ import {
   BillingPlanUnavailable,
   BillingUnavailable,
 } from "../contracts/billing.ts";
-import { CloudApi } from "../contracts/api.ts";
+import { ExecutorCloudApi } from "../contracts/api.ts";
 import { billingSettings } from "../infrastructure/billing.ts";
 
 /** Resolve the selected Autumn environment once; each invocation owns its client. */
@@ -228,7 +228,7 @@ export const billingLive = Effect.gen(function* () {
 });
 
 /** Every billing read and write requires a current owner/admin membership. */
-export const billingHandlers = HttpApiBuilder.group(CloudApi, "billing", (handlers) =>
+export const billingHandlers = HttpApiBuilder.group(ExecutorCloudApi, "billing", (handlers) =>
   Effect.gen(function* () {
     const billing = yield* Billing;
     const auth = yield* Authentication;

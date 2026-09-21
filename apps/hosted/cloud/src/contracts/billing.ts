@@ -5,7 +5,7 @@ import {
   RequireOrganization,
 } from "@executor-js/hosted-server/organization";
 import { Context, Effect, Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { RequireUser } from "@executor-js/hosted-server";
 
 /** The cloud projection of Autumn's catalog. Prices come from the selected provider catalog. */
@@ -65,7 +65,6 @@ export class Billing extends Context.Service<
 
 /** Billing is deliberately absent from the shared and self-hosted API. */
 export const billingGroup = HttpApiGroup.make("billing")
-  .annotate(OpenApi.Exclude, true)
   .add(
     HttpApiEndpoint.get("overview", "/api/organizations/:organization/billing", {
       params: { organization: OrganizationReference },

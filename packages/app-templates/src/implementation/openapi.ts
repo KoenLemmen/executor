@@ -130,6 +130,7 @@ const generateDefinition = (
         fail("This importer supports OpenAPI 3.0 and 3.1. Swagger 2 needs conversion first.");
       const schemes = spec.components?.securitySchemes ?? {};
       const bindings = new Map<string, CredentialBinding>();
+      const cookieSchemes = new Set<string>();
       const oauth: Array<{ name: string; declaration: string }> = [];
       for (const [name, source] of Object.entries(schemes)) {
         const scheme = resolve(root, source);
@@ -153,6 +154,13 @@ const generateDefinition = (
             name: scheme.name,
             prefix: "",
           });
+        } else if (
+          scheme.type === "apiKey" &&
+          scheme.in === "cookie" &&
+          typeof scheme.name === "string"
+        ) {
+          // Retain cookie security requirements; the tool helper has no cookie credential binding.
+          cookieSchemes.add(name);
         } else if (scheme.type === "oauth2") {
           const code = record(scheme.flows).authorizationCode;
           if (code !== undefined) {
@@ -304,6 +312,7 @@ const generateDefinition = (
                 );
           for (const keys of security) {
             if (!keys.length) continue;
+            if (keys.some((key) => cookieSchemes.has(key))) continue;
             if (keys.some((key) => oauth.some((method) => method.name === key))) {
               if (keys.length !== 1)
                 fail(
@@ -336,7 +345,12 @@ const generateDefinition = (
           } catch {
             fail(`Tool ${name} has an input schema this importer cannot preserve yet.`);
           }
+          const streaming = Object.values(operation.responses ?? {}).some((response) => {
+            const content = resolve(root, response).content;
+            return content !== undefined && Object.hasOwn(record(content), "text/event-stream");
+          });
           operations.push({
+            ...(streaming ? { streaming: true as const } : {}),
             name,
             description: operation.summary ?? operation.description ?? name,
             method,
@@ -350,6 +364,21 @@ const generateDefinition = (
         }
       }
       if (!operations.length) fail("This API does not contain any operations.");
+      if (
+        !operations.some(
+          (operation) =>
+            operation.streaming !== true &&
+            (operation.security.length === 0 ||
+              operation.security.some((keys) =>
+                keys.every(
+                  (key) => bindings.has(key) || oauth.some((method) => method.name === key),
+                ),
+              )),
+        )
+      )
+        fail(
+          "This API has no operations supported by the available authentication and response transports.",
+        );
       const secrets = [...methods.values()].sort((a, b) => a.name.localeCompare(b.name));
       const auth = [
         ...secrets.map(

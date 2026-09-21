@@ -36,7 +36,11 @@ import {
   makeOrganizationIcons,
 } from "@executor-js/hosted-server";
 import { Principal } from "../../server/src/contracts/auth.ts";
-import { selfHostApi } from "../src/implementation/api.ts";
+import { hostedHandlers } from "@executor-js/hosted-server";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+
+// This legacy fixture exercises shared handlers; full product composition is verified in e2e.
+const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(Layer.provide(hostedHandlers));
 
 const origin = "http://localhost:4400";
 const source = (version: string) =>
@@ -294,7 +298,7 @@ test(
           );
           assert.equal(setup.step, "configure");
           assert.ok(
-            !Object.keys(OpenApi.fromApi(HostedApi).paths).some((path) =>
+            Object.keys(OpenApi.fromApi(HostedApi).paths).some((path) =>
               path.includes("/webhook-setup/"),
             ),
           );

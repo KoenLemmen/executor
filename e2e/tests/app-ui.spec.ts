@@ -1,6 +1,6 @@
 /** The private app protocol is checked through each real hosted product and its browser runtime. */
 import { expect, layer } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Layer, Redacted, Schema } from "effect";
 import { randomUUID } from "node:crypto";
 import { scenarios } from "../test-plan.ts";
 import { Actors } from "../support/actors.ts";
@@ -8,6 +8,9 @@ import { Api, body } from "../support/api.ts";
 import { Browser } from "../support/browser.ts";
 import { HostedLive, withCase } from "../support/case.ts";
 import { App } from "../support/contracts.ts";
+
+import { McpOAuth } from "../support/mcp-oauth.ts";
+import { McpClient } from "../support/mcp-client.ts";
 
 const files = [
   {
@@ -53,6 +56,19 @@ load().catch(() => { status.textContent = "Load failed"; });`,
   },
 ];
 const Location = Schema.Struct({ url: Schema.String });
+const OperationSecurity = Schema.Array(Schema.Record(Schema.String, Schema.Array(Schema.String)));
+const PublicOperation = Schema.Struct({ operationId: Schema.String, security: OperationSecurity });
+const GeneratedOperation = Schema.Struct({
+  name: Schema.String,
+  method: Schema.String,
+  path: Schema.String,
+  security: Schema.Array(Schema.Array(Schema.String)),
+  streaming: Schema.optionalKey(Schema.Boolean),
+});
+const Completed = Schema.Struct({
+  status: Schema.Literal("completed"),
+  execution: Schema.Struct({ ok: Schema.Literal(true), value: Schema.Unknown }),
+});
 const InvalidAddress = Schema.Struct({ reason: Schema.Literal("too_long") });
 
 layer(HostedLive, { excludeTestServices: true })("Private app pages", (it) => {
@@ -64,6 +80,21 @@ layer(HostedLive, { excludeTestServices: true })("Private app pages", (it) => {
           actors = yield* Actors,
           browser = yield* Browser;
         const prefix = `/api/organizations/${actors.organization.id}`;
+        const anonymous = yield* api.session();
+        const apiDocument = yield* body(
+          Schema.Struct({
+            paths: Schema.Record(Schema.String, Schema.Record(Schema.String, PublicOperation)),
+          }),
+          yield* api.request(anonymous, "GET", "/openapi.json"),
+        );
+        expect(Object.keys(apiDocument.paths)).toContain(
+          "/api/organizations/{organization}/apps/{app}/ui",
+        );
+        expect(Object.keys(apiDocument.paths)).toContain("/api/app-ui/authorize");
+        expect(Object.keys(apiDocument.paths)).toContain("/api/viewer");
+        expect(apiDocument.paths["/api/app-ui/authorize"]?.post?.security).toEqual([
+          { browserSession: [] },
+        ]);
         const deployed = yield* api.request(actors.owner, "POST", `${prefix}/apps/deploy`, {
           name: `Private UI ${randomUUID().slice(0, 8)}`,
           files,
@@ -105,8 +136,145 @@ layer(HostedLive, { excludeTestServices: true })("Private app pages", (it) => {
           page.getByRole("heading", { name: "Sign in to Executor", exact: true }).waitFor(),
         );
         yield* browser.login(actors.owner);
+        // Inventory provisions the ordinary Executor app's managed account for this owner.
+        const inventory = yield* body(
+          Schema.Struct({
+            apps: Schema.Array(
+              Schema.Struct({
+                id: Schema.String,
+                slug: Schema.String,
+                accounts: Schema.Record(Schema.String, Schema.Unknown),
+              }),
+            ),
+          }),
+          yield* api.request(actors.owner, "GET", `${prefix}/inventory`),
+        );
+        expect(
+          inventory.apps.find((item) => item.slug === "executor")?.accounts.service,
+        ).toBeDefined();
+        const management = inventory.apps.find((item) => item.slug === "executor");
+        if (management === undefined) return yield* Effect.die("Executor app was not installed");
+        const source = yield* body(
+          Schema.Struct({
+            files: Schema.Array(
+              Schema.Struct({
+                path: Schema.String,
+                content: Schema.String,
+              }),
+            ),
+          }),
+          yield* api.request(actors.owner, "GET", `${prefix}/apps/${management.id}/source`),
+        );
+        const metadataFile = source.files.find((file) => file.path === "operations.json");
+        if (metadataFile === undefined)
+          return yield* Effect.die("Executor app has no operations metadata");
+        const metadata = yield* Schema.decodeUnknownEffect(
+          Schema.fromJsonString(
+            Schema.Struct({
+              operations: Schema.Array(GeneratedOperation),
+            }),
+          ),
+        )(metadataFile.content);
+        const expected = Object.entries(apiDocument.paths)
+          .flatMap(([path, methods]) =>
+            Object.entries(methods).map(([method, operation]) => ({
+              name: operation.operationId.replace(/[^a-zA-Z0-9_]/g, "_"),
+              method: method.toUpperCase(),
+              path,
+              security: operation.security.map((requirement) => Object.keys(requirement).sort()),
+            })),
+          )
+          .sort((a, b) => a.name.localeCompare(b.name));
+        expect(
+          metadata.operations
+            .map(({ streaming: _streaming, ...operation }) => operation)
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        ).toEqual(expected);
+        expect(
+          metadata.operations.find((operation) => operation.name === "appData_subscribe")
+            ?.streaming,
+        ).toBe(true);
+        const oauth = yield* McpOAuth;
+        const mcp = yield* McpClient;
+        const grant = yield* oauth.authorize;
+        yield* Effect.addFinalizer(() => oauth.revoke(grant).pipe(Effect.orDie));
+        const client = yield* mcp.connect(
+          Redacted.make(Redacted.value(grant.tokens).access_token),
+          "app-ui-discovery",
+        );
+        const search = yield* client.use(
+          "Discover the app URL tool through MCP",
+          (client, signal) =>
+            client.callTool(
+              {
+                name: "execute",
+                arguments: {
+                  code: 'return await tools.search({ query: "executor", limit: 100 });',
+                },
+              },
+              undefined,
+              { signal },
+            ),
+        );
+        const discovered = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            items: Schema.Array(Schema.Struct({ path: Schema.String })),
+          }),
+        )((yield* Schema.decodeUnknownEffect(Completed)(search.structuredContent)).execution.value);
+        expect(discovered.items.map((item) => item.path)).toContain(
+          "tools.executor.queries.appUi_location",
+        );
+        expect(discovered.items.map((item) => item.path)).not.toContain(
+          "tools.executor.mutations.appUi_authorize",
+        );
+        expect(discovered.items.map((item) => item.path)).not.toContain(
+          "tools.executor.queries.viewer_get",
+        );
+        expect(discovered.items.map((item) => item.path)).not.toContain(
+          "tools.executor.mutations.appData_subscribe",
+        );
+        const lookup = yield* client.use(
+          "Get the canonical app URL using the MCP grant",
+          (client, signal) =>
+            client.callTool(
+              {
+                name: "execute",
+                arguments: {
+                  code: `return await tools.executor.queries.appUi_location({ path: ${JSON.stringify({ organization: actors.organization.id, app: app.id })} });`,
+                },
+              },
+              undefined,
+              { signal },
+            ),
+        );
+        const mcpLocation = yield* Schema.decodeUnknownEffect(Location)(
+          (yield* Schema.decodeUnknownEffect(Completed)(lookup.structuredContent)).execution.value,
+        );
+        expect(mcpLocation.url).toBe(url);
+        const denied = yield* client.use(
+          "An MCP grant cannot discover another organization's URL",
+          (client, signal) =>
+            client.callTool(
+              {
+                name: "execute",
+                arguments: {
+                  code: `return await tools.executor.queries.appUi_location({ path: ${JSON.stringify({ organization: "other-organization", app: app.id })} });`,
+                },
+              },
+              undefined,
+              { signal },
+            ),
+        );
+        const failed = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            status: Schema.Literal("completed"),
+            execution: Schema.Struct({ ok: Schema.Literal(false) }),
+          }),
+        )(denied.structuredContent);
+        expect(failed.execution.ok).toBe(false);
+
         yield* browser.use("An existing dashboard login automatically opens the app", (page) =>
-          page.goto(bookmark),
+          page.goto(`${mcpLocation.url}/inbox/unread?filter=new#latest`),
         );
         yield* browser.use("App query executes after authentication", (page) =>
           page.getByRole("status").filter({ hasText: "Ready" }).waitFor(),
@@ -230,7 +398,7 @@ layer(HostedLive, { excludeTestServices: true })("Private app pages", (it) => {
             name: app.name,
           })).status,
         ).toBe(200);
-      }),
+      }).pipe(Effect.provide(Layer.mergeAll(McpOAuth.layer, McpClient.layer))),
     ),
   );
 });

@@ -20,6 +20,8 @@ export const OpenapiOperation = Schema.Struct({
   baseUrl: HttpUrl,
   parameters: Schema.Array(RequestParameter),
   body: Schema.Literals(["json", "base64", "none"]),
+  /** Streams remain in the metadata but cannot run through a single-result tool call. */
+  streaming: Schema.optionalKey(Schema.Literal(true)),
   security: Schema.Array(Schema.Array(Schema.String)),
   input: JsonObject,
 });

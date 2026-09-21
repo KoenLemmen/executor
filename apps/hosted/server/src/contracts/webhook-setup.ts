@@ -1,5 +1,5 @@
-/** Cookie-only setup is excluded from the management OpenAPI document and generated app. */
-import { HttpApiGroup, HttpApiEndpoint, OpenApi } from "effect/unstable/httpapi";
+/** Cookie-only setup is documented in OpenAPI; bearer accounts cannot satisfy its session requirement. */
+import { HttpApiGroup, HttpApiEndpoint } from "effect/unstable/httpapi";
 import {
   CompleteWebhookSetup,
   WebhookErrors,
@@ -13,7 +13,6 @@ const params = { organization: OrganizationReference, ...WebhookTarget.fields };
 const path = "/api/organizations/:organization/webhook-setup/:app/:subscription";
 /** Current browser identity, organization membership, and admin role are checked before accessing secrets. */
 export const HostedWebhookSetup = HttpApiGroup.make("webhookSetup")
-  .annotate(OpenApi.Exclude, true)
   .add(
     HttpApiEndpoint.get("read", path, {
       params,

@@ -2,7 +2,7 @@ import { CurrentPrincipal } from "@executor-js/hosted-server";
 import { Effect, Schema, Stream } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { CloudApi } from "../contracts/api.ts";
+import { ExecutorCloudApi } from "../contracts/api.ts";
 import { CreateTeam, Onboarding, TeamDetailsInvalid } from "../contracts/onboarding.ts";
 
 // A 2 MiB image fits within 3 MiB after base64 encoding. Read through the stream
@@ -27,7 +27,7 @@ const creationPayload = Effect.gen(function* () {
 }).pipe(Effect.mapError(() => new TeamDetailsInvalid()));
 
 /** Authenticated setup and private icon reads; the browser never supplies the acting user. */
-export const onboardingHandlers = HttpApiBuilder.group(CloudApi, "onboarding", (handlers) =>
+export const onboardingHandlers = HttpApiBuilder.group(ExecutorCloudApi, "onboarding", (handlers) =>
   Effect.gen(function* () {
     const onboarding = yield* Onboarding;
     return handlers

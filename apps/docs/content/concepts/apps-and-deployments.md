@@ -48,7 +48,8 @@ manage.
 1. Deploy, or install from the catalog. The build produces a deployment.
 2. Select an account for each requirement.
 3. Use the tools, from the dashboard or through MCP.
-4. Deploy again to change the code. Configuration and selections stay.
+4. Update the source to change the code. Hosted apps use `apps_source` followed
+   by `apps_update` with the current deployment ID. Configuration and selections stay.
 
 An agent that discovered an app's tools before a change holds a stale view.
 Discover again in a new `execute` call after deploying or reconfiguring.
@@ -56,7 +57,5 @@ Discover again in a new `execute` call after deploying or reconfiguring.
 ## What is coming later
 
 - Rolling a new deployment out automatically to every configured copy.
-- Updating hosted source through the deploy call. Hosted deployment currently
-  creates a new named app and rejects a name that already exists.
 - Stored data and schema migration between deployments.
 - Scheduled work, and calls from one app to another.

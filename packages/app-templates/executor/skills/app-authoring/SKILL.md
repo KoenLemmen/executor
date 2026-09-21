@@ -182,10 +182,14 @@ return await tools.executor.mutations.apps_deploy({
 ```
 
 Hosted deployment currently creates a new named app and returns the app directly.
-It rejects an existing name; source updates through this route are not implemented.
+It rejects an existing name. To update an app, read `apps_source`, edit its files,
+then call `apps_update` with the complete `files` array and `expectedDeployment`
+set to the source response's `id`. A deployment conflict requires re-reading the
+source before retrying. `apps_activate` selects a retained deployment with the
+same expected-current-deployment check. Updates keep the app ID and stored data.
 After deployment, start a new execute to discover and call its tools.
 Other hosted operations include `organization_inventory`, `organization_catalog`,
-`apps_install`, `apps_importCustom`, `apps_get`, `apps_selectAccounts`, and
+`apps_install`, `apps_importCustom`, `apps_get`, `appUi_location`, `apps_selectAccounts`, and
 `apps_remove`. Always read their discovered signatures before calling them.
 
 For hosted account setup:
@@ -480,6 +484,24 @@ Add `ui/index.html`, a module script such as `ui/main.tsx`, and styles. The host
 compiles browser assets alongside the server build. Declare `react` and
 `react-dom` in the deployment's package dependencies for React apps. The local
 product opens each configured app on its own localhost subdomain.
+
+For hosted apps, discover and call `appUi_location` after deployment:
+
+```js
+return await tools.executor.queries.appUi_location({
+  path: { organization: "<approved-organization-id>", app: "<app-id>" },
+});
+```
+
+The response is `{ url: "https://<app-slug>--<org-slug>.executor.website" }`
+on Executor Cloud. Self-host uses its configured app domain. Use the returned
+URL rather than constructing one. `url: null` means the app has no UI or the
+host has no app domain configured. Deployment builds and activates the UI;
+there is no separate publish step. Give the URL to the user to open in a
+browser. The browser completes sign-in using their Executor session. MCP
+credentials do not grant a browser session. A `403` response alone does not
+prove the URL is correct or that the UI renders; invalid hosts also return it.
+Verify the actual page before claiming that the UI works.
 
 Import `createAppClient`, `queryReference`, and `mutationReference` from
 `apps/client`. Import server operation **types only** from `index.ts`; put shared

@@ -1,3 +1,4 @@
+import { executorCloudApiDocument } from "../contracts/api.ts";
 /** Cloud composition: Postgres is authoritative; no organization data is stored in a DO. */
 import { urlPolicyConfig } from "@executor-js/utils/url-policy";
 import { executorSkillFiles } from "@executor-js/app-templates/executor";
@@ -70,6 +71,7 @@ export const cloudExecutor = Effect.fn(function* (
         origin,
         storage,
         executorSkillFiles(authoring),
+        executorCloudApiDocument(origin),
       ).pipe(Effect.provideContext(services));
       return { executor, initialize };
     }).pipe(Effect.mapError(() => new StorageError())),

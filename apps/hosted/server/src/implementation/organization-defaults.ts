@@ -1,3 +1,4 @@
+import type { HostedApiDocument } from "../contracts/api.ts";
 import {
   AccountId,
   AppId,
@@ -27,6 +28,7 @@ export const organizationDefaults = (
   origin: string,
   storage: ExecutorDatabase,
   skills: readonly SourceFile[],
+  document: HostedApiDocument,
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -47,7 +49,7 @@ export const organizationDefaults = (
         if (state.initialized && user === undefined) return;
         const owner = organizationOwner(organization);
         if (!state.initialized) {
-          const source = yield* defaultExecutorAppSource(origin, skills);
+          const source = yield* defaultExecutorAppSource(origin, skills, document);
           const existing = (yield* executor.apps.list({ owner, name: "Executor" }))[0];
           if (existing === undefined) {
             yield* executor.apps
@@ -85,11 +87,11 @@ export const organizationDefaults = (
         if (state.deployment !== app.activeDeployment) {
           const deployment = yield* executor.apps.source({ owner, app: app.id });
           if (deployment.id !== app.activeDeployment) return;
-          const source = yield* defaultExecutorAppSource(origin, skills);
+          const source = yield* defaultExecutorAppSource(origin, skills, document);
           if (JSON.stringify(deployment.files) !== JSON.stringify(source.files)) {
             // Upgrade only the untouched, unconfigured catalog version. Preserve user edits and connections.
             if (Object.keys(app.accounts).length > 0) return;
-            const catalog = yield* executorAppSource(origin, skills);
+            const catalog = yield* executorAppSource(origin, skills, document);
             if (JSON.stringify(deployment.files) !== JSON.stringify(catalog.files)) return;
             current = (yield* executor.apps.deploy({
               owner,

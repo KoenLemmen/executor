@@ -1,3 +1,4 @@
+import { executorSelfHostApiDocument } from "../src/contracts/api.ts";
 import type { GrantPolicy } from "@executor-js/mcp-auth/grants";
 import { BrowserExecutionResult } from "@executor-js/mcp";
 /** Real Better Auth grants, PGlite, Effect HTTP transport, and the official MCP client. */
@@ -62,7 +63,12 @@ import { ExecuteResult, McpExecutionResult } from "@executor-js/mcp";
 import { selfHostDatabase } from "../src/database.ts";
 import { AuthDatabase } from "../src/contracts/database.ts";
 import { selfHostAuth } from "../src/auth.ts";
-import { selfHostApi } from "../src/implementation/api.ts";
+import { hostedHandlers } from "@executor-js/hosted-server";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HostedApi } from "@executor-js/hosted-server/contracts";
+
+// This legacy fixture exercises shared handlers; full product composition is verified in e2e.
+const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(Layer.provide(hostedHandlers));
 import { selfHostMcp } from "../src/mcp.ts";
 
 const origin = "http://127.0.0.1:55439";
@@ -141,7 +147,13 @@ export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Fixtu
               runtime: nodeRuntime({ workDirectory: `${directory}/builds` }),
               oauth: { httpClient: yield* HttpClient.HttpClient, clientName: "Executor app test" },
             });
-            const initialize = yield* organizationDefaults(executor, origin, storage, []);
+            const initialize = yield* organizationDefaults(
+              executor,
+              origin,
+              storage,
+              [],
+              executorSelfHostApiDocument(origin),
+            );
             yield* Effect.all(
               [initialize(OrganizationId.make(a.id)), initialize(OrganizationId.make(a.id))],
               { concurrency: "unbounded" },

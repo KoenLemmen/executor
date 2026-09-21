@@ -43,6 +43,7 @@ export function createRequest(config: {
     op: OpenapiOperation,
     method: string | undefined,
   ): readonly string[] | undefined {
+    if (op.streaming === true) return undefined;
     if (!op.security.length) return [];
     const supported = schemes(method);
     return op.security.find((keys) => keys.every((key) => supported.includes(key)));

@@ -4,12 +4,13 @@ import { AppId, HttpUrl, type Runtime } from "@executor-js/sdk/core";
 import { AppReturnPath, AppSignInCode, AppSignInId } from "apps/ui/auth/contracts";
 import { UiFailed, UiForbidden, UiUnauthorized } from "apps/ui/contracts";
 import { Context, type Effect, Schema } from "effect";
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Principal, RequireUser } from "./auth.ts";
 import {
   OrganizationId,
   OrganizationReference,
   OrganizationSlug,
+  RequireOrganization,
   type OrganizationAccess,
 } from "./organization.ts";
 export { AppSignInId } from "apps/ui/auth/contracts";
@@ -127,22 +128,26 @@ export class HostedAppRuntime extends Context.Service<HostedAppRuntime, Pick<Run
   "hosted/AppRuntime",
 ) {}
 
-/** Only hosts that support private app UI add this group to their product API. */
+/** URL discovery uses organization grants; browser authorization still requires a user session. */
 export const HostedAppUi = HttpApiGroup.make("appUi")
   .add(
     HttpApiEndpoint.get("location", "/api/organizations/:organization/apps/:app/ui", {
       params: { organization: OrganizationReference, app: AppId },
       success: Schema.Struct({ url: Schema.NullOr(HttpUrl) }),
-      error: [UiUnauthorized, UiForbidden, UiFailed, AppUiAddressInvalid],
-    }),
+      error: [UiForbidden, UiFailed, AppUiAddressInvalid],
+    })
+      .annotate(
+        OpenApi.Description,
+        "Get the canonical private app URL. Returns null when the app has no UI or the host has no app domain. Open the returned URL in a browser to sign in; no separate publish step is needed.",
+      )
+      .middleware(RequireOrganization),
   )
   .add(
     HttpApiEndpoint.post("authorize", "/api/app-ui/authorize", {
       payload: Schema.Struct({ request: AppSignInId }),
       success: Schema.Struct({ url: Schema.RedactedFromValue(HttpUrl) }),
       error: [UiUnauthorized, UiForbidden, UiFailed, AppUiAddressInvalid],
-    }),
-  )
-  .middleware(RequireUser);
+    }).middleware(RequireUser),
+  );
 /** A browser client can consume the same narrow contract without importing a host's full API. */
-export const HostedAppUiApi = HttpApi.make("hosted-app-ui").add(HostedAppUi);
+export const HostedAppUiApi = HttpApi.make("executor-hosted").add(HostedAppUi);

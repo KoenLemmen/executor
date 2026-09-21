@@ -23,7 +23,12 @@ import {
   makeOrganizationIcons,
 } from "@executor-js/hosted-server";
 import { Principal } from "../../server/src/contracts/auth.ts";
-import { selfHostApi } from "../src/implementation/api.ts";
+import { hostedHandlers } from "@executor-js/hosted-server";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HostedApi } from "@executor-js/hosted-server/contracts";
+
+// This legacy fixture exercises shared handlers; full product composition is verified in e2e.
+const selfHostApi = HttpApiBuilder.layer(HostedApi).pipe(Layer.provide(hostedHandlers));
 
 const origin = "http://localhost:4400";
 test("health and denied actions do not acquire the SDK; allowed failures keep their HTTP contracts", () =>

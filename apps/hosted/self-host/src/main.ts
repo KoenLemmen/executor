@@ -1,3 +1,4 @@
+import { executorSelfHostApiDocument } from "./contracts/api.ts";
 /** Docker/Node composition edge. Runtime imports resolve only here. */
 import { readExecutorSkills } from "@executor-js/app-templates/executor";
 import { createServer } from "node:http";
@@ -16,7 +17,7 @@ import {
   apiProtectedResource,
 } from "@executor-js/hosted-server";
 import { localTelemetry } from "@executor-js/telemetry/local";
-import { appAddresses, hostedAppUi, HostedAppUiApi } from "@executor-js/hosted-server/app-ui";
+import { appAddresses, hostedAppUi } from "@executor-js/hosted-server/app-ui";
 import { AppSignInApi, appSignInPage, appSignInScript } from "apps/ui/auth";
 import { AppUiApi } from "apps/ui/contracts";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -63,8 +64,11 @@ export const selfHostRoutes = Effect.gen(function* () {
     ? path.resolve(configuredDirectory.value)
     : yield* path.fromFileUrl(new URL("../web/dist/", import.meta.url));
   const dashboard = yield* dashboardFiles(directory);
-  const api = selfHostApi.pipe(
-    HttpRouter.provideRequest(catalogLive(skills)),
+  const document = executorSelfHostApiDocument(auth.origin);
+  const api = selfHostApi(document).pipe(
+    Layer.provide(appUi.dashboard),
+    HttpRouter.provideRequest(auth.appSessions),
+    HttpRouter.provideRequest(catalogLive(skills, document)),
     Layer.provide(requireUserLive),
     Layer.provide(requireOrganizationLive),
     HttpRouter.provideRequest(executorServices),
@@ -84,13 +88,6 @@ export const selfHostRoutes = Effect.gen(function* () {
   ).pipe(HttpRouter.provideRequest(executorServices), HttpRouter.provideRequest(auth.mcpIdentity));
   const productRoutes = Layer.mergeAll(
     api,
-    HttpApiBuilder.layer(HostedAppUiApi).pipe(
-      Layer.provide(appUi.dashboard),
-      Layer.provide(requireUserLive),
-      Layer.provide(auth.identity),
-      HttpRouter.provideRequest(auth.appSessions),
-      HttpRouter.provideRequest(executorServices),
-    ),
     browserTelemetry.pipe(HttpRouter.provideRequest(auth.identity)),
     HttpRouter.add("*", "/api/webhooks/:appId/:subscriptionId", hostedWebhookCallback).pipe(
       HttpRouter.provideRequest(executorServices),

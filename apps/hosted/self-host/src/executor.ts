@@ -1,3 +1,4 @@
+import { executorSelfHostApiDocument } from "./contracts/api.ts";
 /** Self-host SDK uses the same PGlite connection as Better Auth. */
 import { urlPolicyConfig } from "@executor-js/utils/url-policy";
 import { toEffectRuntime, makeExecutorStorage, type SourceFile } from "@executor-js/sdk/core";
@@ -42,7 +43,13 @@ export const selfHostExecutor = (skills: readonly SourceFile[]) =>
         { urlPolicy, ...(clientMetadataUrl === undefined ? {} : { clientMetadataUrl }) },
         { storage, appStorage, webhookOrigin: origin },
       );
-      const initialize = yield* organizationDefaults(executor, origin, storage, skills);
+      const initialize = yield* organizationDefaults(
+        executor,
+        origin,
+        storage,
+        skills,
+        executorSelfHostApiDocument(origin),
+      );
       return Layer.mergeAll(
         Layer.succeed(OrganizationIcons, makeOrganizationIcons(blobs)),
         Layer.succeed(HostedExecutor, Effect.succeed(executor)),

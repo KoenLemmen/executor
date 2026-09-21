@@ -1,7 +1,6 @@
 /** Common hosted contracts. Product reads require a hosted session. */
 import { CatalogEntry, CatalogUnavailable } from "@executor-js/catalog/contracts";
-import { JsonObject } from "@executor-js/sdk/core";
-import { Schema } from "effect";
+import { Context, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { AuthenticationUnavailable, Principal, RequireUser, Unauthorized } from "./auth.ts";
 import {
@@ -9,6 +8,7 @@ import {
   OrganizationForbidden,
   OrganizationId,
   OrganizationRole,
+  RequireOrganization,
 } from "./organization.ts";
 import { HostedApps } from "./apps.ts";
 import { HostedAccounts } from "./accounts.ts";
@@ -21,51 +21,107 @@ import { HostedSkills } from "./skills.ts";
 /** Process liveness only; this does not probe integrations.sh or future storage. */
 export const Health = Schema.Struct({ status: Schema.Literal("ok") });
 
-/** Describe OAuth only on organization routes; browser-only routes retain their own policy. */
-export const organizationOAuthDocument = (
-  input: Record<string, unknown>,
-): Record<string, unknown> => {
-  const document = Schema.decodeUnknownSync(
-    Schema.Struct({
-      paths: Schema.Record(Schema.String, Schema.Record(Schema.String, JsonObject)),
-      components: JsonObject,
-    }),
-  )(input);
+/** The Effect snapshot's OpenAPI types omit OAuth2; hosted documents retain that standard scheme explicitly. */
+export interface HostedApiDocument extends Omit<OpenApi.OpenAPISpec, "components"> {
+  readonly components: Omit<OpenApi.OpenAPISpec["components"], "securitySchemes"> & {
+    readonly securitySchemes: Record<
+      string,
+      | OpenApi.OpenAPISecurityScheme
+      | {
+          readonly type: "oauth2";
+          readonly flows: {
+            readonly authorizationCode: {
+              readonly authorizationUrl: string;
+              readonly tokenUrl: string;
+              readonly scopes: Record<string, string>;
+            };
+          };
+        }
+    >;
+  };
+}
+
+/** Generate the complete product document; security follows the middleware that serves each endpoint. */
+export const hostedApiDocument = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+  api: HttpApi.HttpApi<Id, Groups>,
+  origin: string,
+  cookiePrefix: string,
+): HostedApiDocument => {
+  const security = new Map<string, Array<OpenApi.OpenAPISecurityRequirement>>();
+  HttpApi.reflect(api, {
+    onGroup: () => {},
+    onEndpoint: ({ endpoint, group, middleware, mergedAnnotations }) => {
+      if (Context.get(mergedAnnotations, OpenApi.Exclude))
+        throw new Error("Product API endpoints must appear in OpenAPI.");
+      const id = Context.getOrElse(endpoint.annotations, OpenApi.Identifier, () =>
+        group.topLevel ? endpoint.identifier : `${group.identifier}.${endpoint.identifier}`,
+      );
+      if (security.has(id)) throw new Error(`Duplicate product API operation: ${id}`);
+      security.set(
+        id,
+        [...middleware].some((service) => service.key === RequireUser.key)
+          ? [{ browserSession: [] }]
+          : [...middleware].some((service) => service.key === RequireOrganization.key)
+            ? [{ oauth: ["executor"] }, { browserSession: [] }]
+            : [],
+      );
+    },
+  });
+  const document = OpenApi.fromApi(api);
+  let count = 0;
+  const paths = Object.fromEntries(
+    Object.entries(document.paths).map(([path, item]) => [
+      path,
+      {
+        ...item,
+        ...Object.fromEntries(
+          (["get", "post", "put", "patch", "delete", "head", "options", "trace"] as const).flatMap(
+            (method) => {
+              const operation = item[method];
+              if (operation === undefined) return [];
+              const required = security.get(operation.operationId);
+              if (required === undefined)
+                throw new Error(`Undeclared product API operation: ${operation.operationId}`);
+              count++;
+              return [
+                [
+                  method,
+                  { ...operation, security: required.length === 0 ? operation.security : required },
+                ],
+              ];
+            },
+          ),
+        ),
+      },
+    ]),
+  );
+  if (count !== security.size) throw new Error("Product API and OpenAPI operation counts differ.");
   return {
-    ...input,
+    ...document,
     components: {
       ...document.components,
       securitySchemes: {
-        ...Schema.decodeUnknownSync(Schema.Record(Schema.String, JsonObject))(
-          document.components.securitySchemes,
-        ),
+        ...document.components.securitySchemes,
+        browserSession: {
+          type: "apiKey",
+          in: "cookie",
+          name: `${new URL(origin).protocol === "https:" ? "__Secure-" : ""}${cookiePrefix}.session_token`,
+          description:
+            "Browser-managed session. Sign in through this deployment; bearer credentials cannot call session-only endpoints.",
+        },
         oauth: {
           type: "oauth2",
           flows: {
             authorizationCode: {
               authorizationUrl: "/api/auth/oauth2/authorize",
               tokenUrl: "/api/auth/oauth2/token",
-              scopes: {
-                executor: "Manage Executor apps and accounts in the selected organization",
-              },
+              scopes: { executor: "Use Executor in the selected organization" },
             },
           },
         },
       },
     },
-    paths: Object.fromEntries(
-      Object.entries(document.paths).map(([path, methods]) => [
-        path,
-        path.startsWith("/api/organizations/") || path === "/api/context"
-          ? Object.fromEntries(
-              Object.entries(methods).map(([method, operation]) => [
-                method,
-                { ...operation, security: [{ oauth: ["executor"] }] },
-              ]),
-            )
-          : methods,
-      ]),
-    ),
+    paths,
   };
 };
 
@@ -90,20 +146,17 @@ export const HostedApi = HttpApi.make("executor-hosted")
           role: OrganizationRole,
         }),
         error: [Unauthorized, OrganizationForbidden, AuthenticationUnavailable],
-      }),
+      }).annotate(OpenApi.Override, { security: [{ oauth: ["executor"] }] }),
     ),
   )
-  .annotate(OpenApi.Transform, organizationOAuthDocument)
   .add(HttpApiGroup.make("health").add(HttpApiEndpoint.get("get", "/health", { success: Health })))
   .add(
     HttpApiGroup.make("viewer")
-      .annotate(OpenApi.Exclude, true)
       .add(HttpApiEndpoint.get("get", "/api/viewer", { success: Principal }))
       .middleware(RequireUser),
   )
   .add(
     HttpApiGroup.make("catalog")
-      .annotate(OpenApi.Exclude, true)
       .add(
         HttpApiEndpoint.get("list", "/api/catalog", {
           success: Schema.Array(CatalogEntry),
