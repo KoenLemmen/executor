@@ -10,6 +10,7 @@ import {
   DialogTrigger,
 } from "@executor-js/ui/components/dialog";
 import { Input } from "@executor-js/ui/components/input";
+import { Skeleton } from "@executor-js/ui/components/skeleton";
 import {
   Select,
   SelectContent,
@@ -35,6 +36,16 @@ import {
   type OrganizationFailed,
 } from "../../contracts/organization.ts";
 import { organizationError, useOrganization } from "./organization.tsx";
+
+/** The table geometry is shared by the members table and its loading skeleton. */
+const membershipPanelClass =
+  "membership-panel border border-border rounded-[10px] bg-background shadow-none overflow-hidden";
+
+const membershipTableClass =
+  "membership-table w-full [table-layout:fixed] [border-collapse:collapse] text-left text-[13px] [&_th]:h-10.5 [&_th]:py-[7px] [&_th]:px-[16px] [&_th]:text-[12px] [&_th]:font-normal [&_th]:text-muted-foreground [&_td]:h-15 [&_td]:py-[10px] [&_td]:px-[16px] [&_td]:wrap-anywhere [&_tbody_tr]:[transition:background_120ms] [&_tbody_tr:hover]:[background:color-mix(in_srgb,_var(--foreground)_3%,_transparent)] [&_tbody_tr_+_tr]:border-t [&_tbody_tr_+_tr]:border-t-border [&_.membership-email]:w-[32%] [&_.membership-email]:text-muted-foreground [&_.membership-role]:w-45 [&_.membership-actions]:w-15 [&_.membership-actions]:pl-1 [&_.membership-actions]:pr-4 [&_.membership-actions]:text-right max-[800px]:[&_.membership-email]:hidden max-[800px]:[&_.membership-role]:w-35 max-[480px]:[&_th]:py-[10px] max-[480px]:[&_th]:px-[12px] max-[480px]:[&_td]:py-[10px] max-[480px]:[&_td]:px-[12px] max-[480px]:[&_.membership-role]:w-31 max-[480px]:[&_.membership-role]:pl-1 max-[480px]:[&_.membership-role]:pr-1 max-[480px]:[&_.membership-actions]:w-10.5 max-[480px]:[&_.membership-actions]:py-0 max-[480px]:[&_.membership-actions]:px-[4px]";
+
+const membershipInvitationsClass =
+  "membership-has-invitations [&_.membership-actions]:w-48 max-[480px]:[&_.membership-actions]:w-25.5 max-[480px]:[&_.membership-actions]:pr-1.5 max-[480px]:[&_.membership-actions_button]:py-0 max-[480px]:[&_.membership-actions_button]:px-[6px] max-[480px]:[&_.membership-actions_button]:text-[12px] max-[480px]:[&_.membership-actions_button]:min-h-10";
 
 function MembersFailure({ cause, retry }: FailureProps<OrganizationFailed | Schema.SchemaError>) {
   return (
@@ -215,19 +226,12 @@ export function OrganizationMembers({ emailInvitations }: { readonly emailInvita
           result={members}
           Failure={MembersFailure}
           retry={retry}
-          pending={
-            <div
-              className="membership-panel membership-empty border border-border rounded-[10px] bg-background shadow-none overflow-hidden flex min-h-24 items-center justify-center flex-col gap-3 p-[16px] text-muted-foreground text-[13px] text-center"
-              role="status"
-            >
-              Loading members…
-            </div>
-          }
+          pending={<MembersSkeleton admin={admin} />}
         >
           {() => (
-            <div className="membership-panel border border-border rounded-[10px] bg-background shadow-none overflow-hidden">
+            <div className={membershipPanelClass}>
               <table
-                className={`membership-table w-full [table-layout:fixed] [border-collapse:collapse] text-left text-[13px] [&_th]:h-10.5 [&_th]:py-[7px] [&_th]:px-[16px] [&_th]:text-[12px] [&_th]:font-normal [&_th]:text-muted-foreground [&_td]:h-15 [&_td]:py-[10px] [&_td]:px-[16px] [&_td]:wrap-anywhere [&_tbody_tr]:[transition:background_120ms] [&_tbody_tr:hover]:[background:color-mix(in_srgb,_var(--foreground)_3%,_transparent)] [&_tbody_tr_+_tr]:border-t [&_tbody_tr_+_tr]:border-t-border [&_.membership-email]:w-[32%] [&_.membership-email]:text-muted-foreground [&_.membership-role]:w-45 [&_.membership-actions]:w-15 [&_.membership-actions]:pl-1 [&_.membership-actions]:pr-4 [&_.membership-actions]:text-right max-[800px]:[&_.membership-email]:hidden max-[800px]:[&_.membership-role]:w-35 max-[480px]:[&_th]:py-[10px] max-[480px]:[&_th]:px-[12px] max-[480px]:[&_td]:py-[10px] max-[480px]:[&_td]:px-[12px] max-[480px]:[&_.membership-role]:w-31 max-[480px]:[&_.membership-role]:pl-1 max-[480px]:[&_.membership-role]:pr-1 max-[480px]:[&_.membership-actions]:w-10.5 max-[480px]:[&_.membership-actions]:py-0 max-[480px]:[&_.membership-actions]:px-[4px]${admin && pending?.length ? "membership-has-invitations [&_.membership-actions]:w-48 max-[480px]:[&_.membership-actions]:w-25.5 max-[480px]:[&_.membership-actions]:pr-1.5 max-[480px]:[&_.membership-actions_button]:py-0 max-[480px]:[&_.membership-actions_button]:px-[6px] max-[480px]:[&_.membership-actions_button]:text-[12px] max-[480px]:[&_.membership-actions_button]:min-h-10" : ""}`}
+                className={`${membershipTableClass}${admin && pending?.length ? ` ${membershipInvitationsClass}` : ""}`}
                 aria-label="Members"
               >
                 <thead>
@@ -499,6 +503,65 @@ export function OrganizationMembers({ emailInvitations }: { readonly emailInvita
         </DialogContent>
       </Dialog>
     </section>
+  );
+}
+
+/** Placeholder widths vary per row so the loading table does not look like a grid. */
+const membershipSkeletonRows = [
+  { name: "w-28", email: "w-40" },
+  { name: "w-22", email: "w-32" },
+  { name: "w-32", email: "w-45" },
+  { name: "w-24", email: "w-36" },
+  { name: "w-30", email: "w-42" },
+];
+
+/** Placeholder rows keep the members table's columns and row height while it loads. */
+function MembersSkeleton({ admin }: { readonly admin: boolean }) {
+  return (
+    <div className={membershipPanelClass} role="status" aria-label="Loading members">
+      <table className={membershipTableClass} aria-hidden>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col" className="membership-email">
+              Email
+            </th>
+            <th scope="col" className="membership-role">
+              Role
+            </th>
+            {admin && (
+              <th scope="col" className="membership-actions">
+                <span className="sr-only">Actions</span>
+              </th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {membershipSkeletonRows.map((row, index) => (
+            <tr key={index}>
+              <td>
+                <div className="membership-person flex items-center gap-2.5 min-w-0 max-[480px]:gap-2">
+                  <Skeleton className="w-7 h-7 shrink-0 rounded-full max-[480px]:w-6 max-[480px]:h-6" />
+                  <Skeleton className={`h-3 max-w-full ${row.name}`} />
+                </div>
+              </td>
+              <td className="membership-email">
+                <Skeleton className={`h-3 max-w-full ${row.email}`} />
+              </td>
+              <td className="membership-role">
+                <Skeleton className="h-8.75 w-full rounded-[6px] max-[480px]:h-10" />
+              </td>
+              {admin && (
+                <td className="membership-actions">
+                  <Skeleton className="w-8 h-8 ml-auto rounded-[6px]" />
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <span className="sr-only">Loading members…</span>
+    </div>
   );
 }
 
