@@ -4,6 +4,7 @@ import { getMigrations } from "better-auth/db/migration";
 import { makeExecutorStorage } from "@executor-js/sdk/core";
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { migrateGroups } from "./group-schema.ts";
 
 /** Migration failures stop startup; callers must not log the driver's secret-bearing cause. */
 export class HostedMigrationFailed extends Schema.TaggedError<HostedMigrationFailed>()(
@@ -46,6 +47,9 @@ export const migrateHostedSchemas = (options: BetterAuthOptions) =>
     });
     const storage = yield* makeExecutorStorage({ provider: "postgresql" });
     yield* storage.migrate.pipe(
+      Effect.mapError(() => new HostedMigrationFailed({ stage: "product" })),
+    );
+    yield* migrateGroups.pipe(
       Effect.mapError(() => new HostedMigrationFailed({ stage: "product" })),
     );
   });

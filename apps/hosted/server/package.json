@@ -8,6 +8,7 @@
     "./contracts": "./src/contracts/api.ts",
     "./mcp/browser": "./src/contracts/mcp-browser.ts",
     "./organization": "./src/contracts/organization.ts",
+    "./groups": "./src/contracts/groups.ts",
     "./database": "./src/implementation/database.ts",
     "./app-ui": "./src/app-ui.ts",
     "./app-ui/contracts": "./src/contracts/app-ui.ts",

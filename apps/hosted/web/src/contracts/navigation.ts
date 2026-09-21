@@ -45,6 +45,7 @@ export function hostedPageTitle(
   if (extraPages[page] !== undefined) return extraPages[page];
   if (page === "organization") return "Settings";
   if (page === "approvals") return item ? "Review request" : "Approvals";
+  if (page === "groups") return item ? "Group" : "Groups";
   if (page === "connect") return "Connect";
   if (page === "webhooks") return "Webhook setup";
   if (page === "connections") return "Connect account";

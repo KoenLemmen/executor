@@ -26,6 +26,53 @@ const cloudOnboarding = {
 
 /** Scenario names and applicability used by both test declarations and test selection. */
 export const scenarios = {
+  groupFormErrors: {
+    file: "groups.spec.ts",
+    title: "Group forms show field errors and retain drafts through failed saves",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Local has no organization groups."),
+    },
+  },
+  passwordRefresh: {
+    file: "login-refresh.spec.ts",
+    title: "Password sign-in retains its draft through tab-focus session checks",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Cloud uses provider and code sign-in instead of passwords."),
+      local: na("Local uses pairing instead of hosted login."),
+    },
+  },
+  emailCodeRefresh: {
+    file: "login-refresh.spec.ts",
+    title: "Cloud sign-in retains its code through tab-focus session checks",
+    targets: {
+      cloud: scheduled,
+      "self-host": na("Self-host uses passwords instead of email codes."),
+      local: na("Local uses pairing instead of hosted login."),
+    },
+  },
+  groups: {
+    file: "groups.spec.ts",
+    title: "Groups persist atomic membership edits and enforce current admin permissions",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Local has no organizations or groups."),
+    },
+  },
+  groupsIsolation: {
+    file: "groups.spec.ts",
+    title: "Group identities and memberships cannot cross organization boundaries",
+    targets: {
+      cloud: scheduled,
+      "self-host": na(
+        "Self-host permits only one organization; foreign organization references are checked in the shared groups scenario.",
+      ),
+      local: na("Local has no organizations or groups."),
+    },
+  },
   requestTiming: {
     file: "request-timing.spec.ts",
     title: "Cloud request timings correlate browser resources with the server trace",

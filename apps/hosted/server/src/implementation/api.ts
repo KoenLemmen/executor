@@ -15,6 +15,7 @@ import { hostedWebhookHandlers } from "./webhooks.ts";
 import { hostedToolHandlers } from "./tools.ts";
 import { hostedAppHandlers } from "./apps.ts";
 import { hostedSkillHandlers } from "./skills.ts";
+import { hostedGroupHandlers } from "./groups.ts";
 
 const health = HttpApiBuilder.group(HostedApi, "health", (handlers) =>
   handlers.handle("get", () => Effect.succeed({ status: "ok" as const })),
@@ -48,6 +49,7 @@ export const hostedHandlers = Layer.mergeAll(
   catalog,
   apiContext,
   hostedOrganizationHandlers,
+  hostedGroupHandlers,
   hostedWebhookSetupHandlers,
   hostedWebhookHandlers,
   hostedWorkflowHandlers,

@@ -1,13 +1,20 @@
 import { useOrganizationRoute } from "./organization.tsx";
 import { Link } from "@tanstack/react-router";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { BoxesIcon, Key01Icon, Plug01Icon, Shield01Icon } from "@hugeicons/core-free-icons";
+import {
+  BoxesIcon,
+  Key01Icon,
+  Plug01Icon,
+  Shield01Icon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons";
 
 const items = [
   { to: "/org/$organizationSlug/connect", label: "Connect", icon: Plug01Icon },
   { to: "/org/$organizationSlug/apps", label: "Apps", icon: BoxesIcon },
   { to: "/org/$organizationSlug/accounts", label: "Accounts", icon: Key01Icon },
   { to: "/org/$organizationSlug/approvals", label: "Approvals", icon: Shield01Icon },
+  { to: "/org/$organizationSlug/groups", label: "Groups", icon: UserGroupIcon },
 ] as const;
 
 /** Common links that hosts compose with their own navigation. */

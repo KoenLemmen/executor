@@ -1,3 +1,4 @@
+import { GroupDatabase } from "@executor-js/hosted-server/groups";
 import { OrganizationId as ReferenceOrganizationId } from "@executor-js/hosted-server";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 /** Request services must stay lazy, including when database acquisition fails. */
@@ -78,6 +79,12 @@ test("health and denied actions do not acquire the SDK; allowed failures keep th
           removeOrganization: () => Effect.die("Organization removal is outside this fixture"),
         });
         const routes = selfHostApi.pipe(
+          HttpRouter.provideRequest(
+            Layer.succeed(
+              GroupDatabase,
+              Effect.die("Group storage is outside this legacy fixture"),
+            ),
+          ),
           HttpRouter.provideRequest(
             Layer.mergeAll(
               sdk,

@@ -2,6 +2,7 @@ import { HostedSchedules } from "./schedules.ts";
 /** Common hosted contracts. Product reads require a hosted session. */
 import { CatalogEntry, CatalogUnavailable } from "@executor-js/catalog/contracts";
 import { Context, Schema } from "effect";
+import { HostedGroups } from "./groups.ts";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { AuthenticationUnavailable, Principal, RequireUser, Unauthorized } from "./auth.ts";
 import {
@@ -139,6 +140,7 @@ export const HostedApi = HttpApi.make("executor-hosted")
     HostedAccounts,
     HostedTools,
     HostedOrganization,
+    HostedGroups,
     HostedAppData,
   )
   .add(

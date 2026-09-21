@@ -4,7 +4,7 @@ import { loginSearch } from "@executor-js/hosted-web/pages/login";
 import { Button } from "@executor-js/ui/components/button";
 import { Input } from "@executor-js/ui/components/input";
 import { Spinner } from "@executor-js/ui/components/spinner";
-import { Cause, Exit } from "effect";
+import { Cause, Exit, Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useState } from "react";
 import {
@@ -29,11 +29,14 @@ export function SelfHostLoginPage({
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const [registered, setRegistered] = useState(false);
+  const lastSession = AsyncResult.value(session);
+  // A background check must not unmount a form shown after confirmed sign-out.
+  const signedOut = Option.isSome(lastSession) && lastSession.value === null;
   const signedIn = AsyncResult.isSuccess(session) && !session.waiting && session.value !== null;
   useEffect(() => {
     if (signedIn) window.location.replace(registered ? "/apps" : redirect);
   }, [signedIn, redirect, registered]);
-  if (AsyncResult.isFailure(session))
+  if (AsyncResult.isFailure(session) && !signedOut)
     return (
       <div className="auth-pending min-h-dvh flex items-center justify-center gap-4">
         <p>Unable to check your session.</p>
@@ -44,7 +47,7 @@ export function SelfHostLoginPage({
     );
   if (
     signedIn ||
-    session.waiting ||
+    (session.waiting && !signedOut) ||
     AsyncResult.isInitial(session) ||
     AsyncResult.isInitial(config)
   )
@@ -160,6 +163,14 @@ export function SelfHostLoginPage({
           <p className="auth-error text-destructive text-[13px]" role="alert">
             {error ?? "SSO sign-in failed. Use an approved account or contact your administrator."}
           </p>
+        )}
+        {AsyncResult.isFailure(session) && (
+          <div role="alert" className="space-y-3 text-sm text-destructive">
+            <p>Unable to check your session.</p>
+            <Button type="button" variant="outline" onClick={refreshSession}>
+              Try again
+            </Button>
+          </div>
         )}
         <LoginLegalFooter
           privacyUrl="https://executor.sh/privacy"

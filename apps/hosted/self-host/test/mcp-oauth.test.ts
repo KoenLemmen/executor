@@ -1,3 +1,4 @@
+import { GroupDatabase } from "@executor-js/hosted-server/groups";
 import { executorSelfHostApiDocument } from "../src/contracts/api.ts";
 import type { GrantPolicy } from "@executor-js/mcp-auth/grants";
 import { BrowserExecutionResult } from "@executor-js/mcp";
@@ -207,6 +208,9 @@ export default defineApp({ accounts: {} }, async (appContext) => ({ name: "Fixtu
             });
             const routes = Layer.mergeAll(
               selfHostApi.pipe(
+                HttpRouter.provideRequest(
+                  Layer.succeed(GroupDatabase, Effect.succeed(yield* SqlClient.SqlClient)),
+                ),
                 Layer.provide(requireOrganizationLive),
                 Layer.provide(requireUserLive),
                 Layer.provide(hosted.identity),

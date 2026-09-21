@@ -1,3 +1,5 @@
+import { SqlClient } from "effect/unstable/sql";
+import { GroupDatabase } from "@executor-js/hosted-server/groups";
 import { OrganizationId as ReferenceOrganizationId } from "@executor-js/hosted-server";
 /** Custom forms use the real hosted HTTP handlers, source generators, builder and storage. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
@@ -106,6 +108,9 @@ test(
               removeOrganization: () => Effect.die("Organization removal is outside this fixture"),
             });
             const routes = selfHostApi.pipe(
+              HttpRouter.provideRequest(
+                Layer.succeed(GroupDatabase, Effect.succeed(yield* SqlClient.SqlClient)),
+              ),
               HttpRouter.provideRequest(Layer.succeed(HostedExecutor, Ref.get(currentExecutor))),
               HttpRouter.provideRequest(
                 Layer.succeed(HostedCatalog, {

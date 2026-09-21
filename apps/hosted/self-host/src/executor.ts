@@ -22,6 +22,8 @@ import { HostedAppRuntime } from "@executor-js/hosted-server/app-ui/contracts";
 import { filesystemBlobStore, workerdApps } from "@executor-js/sdk/node";
 import { Config, Effect, Layer, Option, Path, Deferred, Schedule } from "effect";
 import { dataDirectory } from "./contracts/config.ts";
+import { GroupDatabase } from "@executor-js/hosted-server/groups";
+import { SqlClient } from "effect/unstable/sql";
 
 /** Database initialization finishes before this service is acquired. */
 export const selfHostExecutor = (skills: readonly SourceFile[]) =>
@@ -70,8 +72,10 @@ export const selfHostExecutor = (skills: readonly SourceFile[]) =>
         executorSelfHostApiDocument(origin),
       );
       const scheduleAuthority = yield* makeScheduledAuthority(executor);
+      const groupDatabase = yield* SqlClient.SqlClient;
       return Layer.mergeAll(
         Layer.succeed(ScheduledAuthority, scheduleAuthority),
+        Layer.succeed(GroupDatabase, Effect.succeed(groupDatabase)),
         Layer.succeed(OrganizationIcons, makeOrganizationIcons(blobs)),
         Layer.succeed(HostedExecutor, Effect.succeed(executor)),
         Layer.succeed(OrganizationDefaults, initialize),

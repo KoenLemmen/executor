@@ -1,3 +1,4 @@
+import { GroupDatabase } from "@executor-js/hosted-server/groups";
 /** Shared-session regressions through real Better Auth, PGlite and hosted HTTP routes. */
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
 import assert from "node:assert/strict";
@@ -227,7 +228,11 @@ test(
               return HttpServerResponse.fromWeb(yield* Effect.promise(() => auth.handler(web)));
             });
             const routes = Layer.mergeAll(
-              selfHostApi,
+              selfHostApi.pipe(
+                HttpRouter.provideRequest(
+                  Layer.succeed(GroupDatabase, Effect.succeed(yield* SqlClient.SqlClient)),
+                ),
+              ),
               HttpRouter.add("*", "/api/auth/*", handler),
             ).pipe(
               HttpRouter.provideRequest(Layer.succeed(HostedExecutor, Effect.succeed(executor))),

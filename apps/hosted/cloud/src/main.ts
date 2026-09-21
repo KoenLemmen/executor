@@ -34,6 +34,7 @@ import { cloudMcp, McpSessionsLive } from "./infrastructure/mcp.ts";
 import { cloudApi } from "./implementation/api.ts";
 import { billingLive } from "./implementation/billing.ts";
 import { cloudSchedules, ScheduleCoordinatorLive } from "./infrastructure/schedules.ts";
+import { cloudGroupDatabase } from "./infrastructure/group-database.ts";
 import { cloudExecutor } from "./infrastructure/executor.ts";
 import { cloudAuthDatabase } from "./infrastructure/auth-database.ts";
 import {
@@ -164,9 +165,11 @@ export default Api.make(
       ),
     );
 
+    const groupDatabase = yield* cloudGroupDatabase;
     const onboarding = yield* cloudOnboarding.pipe(Effect.orDie);
     const document = executorCloudApiDocument(auth.origin);
     const api = cloudApi(document).pipe(
+      HttpRouter.provideRequest(groupDatabase),
       Layer.provide(appUi.dashboard),
       Layer.provide(requestServices(auth.appSessions)),
       HttpRouter.provideRequest(catalogLive(executorSkillFiles(authoring), document)),

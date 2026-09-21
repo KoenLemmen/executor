@@ -15,6 +15,16 @@ const errorMessage = Match.type<HostedError>().pipe(
     ScheduleConflict: () =>
       "The schedule is busy or changed. Check its current status and try again.",
     ScheduleInvalid: () => "Update the interval or calendar timing in the app source.",
+    GroupNotFound: () => "This group is no longer available in this organization.",
+    GroupsUnavailable: () => "Groups could not be loaded or saved. Try again.",
+    GroupConflict: ({ reason }) =>
+      ({
+        changed:
+          "This group changed while you were editing. Your changes were not saved. Close this form, refresh, and try again.",
+        name_taken: "A group with this name already exists. Choose another name.",
+        members_changed:
+          "Organization membership changed. Your changes were not saved. Close this form and select the current members.",
+      })[reason],
     ExecutionLimitReached: () =>
       "Your organization has reached its execution limit. The tool did not run. Ask an organization admin to review the limit.",
     ExecutionAdmissionUnavailable: () =>

@@ -1,7 +1,7 @@
 import { browserReturnTo } from "@executor-js/hosted-server/browser/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { Cause, Exit } from "effect";
+import { Cause, Exit, Option } from "effect";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { GithubIcon } from "@hugeicons/core-free-icons";
 import { useEffect, useState, type ReactNode } from "react";
@@ -64,12 +64,15 @@ export function LoginPage({
   const state = useAtomValue(signInAtom);
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<"google" | "github" | null>(null);
+  const lastSession = AsyncResult.value(session);
+  // Keep child form fields mounted during revalidation of a signed-out session.
+  const signedOut = Option.isSome(lastSession) && lastSession.value === null;
   const signedIn = AsyncResult.isSuccess(session) && !session.waiting && session.value !== null;
   // A signed OAuth return URL must not be parsed and reserialized by the router.
   useEffect(() => {
     if (signedIn) window.location.replace(redirect);
   }, [signedIn, redirect]);
-  if (AsyncResult.isFailure(session))
+  if (AsyncResult.isFailure(session) && !signedOut)
     return (
       <div className="auth-pending min-h-dvh flex items-center justify-center gap-4">
         <p>Unable to check your session.</p>
@@ -78,7 +81,7 @@ export function LoginPage({
         </Button>
       </div>
     );
-  if (signedIn || session.waiting || AsyncResult.isInitial(session))
+  if (signedIn || (session.waiting && !signedOut) || AsyncResult.isInitial(session))
     return (
       <div className="auth-pending min-h-dvh flex items-center justify-center gap-4">
         <Spinner />
@@ -125,6 +128,14 @@ export function LoginPage({
           </Button>
         </div>
         {children}
+        {AsyncResult.isFailure(session) && (
+          <div role="alert" className="space-y-3 text-sm text-destructive">
+            <p>Unable to check your session.</p>
+            <Button type="button" variant="outline" onClick={refreshSession}>
+              Try again
+            </Button>
+          </div>
+        )}
         {(error || callbackFailure) && (
           <p className="auth-error text-destructive text-[13px]" role="alert">
             {error || callbackFailure}

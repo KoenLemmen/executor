@@ -1,3 +1,4 @@
+import { GroupDatabase } from "@executor-js/hosted-server/groups";
 import { executorSelfHostApiDocument } from "../src/contracts/api.ts";
 import { OrganizationId as ReferenceOrganizationId } from "@executor-js/hosted-server";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
@@ -92,6 +93,9 @@ test("default setup preserves source, build and storage failures through HTTP an
           name: "Fixture",
         });
         const routes = selfHostApi.pipe(
+          HttpRouter.provideRequest(
+            Layer.succeed(GroupDatabase, Effect.succeed(yield* SqlClient.SqlClient)),
+          ),
           HttpRouter.provideRequest(Layer.succeed(HostedExecutor, Effect.succeed(executor))),
           HttpRouter.provideRequest(Layer.succeed(OrganizationDefaults, initialize)),
           HttpRouter.provideRequest(
