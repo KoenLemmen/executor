@@ -3,8 +3,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { betterAuth } from "better-auth";
-import { migrateHostedSchemas } from "@executor-js/hosted-server/migrations";
-import { Config, ConfigProvider, Effect, Exit, FileSystem, Option, Redacted, Schema } from "effect";
+import { HostedMigrationFailed, migrateHostedSchemas } from "@executor-js/hosted-server/migrations";
+import {
+  Config,
+  ConfigProvider,
+  Effect,
+  Exit,
+  FileSystem,
+  Option,
+  Redacted,
+  Result,
+  Schema,
+} from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { selfHostDatabase } from "../../self-host/src/database.ts";
 import { AuthDatabase } from "../../self-host/src/contracts/database.ts";
@@ -33,6 +43,40 @@ const settingsWith = (extra: Record<string, string>) =>
       ),
     ),
   );
+
+test("auth migration rejects incompatible required columns before serving requests", () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const directory = yield* fs.makeTempDirectoryScoped({ prefix: "executor-auth-schema-" });
+        yield* Effect.gen(function* () {
+          const database = yield* AuthDatabase;
+          const sql = yield* SqlClient.SqlClient;
+          const settings = yield* cloudAuthSettings;
+          const options = {
+            ...cloudAuthOptions(settings, [], () => Effect.void),
+            database,
+            secret: baseConfig.BETTER_AUTH_SECRET,
+          };
+          yield* migrateHostedSchemas(options);
+          yield* sql`alter table "user" add column "unexpected" text not null`;
+          const result = yield* migrateHostedSchemas(options).pipe(Effect.result);
+          assert.ok(Result.isFailure(result), "Migration must reject incompatible auth columns");
+          assert.ok(Schema.is(HostedMigrationFailed)(result.failure));
+          assert.equal(result.failure.stage, "auth");
+          yield* sql`alter table "user" drop column "unexpected"`;
+          yield* migrateHostedSchemas(options);
+        }).pipe(
+          Effect.provide(selfHostDatabase),
+          Effect.provideService(
+            ConfigProvider.ConfigProvider,
+            ConfigProvider.fromUnknown({ ...baseConfig, EXECUTOR_DATA_DIR: directory }),
+          ),
+        );
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  ));
 
 test("test-stage proxy settings are all-or-nothing and extra trusted origins are parsed", async () => {
   const proxySecret = "synthetic-oauth-proxy-secret-1234567890";

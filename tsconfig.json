@@ -20,7 +20,9 @@
     "apps/hosted/cloud/web",
     "apps/hosted/self-host/web",
     "apps/marketing",
-    "**/dist"
+    "apps/docs",
+    "**/dist",
+    "**/.blume"
   ],
   "include": ["packages", "apps", "playground"]
 }

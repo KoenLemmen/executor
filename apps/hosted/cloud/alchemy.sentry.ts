@@ -14,6 +14,7 @@ import {
   sentryClientKeyProvider,
 } from "./src/infrastructure/sentry-provider.ts";
 import { SentryErrorAlert, sentryErrorAlertProvider } from "./src/infrastructure/sentry-alert.ts";
+import { stackState } from "./src/infrastructure/state.ts";
 import { testStage } from "./src/infrastructure/stage.ts";
 
 export default Alchemy.Stack(
@@ -27,12 +28,7 @@ export default Alchemy.Stack(
         RandomProvider(),
       ),
     ),
-    state: Layer.unwrap(
-      testStage.pipe(
-        Effect.orDie,
-        Effect.map((stage) => (Option.isSome(stage) ? Cloudflare.state() : Alchemy.localState())),
-      ),
-    ),
+    state: stackState,
   },
   Effect.gen(function* () {
     const stage = yield* Stage;

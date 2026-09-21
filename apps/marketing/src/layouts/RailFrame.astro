@@ -1,0 +1,31 @@
+---
+// The rail frame: sticky rail on the left, one centred frame, footer at the
+// bottom of the body column. Everything inside <body>, and nothing of the
+// document shell.
+// Prerendered pages resolve the star count once at build time.
+import RailB from "../components/variants/rail-b.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import { getStars, formatStars } from "../lib/github";
+
+interface Props {
+  current?: "home" | "pricing" | "blog" | "docs";
+}
+const { current = "home" } = Astro.props;
+
+const stars = await getStars();
+---
+
+<main class="min-h-dvh relative antialiased bg-surface isolate">
+  <div class="relative z-10 page [&:has(>_.page\_\_rail)]:[--rail-w:240px] [&:has(>_.page\_\_rail)]:[--frame-w:1240px] min-[1024px]:[&:has(>_.page\_\_rail)]:grid min-[1024px]:[&:has(>_.page\_\_rail)]:grid-cols-[var(--rail-w)_minmax(0,_1fr)] min-[1024px]:[&:has(>_.page\_\_rail)]:items-start min-[1024px]:[&:has(>_.page\_\_rail)]:max-w-[var(--frame-w)] min-[1024px]:[&:has(>_.page\_\_rail)]:[margin-inline:auto]">
+    <div class="page__rail page__rail--b min-[1024px]:sticky min-[1024px]:top-0 min-[1024px]:h-dvh min-[1024px]:[overflow:hidden_auto] min-[1024px]:border-r min-[1024px]:border-r-rule max-[1023.98px]:sticky max-[1023.98px]:top-0 max-[1023.98px]:z-30 max-[1023.98px]:bg-surface">
+      <RailB stars={stars != null ? formatStars(stars) : null} current={current}>
+        <slot name="sidebar" slot="secondary" />
+      </RailB>
+    </div>
+    <div class="page__body min-[1024px]:[.page:has(>_.page\_\_rail)_&]:min-w-0 min-[1024px]:[.page:has(>_.page\_\_rail)_&]:[padding-inline:clamp(32px,_4vw,_64px)]">
+      <slot />
+
+      <SiteFooter />
+    </div>
+  </div>
+</main>

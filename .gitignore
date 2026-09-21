@@ -10,3 +10,10 @@ dist/
 
 # Generated app framework for the cloud runtime
 apps/hosted/cloud/.generated/
+
+# Blume generated runtime
+.blume/
+.blume-verify/
+
+# Detached preview handoffs (see notes/preview-handoffs.md)
+.preview/

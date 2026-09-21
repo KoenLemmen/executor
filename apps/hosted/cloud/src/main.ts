@@ -106,6 +106,9 @@ export default Api.make(
         notFoundHandling: "none",
         // Preserve TanStack paths after an internal index.html rewrite.
         htmlHandling: "none",
+        // An allowlist, so everything else is served from the assets. The
+        // documentation under /docs and /docs/* is static and must stay off
+        // this list.
         runWorkerFirst: [
           "/",
           "/api",

@@ -336,5 +336,5 @@ data directory. On macOS, the launcher also creates `.local/desktop-runtime/Exec
 Development happens in this private repository. The public
 `UsefulSoftwareCo/executor` repository receives snapshots on its `v2` branch
 through `scripts/export-public.sh`. Paths listed in
-`scripts/export-public.exclude`, such as `notes/`, stay private. Run the script
-from a clean checkout of `main` after a change lands.
+`scripts/export-public.exclude`, such as `notes/`, stay private. The export
+workflow runs the script on every push to `main`. See `RELEASING.md`.

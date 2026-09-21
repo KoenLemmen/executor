@@ -1,0 +1,276 @@
+---
+title: Author an app
+description: "Write an app in plain TypeScript: a provider, some queries and mutations, the approvals that guard them, stored data, and the call that deploys it."
+---
+
+An app is TypeScript source with a default `defineApp` export from the `apps`
+package. The host supplies that package. One `index.ts` is enough; you only need
+a `package.json` if you add a third-party dependency.
+
+Write ordinary async TypeScript. You do not import Effect and you do not import
+the Executor SDK. The framework validates input and supplies the selected
+accounts.
+
+## A first app
+
+```ts
+import { query, defineApp, object, string } from "apps";
+
+const Greet = object({ name: string().default("world") });
+
+export default defineApp(
+  { accounts: {} },
+  {
+    name: "Hello",
+    queries: {
+      greet: query(
+        { description: "Greet someone by name", input: Greet },
+        async (_ctx, { name }) => ({ message: `Hello, ${name}!` }),
+      ),
+    },
+  },
+);
+```
+
+`defineApp(requirements, definition)` takes what the app needs and what it
+offers. `query(options, handler)` and `mutation(options, handler)` declare the
+operations. Options are `description`, `input`, and optionally `output` and
+`approval`.
+
+The schema helpers are `object`, `string`, `number`, `boolean`, `array`,
+`record`, `json` and `literal`. Use `.optional()` for a field that may be absent
+and `.default(value)` for a default. `object` strips properties you did not
+declare. `Infer<typeof Input>` gives you the parsed input type.
+
+## Using an account
+
+Declare a provider, require it, and read it off the context.
+
+```ts
+import {
+  query,
+  type QueryContext,
+  array,
+  decodeJson,
+  defineApp,
+  defineProvider,
+  object,
+  secrets,
+  string,
+} from "apps";
+
+const vercel = defineProvider({
+  name: "Vercel",
+  auth: {
+    apiKey: secrets({
+      label: "API token",
+      fields: object({ token: string({ minLength: 1 }) }),
+    }),
+  },
+});
+
+const requirements = { accounts: { vercel } };
+type Context = QueryContext<typeof requirements>;
+
+const Projects = object({ projects: array(object({ id: string(), name: string() })) });
+
+const listProjects = query(
+  { description: "List projects for the selected Vercel account", input: object({}) },
+  async ({ accounts, fetch }: Context) => {
+    const response = await fetch("https://api.vercel.com/v9/projects?limit=10", {
+      headers: { Authorization: `Bearer ${accounts.vercel.fields.token}` },
+    });
+    return decodeJson(response, Projects);
+  },
+);
+
+export default defineApp(requirements, { name: "Vercel", queries: { listProjects } });
+```
+
+`accounts.vercel.fields` holds exactly the fields the method declared. The token
+arrives per call, from whichever account the app has selected. Nothing in the
+source names an account, so the same code serves a work app and a personal one.
+
+`decodeJson(response, schema)` checks the HTTP status and parses the body. Use
+`oauth2({ discover: "..." })` instead of `secrets` for a browser sign-in; the
+access token then arrives as `accounts.<slot>.fields.access_token`.
+
+For a slot that takes several accounts, use `provider.many()`. The context gives
+you a list.
+
+## Queries and mutations
+
+Both become tools. The difference is what they may do to the app's own stored
+data.
+
+- A query gets a read-only view.
+- A mutation writes in a transaction that commits only after its output
+  validates.
+
+External calls are allowed from both, and external effects are never rolled
+back.
+
+## Approvals
+
+Approval is declared on the operation.
+
+```ts
+import { always, never } from "apps/operations/approval";
+
+// in the operation options:
+approval: always(),   // ask a person first
+approval: never(),    // run without asking
+```
+
+A function gets the real decision. It receives the tool name, the decoded input
+and an abort signal, and returns `approved`, `denied` or `user-approval`.
+Annotate a shared one with `Approval<Input>` to reuse it. For an imported
+operation, wrap it: `withApproval(operation, policy)`.
+
+There is no app-level approval setting, and nothing is inferred from an
+operation looking read-only. See
+[Tools and approvals](/concepts/tools-and-approvals).
+
+## Asking for input mid-tool
+
+```ts
+await ctx.elicit({
+  mode: "form",
+  message: "Name this result",
+  requestedSchema: {
+    type: "object",
+    properties: { name: { type: "string" } },
+    required: ["name"],
+  },
+});
+```
+
+The question reaches the person the same way an approval does.
+
+## Importing an existing service
+
+You do not have to write handlers to wrap an API.
+
+```ts
+import { defineApp } from "apps";
+import { mcpOperations } from "apps/mcp";
+
+export default defineApp({ accounts: {} }, async ({ signal }) => ({
+  name: "DeepWiki",
+  ...(await mcpOperations({
+    url: "https://mcp.deepwiki.com/mcp",
+    ...(signal === undefined ? {} : { signal }),
+  })),
+}));
+```
+
+The helpers are `mcpOperations` from `apps/mcp`, `stdioOperations` from
+`apps/mcp/stdio`, `graphqlOperations` from `apps/graphql` and
+`openapiOperations` from `apps/openapi`. Each returns `{ queries, mutations }`.
+An operation that cannot be classified becomes a mutation.
+
+The dashboard's **Custom app** form does the same thing from a URL, for MCP,
+GraphQL and OpenAPI, without writing any source.
+
+## Storing data
+
+Declare a database and the app gets tables.
+
+```ts
+import { defineDatabase, object, string, table } from "apps";
+
+const database = defineDatabase({
+  messages: table({ mailbox: string(), subject: string() }).index("by_mailbox", ["mailbox"]),
+});
+
+const requirements = { accounts: {}, database };
+```
+
+Query it through `db` on the context, with `withIndex`, `order`, and a terminal:
+`first`, `take`, `collect`, `count` or `paginate({ cursor, numItems })`. A
+`by_creation` index exists without being declared.
+
+Reads are bounded: 5,000 rows scanned, 1,000 returned, 4 MiB per invocation.
+`collect` and `count` fail rather than truncate, so you notice. A mutation
+allows 1,000 writes.
+
+## Shipping instructions
+
+An app can carry its own guidance for agents. Put it beside the source:
+
+<FileTree>
+
+- index.ts
+- skills/
+  - triage/
+    - SKILL.md
+    - references/
+      - examples.md
+
+</FileTree>
+
+```md
+---
+name: triage
+description: Search cached messages before fetching more history.
+---
+
+Read [examples](references/examples.md), then discover this app's queries.
+```
+
+An agent reads it with the `skills` tool. Skill text never grants a permission;
+the approval still decides.
+
+## Deploying
+
+Deployment is an operation, not a command. Have your agent call it through the
+MCP endpoint.
+
+<CodeGroup>
+
+```js Hosted
+return await tools.executor.mutations.apps_deploy({
+  path: { organization: "<approved-organization-id>" },
+  body: {
+    name: "Hello",
+    files: [{ path: "index.ts", content: "<contents of index.ts>" }],
+  },
+});
+```
+
+```js Local
+return await tools.executor.mutations.apps_deploy({
+  body: {
+    owner: "my-project",
+    name: "Hello",
+    files: [{ path: "index.ts", content: "<contents of index.ts>" }],
+  },
+});
+```
+
+</CodeGroup>
+
+The app activates only after the build succeeds, and earlier deployments are
+retained; see [Apps and deployments](/concepts/apps-and-deployments). Then
+connect an account for each requirement and call it in a new `execute`:
+
+```js
+return await tools["<app-slug>"].queries.greet({ name: "Ada" });
+```
+
+Discovery is not cached across a change, so run `tools.search` again after you
+deploy.
+
+There is no `executor deploy` command. The Executor CLI starts the local server;
+it does not deploy app source.
+
+## What is coming later
+
+- Updating hosted app source through the deploy call. It currently creates a new
+  named app and rejects a name that already exists. Local deploy does update in
+  place.
+- Scheduled and background work.
+- Calling one app from another.
+- Authoring general HTTP endpoints.
+- Stored-data schema migration between deployments.
+- A local `executor dev` loop.

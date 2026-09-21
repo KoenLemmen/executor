@@ -1,0 +1,105 @@
+---
+title: Connect an account
+description: "Save a credential once as an account, from the dashboard, the app you are configuring, or an agent, then select it for any app that needs that provider."
+---
+
+An **account** is one saved set of credentials for one **provider**. You connect
+it once. Every app that needs that provider can select it, and none of them
+holds a second copy.
+
+There are two kinds of credential, and the provider decides which it accepts:
+
+- **Secrets**: fields you paste, such as an API token, or an email and a key.
+- **OAuth**: a sign-in in your browser. Executor stores the resulting tokens.
+
+## From the dashboard
+
+<Steps>
+  <Step title="Open Accounts and add one">
+    Pick the provider and the authentication method.
+  </Step>
+  <Step title="Label it">
+    Labels matter once you have two. "Work Vercel" and "Personal Vercel" are two
+    accounts of the same provider, and an app selects exactly one of them.
+  </Step>
+  <Step title="Fill in the fields, or complete the sign-in">
+    A secrets method asks for the fields it declared. An OAuth method sends you
+    to the provider and stores the tokens it returns.
+  </Step>
+  <Step title="Select it on the app">
+    Open the app and choose which account fills each of its requirements.
+  </Step>
+</Steps>
+
+## From the app you are configuring
+
+It is usually easier to start at the app. An app declares **requirements**: one
+named slot per provider it needs. Connecting from the app fills the slot as well
+as saving the account, so there is no second step.
+
+In the dashboard, open the app and use the connect action on the unfilled
+requirement.
+
+## From an agent
+
+An agent can start the same flow. It must never ask you for a secret in chat,
+and must never read a token out of your files. It asks Executor for a connection
+link and gives you the link; you finish in your browser.
+
+<CodeGroup>
+
+```js Hosted
+return await tools.executor.mutations.accounts_connect({
+  path: { organization: "<organization-id>", app: "<app-id>" },
+  body: { requirement: "vercel" },
+});
+```
+
+```js Local
+return await tools.executor.mutations.accountConnect_issue({
+  body: { owner: "alice", target: { app: "<app-id>", requirement: "vercel" } },
+});
+```
+
+</CodeGroup>
+
+Supply either `target`, to fill a specific requirement, or `provider`, to save
+an account without selecting it anywhere. Not both.
+
+Check whether you finished:
+
+```js
+const connection = await tools.executor.queries.accountConnections_get({
+  path: { connection: "<connection-id>" },
+});
+return connection.state;
+```
+
+`Completed` means the account is saved. If the request named a target, the
+account is also selected for that requirement.
+
+A pending request expires after thirty minutes. Issue a new one if it does.
+
+## How a targeted request fills a slot
+
+- A single-account requirement is **replaced** by the new account.
+- A `.many()` requirement **appends** the new account, and does not duplicate
+  one that is already selected.
+- If the app's requirement changed while the request was open, the request fails
+  rather than filling the wrong slot.
+
+## Changing and removing an account
+
+You can rename an account, replace its credentials, and remove it. Replacing
+credentials keeps the same account, so every app that selected it keeps working.
+
+Removing an account does not silently unselect it. Apps that selected it keep
+the reference and report it as unavailable, and they cannot run until you choose
+a different account. That is deliberate: it makes a broken app visible instead
+of quietly changing which credentials an agent uses.
+
+## What is coming later
+
+- Per-person account selection. Today one app holds one selection for the whole
+  organization, so a tool call uses the saved account rather than the caller's
+  own.

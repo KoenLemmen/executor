@@ -15,6 +15,12 @@ const siteBuild = Effect.gen(function* () {
   const root = yield* path.fromFileUrl(new URL("../../../..", import.meta.url));
   const marketing = path.join(root, "apps/marketing/dist");
   const dashboard = path.join(root, "apps/hosted/cloud/web/dist");
+  // Blume builds the documentation with a deployment base of /docs, so its own
+  // output is still rooted at dist. It moves below docs/ here. Everything in
+  // that build ships, not just the HTML: llms.txt, llms-full.txt and the .md
+  // and .mdx variant of every page are the agent-facing half of the site.
+  const docs = path.join(root, "apps/docs/dist");
+  const docsPrefix = "docs";
   const output = path.join(root, "apps/hosted/cloud/.generated/site");
 
   const listAssets = (directory: string) =>
@@ -31,12 +37,18 @@ const siteBuild = Effect.gen(function* () {
 
   const marketingAssets = yield* listAssets(marketing);
   const dashboardAssets = yield* listAssets(dashboard);
+  const docsAssets = yield* listAssets(docs);
   const assets = new Map<string, Array<Asset>>();
 
+  // The asset layer reads _redirects and _headers from the asset root only, so
+  // a copy of either inside a mounted build would be an inert file. Both are
+  // composed below from every build instead.
+  const directives = ["_redirects", "_headers"];
+
   const addAsset = (asset: Asset, relative = asset.relative) => {
-    // _redirects is composed below from both builds. The dashboard entry is
-    // renamed so the marketing site's index remains the asset root.
-    if (relative === "_redirects") return;
+    // The dashboard entry is renamed so the marketing site's index remains the
+    // asset root.
+    if (directives.includes(asset.relative)) return;
     const destination =
       relative === "index.html" && asset.source.startsWith(dashboard) ? "dashboard.html" : relative;
     const existing = assets.get(destination) ?? [];
@@ -45,6 +57,7 @@ const siteBuild = Effect.gen(function* () {
   };
   for (const asset of marketingAssets) addAsset(asset);
   for (const asset of dashboardAssets) addAsset(asset);
+  for (const asset of docsAssets) addAsset(asset, path.join(docsPrefix, asset.relative));
 
   for (const [relative, matches] of assets) {
     if (matches.length > 1) {
@@ -73,21 +86,40 @@ const siteBuild = Effect.gen(function* () {
     yield* fs.copyFile(asset.source, destination);
   }
 
-  const marketingRedirects = new Set<string>(["/home /index.html 200", "/home/ /home 308"]);
-  for (const asset of marketingAssets) {
-    if (!asset.relative.endsWith(".html")) continue;
-    const relative = asset.relative.replaceAll(path.sep, "/");
-    if (relative === "index.html") continue;
-    const route = relative.endsWith("/index.html")
-      ? `/${relative.slice(0, -"/index.html".length)}`
-      : `/${relative.slice(0, -".html".length)}`;
-    marketingRedirects.add(`${route} /${relative} 200`);
-    marketingRedirects.add(`${route}/ ${route} 308`);
-  }
+  // Asset serving uses htmlHandling "none", so every prerendered page needs an
+  // explicit rewrite. The canonical route has no trailing slash; the slashed
+  // form redirects onto it.
+  const pageRedirects = (pageAssets: ReadonlyArray<Asset>, prefix: string) => {
+    const lines = new Set<string>();
+    for (const asset of pageAssets) {
+      if (!asset.relative.endsWith(".html")) continue;
+      const relative = `${prefix}${asset.relative.replaceAll(path.sep, "/")}`;
+      const withoutPage = relative.endsWith("/index.html")
+        ? relative.slice(0, -"/index.html".length)
+        : relative === "index.html"
+          ? ""
+          : relative.slice(0, -".html".length);
+      // The marketing index is the asset root and needs no rewrite.
+      if (withoutPage === "") continue;
+      const route = `/${withoutPage}`;
+      lines.add(`${route} /${relative} 200`);
+      lines.add(`${route}/ ${route} 308`);
+    }
+    return lines;
+  };
+
+  const marketingRedirects = new Set<string>([
+    "/home /index.html 200",
+    "/home/ /home 308",
+    ...pageRedirects(marketingAssets, ""),
+  ]);
+  // "/docs" and "/docs/" both reach the documentation index.
+  const docsRedirects = pageRedirects(docsAssets, `${docsPrefix}/`);
 
   const dashboardRedirects = yield* fs.readFileString(path.join(dashboard, "_redirects"));
   const redirects = new Set([
     ...marketingRedirects,
+    ...docsRedirects,
     ...dashboardRedirects
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -97,6 +129,19 @@ const siteBuild = Effect.gen(function* () {
     path.join(output, "_redirects"),
     [...redirects].sort().join("\n") + "\n",
   );
+
+  // _headers is block-structured, not one rule per line, so the files are
+  // concatenated rather than merged into a set. Blume writes its rules already
+  // prefixed with the /docs base, which is what gives the Markdown mirrors and
+  // llms.txt their text/markdown and text/plain content types.
+  const headerFiles: Array<string> = [];
+  for (const directory of [marketing, dashboard, docs]) {
+    const file = path.join(directory, "_headers");
+    if (yield* fs.exists(file)) headerFiles.push((yield* fs.readFileString(file)).trim());
+  }
+  if (headerFiles.length > 0) {
+    yield* fs.writeFileString(path.join(output, "_headers"), headerFiles.join("\n\n") + "\n");
+  }
 }).pipe(Effect.provide(NodeServices.layer));
 
 NodeRuntime.runMain(siteBuild);

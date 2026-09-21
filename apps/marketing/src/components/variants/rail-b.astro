@@ -6,13 +6,17 @@
 // right edge.
 import rhysAvatar from "../../assets/rhys-sullivan.jpg";
 
+// The brand mark resolves against the build's base, so the docs build (mounted
+// at /docs) serves its own copy instead of reaching for the marketing root.
+const MARK = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/favicon-192.png`;
+
 const X_URL = "https://x.com/RhysSullivan";
 const EMAIL = "rhys@executor.sh";
 
 interface Props {
   stars: string | null;
   /** Which primary link is the current page. Defaults to home. */
-  current?: "home" | "pricing" | "blog";
+  current?: "home" | "pricing" | "blog" | "docs";
 }
 const { stars, current = "home" } = Astro.props;
 const cur = (k: string) => (k === current ? "page" : undefined);
@@ -35,17 +39,19 @@ const pad = (index: number) => String(index + 1).padStart(2, "0");
 
 <aside class="rail rail--b flex flex-col h-full bg-surface font-sans gap-7 py-[32px] px-[24px] border-r border-r-rule max-[1023.98px]:flex-row max-[1023.98px]:items-center max-[1023.98px]:justify-between max-[1023.98px]:gap-3 max-[1023.98px]:h-14 max-[1023.98px]:py-0 max-[1023.98px]:px-[16px] max-[1023.98px]:border-r-0 max-[1023.98px]:border-b max-[1023.98px]:border-b-rule">
   <a href="/" class="rail__brand flex items-center gap-2.5 max-[1023.98px]:[.rail_&]:m-0" aria-label="Executor home">
-    <img src="/favicon-192.png" alt="" class="rail__brand-mark w-5 h-5 shrink-0 [.rail--b_&]:w-4.5 [.rail--b_&]:h-4.5" />
+    <img src={MARK} alt="" width="20" height="20" class="rail__brand-mark w-5 h-5 shrink-0 [.rail--b_&]:w-4.5 [.rail--b_&]:h-4.5" />
   </a>
 
   <div class="rail__stack flex flex-1 min-h-0 flex-col [.rail--b_&]:gap-7 max-[1023.98px]:[.rail_&]:[flex:0_1_auto] max-[1023.98px]:[.rail_&]:flex-row max-[1023.98px]:[.rail_&]:items-center max-[1023.98px]:[.rail_&]:gap-4">
     <nav class="rail__nav flex flex-col [.rail--b_&]:gap-1 max-[1023.98px]:[.rail_&]:flex-row max-[1023.98px]:[.rail_&]:items-center max-[1023.98px]:[.rail_&]:gap-3.5 max-[479.98px]:[.rail_&]:gap-3" aria-label="Main">
       <a href="/" class="rail__link rail__link--keep relative flex items-center gap-1.5 [color:var(--color-ink-2)] [transition:color_0.15s_ease] hover:text-ink [&[aria-current='page']]:text-ink [&[aria-current='page']]:font-medium [.rail--b_&]:text-[14px] [.rail--b_&]:pl-3 [.rail--b_&::before]:[content:''] [.rail--b_&::before]:absolute [.rail--b_&::before]:left-0 [.rail--b_&::before]:top-[50%] [.rail--b_&::before]:[transform:translateY(-50%)] [.rail--b_&::before]:w-0.25 [.rail--b_&::before]:h-3.5 [.rail--b_&::before]:bg-ink [.rail--b_&::before]:opacity-0 [.rail--b_&::before]:[transition:opacity_0.15s_ease] [.rail--b_&[aria-current='page']::before]:opacity-100 max-[1023.98px]:[.rail_&]:p-0 max-[1023.98px]:[.rail_&]:text-[14px] max-[1023.98px]:[.rail_&]:whitespace-nowrap max-[1023.98px]:[.rail_&::before]:hidden max-[479.98px]:[.rail_.rail\_\_nav_&:not(.rail\_\_link--keep)]:hidden" aria-current={cur("home")}>Home</a>
-      <a href="https://executor.sh/docs" class="rail__link rail__link--keep relative flex items-center gap-1.5 [color:var(--color-ink-2)] [transition:color_0.15s_ease] hover:text-ink [&[aria-current='page']]:text-ink [&[aria-current='page']]:font-medium [.rail--b_&]:text-[14px] [.rail--b_&]:pl-3 [.rail--b_&::before]:[content:''] [.rail--b_&::before]:absolute [.rail--b_&::before]:left-0 [.rail--b_&::before]:top-[50%] [.rail--b_&::before]:[transform:translateY(-50%)] [.rail--b_&::before]:w-0.25 [.rail--b_&::before]:h-3.5 [.rail--b_&::before]:bg-ink [.rail--b_&::before]:opacity-0 [.rail--b_&::before]:[transition:opacity_0.15s_ease] [.rail--b_&[aria-current='page']::before]:opacity-100 max-[1023.98px]:[.rail_&]:p-0 max-[1023.98px]:[.rail_&]:text-[14px] max-[1023.98px]:[.rail_&]:whitespace-nowrap max-[1023.98px]:[.rail_&::before]:hidden max-[479.98px]:[.rail_.rail\_\_nav_&:not(.rail\_\_link--keep)]:hidden">Docs</a>
+      <a href="/docs" aria-current={cur("docs")} class="rail__link rail__link--keep relative flex items-center gap-1.5 [color:var(--color-ink-2)] [transition:color_0.15s_ease] hover:text-ink [&[aria-current='page']]:text-ink [&[aria-current='page']]:font-medium [.rail--b_&]:text-[14px] [.rail--b_&]:pl-3 [.rail--b_&::before]:[content:''] [.rail--b_&::before]:absolute [.rail--b_&::before]:left-0 [.rail--b_&::before]:top-[50%] [.rail--b_&::before]:[transform:translateY(-50%)] [.rail--b_&::before]:w-0.25 [.rail--b_&::before]:h-3.5 [.rail--b_&::before]:bg-ink [.rail--b_&::before]:opacity-0 [.rail--b_&::before]:[transition:opacity_0.15s_ease] [.rail--b_&[aria-current='page']::before]:opacity-100 max-[1023.98px]:[.rail_&]:p-0 max-[1023.98px]:[.rail_&]:text-[14px] max-[1023.98px]:[.rail_&]:whitespace-nowrap max-[1023.98px]:[.rail_&::before]:hidden max-[479.98px]:[.rail_.rail\_\_nav_&:not(.rail\_\_link--keep)]:hidden">Docs</a>
       <a href="/blog" class="rail__link relative flex items-center gap-1.5 [color:var(--color-ink-2)] [transition:color_0.15s_ease] hover:text-ink [&[aria-current='page']]:text-ink [&[aria-current='page']]:font-medium [.rail--b_&]:text-[14px] [.rail--b_&]:pl-3 [.rail--b_&::before]:[content:''] [.rail--b_&::before]:absolute [.rail--b_&::before]:left-0 [.rail--b_&::before]:top-[50%] [.rail--b_&::before]:[transform:translateY(-50%)] [.rail--b_&::before]:w-0.25 [.rail--b_&::before]:h-3.5 [.rail--b_&::before]:bg-ink [.rail--b_&::before]:opacity-0 [.rail--b_&::before]:[transition:opacity_0.15s_ease] [.rail--b_&[aria-current='page']::before]:opacity-100 max-[1023.98px]:[.rail_&]:p-0 max-[1023.98px]:[.rail_&]:text-[14px] max-[1023.98px]:[.rail_&]:whitespace-nowrap max-[1023.98px]:[.rail_&::before]:hidden max-[479.98px]:[.rail_.rail\_\_nav_&:not(.rail\_\_link--keep)]:hidden" aria-current={cur("blog")}>Blog</a>
       <a href="/pricing" class="rail__link relative flex items-center gap-1.5 [color:var(--color-ink-2)] [transition:color_0.15s_ease] hover:text-ink [&[aria-current='page']]:text-ink [&[aria-current='page']]:font-medium [.rail--b_&]:text-[14px] [.rail--b_&]:pl-3 [.rail--b_&::before]:[content:''] [.rail--b_&::before]:absolute [.rail--b_&::before]:left-0 [.rail--b_&::before]:top-[50%] [.rail--b_&::before]:[transform:translateY(-50%)] [.rail--b_&::before]:w-0.25 [.rail--b_&::before]:h-3.5 [.rail--b_&::before]:bg-ink [.rail--b_&::before]:opacity-0 [.rail--b_&::before]:[transition:opacity_0.15s_ease] [.rail--b_&[aria-current='page']::before]:opacity-100 max-[1023.98px]:[.rail_&]:p-0 max-[1023.98px]:[.rail_&]:text-[14px] max-[1023.98px]:[.rail_&]:whitespace-nowrap max-[1023.98px]:[.rail_&::before]:hidden max-[479.98px]:[.rail_.rail\_\_nav_&:not(.rail\_\_link--keep)]:hidden" aria-current={cur("pricing")}>Pricing</a>
       <a href={SIGN_IN} class="rail__link rail__link--keep relative flex items-center gap-1.5 [color:var(--color-ink-2)] [transition:color_0.15s_ease] hover:text-ink [&[aria-current='page']]:text-ink [&[aria-current='page']]:font-medium [.rail--b_&]:text-[14px] [.rail--b_&]:pl-3 [.rail--b_&::before]:[content:''] [.rail--b_&::before]:absolute [.rail--b_&::before]:left-0 [.rail--b_&::before]:top-[50%] [.rail--b_&::before]:[transform:translateY(-50%)] [.rail--b_&::before]:w-0.25 [.rail--b_&::before]:h-3.5 [.rail--b_&::before]:bg-ink [.rail--b_&::before]:opacity-0 [.rail--b_&::before]:[transition:opacity_0.15s_ease] [.rail--b_&[aria-current='page']::before]:opacity-100 max-[1023.98px]:[.rail_&]:p-0 max-[1023.98px]:[.rail_&]:text-[14px] max-[1023.98px]:[.rail_&]:whitespace-nowrap max-[1023.98px]:[.rail_&::before]:hidden max-[479.98px]:[.rail_.rail\_\_nav_&:not(.rail\_\_link--keep)]:hidden">Sign in</a>
     </nav>
+
+    <slot name="secondary" />
 
     <div class="rail__meta hidden min-[1024px]:grid [.rail--b_&]:gap-1 [.rail--b_&]:mt-4 [.rail--b_&]:pt-3 [.rail--b_&]:border-t [.rail--b_&]:border-t-rule">
       <a href={GH} target="_blank" rel="noopener" class="rail__meta-line [.rail--b_&]:flex [.rail--b_&]:items-center [.rail--b_&]:justify-between [.rail--b_&]:gap-2 [.rail--b_&]:text-[12.5px] [.rail--b_&]:[color:var(--color-ink-3)] [.rail--b_&]:leading-[1.6] [.rail--b_&:hover]:text-ink">

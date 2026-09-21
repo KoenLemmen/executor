@@ -21,7 +21,7 @@ export interface TestStage {
  * Provisioning receives the stage as a service and the deployed Worker reads Alchemy's plain
  * binding. Jobs and tests outside Alchemy have neither and use explicit configuration.
  */
-const stageName = Effect.serviceOption(Stage).pipe(
+export const stageName = Effect.serviceOption(Stage).pipe(
   Effect.flatMap(
     Option.match({
       onSome: (stage) => Effect.succeed(Option.some(stage)),

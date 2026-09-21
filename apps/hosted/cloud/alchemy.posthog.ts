@@ -16,6 +16,7 @@ import {
   PostHogInsight,
   postHogReportProviders,
 } from "./src/infrastructure/posthog-reports.ts";
+import { stackState } from "./src/infrastructure/state.ts";
 import { cloudOrigin, testStage } from "./src/infrastructure/stage.ts";
 
 export default Alchemy.Stack(
@@ -24,12 +25,7 @@ export default Alchemy.Stack(
     providers: postHogProviderCredentials(
       Layer.mergeAll(postHogProjectProvider(), postHogReportProviders(), RandomProvider()),
     ),
-    state: Layer.unwrap(
-      testStage.pipe(
-        Effect.orDie,
-        Effect.map((stage) => (Option.isSome(stage) ? Cloudflare.state() : Alchemy.localState())),
-      ),
-    ),
+    state: stackState,
   },
   Effect.gen(function* () {
     const stage = yield* Stage;

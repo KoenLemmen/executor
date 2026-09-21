@@ -32,11 +32,16 @@ export const migrateHostedDatabase = (options: BetterAuthOptions) =>
 /** Run both migrators; the caller holds exclusive startup/job access. */
 export const migrateHostedSchemas = (options: BetterAuthOptions) =>
   Effect.gen(function* () {
+    const migrations = yield* Effect.tryPromise({
+      try: () => getMigrations(options),
+      catch: () => new HostedMigrationFailed({ stage: "auth" }),
+    });
+    // Better Auth cannot repair unexpected required columns. Check that verdict
+    // before applying migrations rather than discovering it on the next login.
+    if (migrations.schemaProblems.length > 0)
+      return yield* new HostedMigrationFailed({ stage: "auth" });
     yield* Effect.tryPromise({
-      try: async () => {
-        const migrations = await getMigrations(options);
-        await migrations.runMigrations();
-      },
+      try: () => migrations.runMigrations(),
       catch: () => new HostedMigrationFailed({ stage: "auth" }),
     });
     const storage = yield* makeExecutorStorage({ provider: "postgresql" });

@@ -20,9 +20,8 @@ without redesigning the versioning setup.
 - `bun run changeset` — add a changeset for a change to a tracked package.
 - `bun run changeset:version` — apply pending changesets: bump versions,
   update `CHANGELOG.md` files, refresh the lockfile, and format.
-- `bun run release:version` — the same, wrapped in a retry for the transient
-  GitHub GraphQL failure modes of `@changesets/changelog-github` (see
-  `scripts/changeset-version-with-retry.sh`).
+- `bun run release:version` — the same command, kept as the name a release
+  workflow will call.
 - `bun run release:beta:start` / `bun run release:beta:stop` — enter or exit
   Changesets prerelease mode.
 - `bun run lint:changelog-stubs` — verify every workspace package has a
@@ -61,10 +60,47 @@ Re-enter it with:
   eventual home) to publish. Until then, `changeset version` and
   `scripts/release/release.ts` are local-only tools.
 
+## Two repositories
+
+Development, pull requests and CI live in this private repository. The public
+`UsefulSoftwareCo/executor` repository receives snapshots of `main` on its
+`v2` branch. `.github/workflows/export-public.yml` runs
+`scripts/export-public.sh` on every push to `main`; the paths in
+`scripts/export-public.exclude` never leave this repository. Each export is
+one commit whose message is only `Export <sha>`, so pull request titles,
+descriptions and commit messages stay private. Each export commit
+carries the author of the private commit it exports, so the public branch
+credits whoever did the work.
+
+The workflow needs the `PUBLIC_EXPORT_TOKEN` repository secret: a fine-grained
+token with `contents: write` on the public repository and nothing else. Deploy
+keys are disabled for the organization. The CI Alchemy stack
+(`apps/hosted/cloud/alchemy.github.ts`) places that secret from 1Password and
+protects the public export branch against deletion and force pushes; see
+`notes/ci.md`.
+
+Rules that follow from this model:
+
+- Changelogs are generated from changeset summaries only
+  (`@changesets/cli/changelog`). The GitHub changelog generator would write
+  pull request numbers, titles and author handles into `CHANGELOG.md`, which
+  is exported. Review changeset summaries as public text.
+- Publishing runs in this repository's CI. npm packages and GHCR images carry
+  the public repository in their metadata. GitHub Releases, which the CLI and
+  desktop updaters download from, are created on the public repository.
+- A release exports first, then tags the export commit on the public
+  repository, then builds and publishes. The tag must point at a public
+  commit so a release links to its source.
+- The public repository already holds v1 tags and releases. v2 tags use the
+  `executor@<version>` form so the v1 updater never matches them.
+- Issues are filed on the public repository and fixed here. A fix cannot close
+  an issue automatically; close it by hand or reference it in the changeset
+  summary as `UsefulSoftwareCo/executor#123`.
+- Never open pull requests or push branches to the public repository.
+- Production deploys from this repository too: `.github/workflows/deploy.yml`
+  deploys the `v2` stage on every push to `main`. See `notes/ci.md`.
+
 ## Notes
 
-- `@changesets/changelog-github` needs a `GITHUB_TOKEN` when running
-  `changeset version` (it resolves PR numbers and authors). Locally, use
-  `GITHUB_TOKEN=$(gh auth token) bun run changeset:version`.
 - `.changeset/config.json`'s `ignore` list excludes playground and e2e-viewer
   packages, which never ship, from version tracking entirely.

@@ -1,6 +1,7 @@
 /** Persistent V2 billing catalog. Autumn creates and owns the matching Stripe prices. */
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
+import { stackState } from "./src/infrastructure/state.ts";
 import { testStage } from "./src/infrastructure/stage.ts";
 import { retain } from "alchemy/RemovalPolicy";
 import { Stage } from "alchemy/Stage";
@@ -15,12 +16,7 @@ export default Alchemy.Stack(
   "executor-next-billing",
   {
     providers: autumnProviders(),
-    state: Layer.unwrap(
-      testStage.pipe(
-        Effect.orDie,
-        Effect.map((stage) => (Option.isSome(stage) ? Cloudflare.state() : Alchemy.localState())),
-      ),
-    ),
+    state: stackState,
   },
   Effect.gen(function* () {
     const stage = yield* Stage;

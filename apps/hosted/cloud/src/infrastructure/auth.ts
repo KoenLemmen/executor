@@ -83,7 +83,13 @@ export const cloudAuth = (send: SendAuthEmail) =>
     const auth = yield* BetterAuth({
       ...options,
       // Cookies use hostnames, not ports; cloud dev must not replace self-host sessions.
-      advanced: { ...options.advanced, cookiePrefix: cloudSessionCookiePrefix(settings.url) },
+      advanced: {
+        ...options.advanced,
+        cookiePrefix: cloudSessionCookiePrefix(settings.url),
+        // The deployment migration validates the schema. Alchemy owns a fresh auth
+        // instance per event; repeating Kysely introspection would delay every read.
+        database: { validateSchema: false },
+      },
       secret: secrets.authSecret,
       migrate: false,
     });

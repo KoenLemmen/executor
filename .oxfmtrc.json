@@ -1,7 +1,9 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "ignorePatterns": [
+    ".preview/**",
     ".alchemy",
+    ".blume",
     ".local",
     ".reference",
     ".wrangler",
@@ -11,6 +13,7 @@
     "bun.lock",
     "*.tsbuildinfo",
     "**/.generated",
-    "**/routeTree.gen.ts"
+    "**/routeTree.gen.ts",
+    "apps/docs/content"
   ]
 }

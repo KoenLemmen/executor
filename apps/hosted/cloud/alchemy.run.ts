@@ -16,6 +16,7 @@ import { LogicalDatabaseProvider } from "./src/infrastructure/logical-database.t
 import { developmentWeb } from "./src/infrastructure/development.ts";
 import { authEmailInfrastructure } from "./src/infrastructure/email.ts";
 import { uploadCloudSourceMaps } from "./src/infrastructure/sentry.ts";
+import { stackState } from "./src/infrastructure/state.ts";
 import { testStage } from "./src/infrastructure/stage.ts";
 
 export default Alchemy.Stack(
@@ -40,13 +41,7 @@ export default Alchemy.Stack(
         ),
       ),
     ),
-    // Configured stages keep local state. Test stages use the account state store, so any machine or agent can update or destroy them.
-    state: Layer.unwrap(
-      testStage.pipe(
-        Effect.orDie,
-        Effect.map((stage) => (Option.isSome(stage) ? Cloudflare.state() : Alchemy.localState())),
-      ),
-    ),
+    state: stackState,
   },
   Effect.gen(function* () {
     // Provisioning settings resolve outside Worker initialization and are not bound into it.

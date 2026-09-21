@@ -1,48 +1,21 @@
 ---
-// The site shell: sticky rail on the left, one centred frame, footer at the
-// bottom of the body column. The homepage, pricing, and blog all use it.
-// Prerendered pages resolve the star count once at build time.
+// The site shell: the document, wrapped around the rail frame. The homepage,
+// pricing, and blog all use it. The docs site builds its own document and
+// renders RailFrame directly, so the two halves share one frame.
 import Layout from "./Layout.astro";
-import RailB from "../components/variants/rail-b.astro";
-import { getStars, formatStars } from "../lib/github";
+import RailFrame from "./RailFrame.astro";
 
 interface Props {
   title: string;
   description: string;
-  current?: "home" | "pricing" | "blog";
+  current?: "home" | "pricing" | "blog" | "docs";
 }
 const { title, description, current = "home" } = Astro.props;
-
-const GH = "https://github.com/UsefulSoftwareCo/executor";
-const stars = await getStars();
 ---
 
 <Layout title={title} description={description}>
-  <main class="min-h-dvh relative antialiased bg-surface isolate">
-    <div class="relative z-10 page [&:has(>_.page\_\_rail)]:[--rail-w:240px] [&:has(>_.page\_\_rail)]:[--frame-w:1240px] min-[1024px]:[&:has(>_.page\_\_rail)]:grid min-[1024px]:[&:has(>_.page\_\_rail)]:grid-cols-[var(--rail-w)_minmax(0,_1fr)] min-[1024px]:[&:has(>_.page\_\_rail)]:items-start min-[1024px]:[&:has(>_.page\_\_rail)]:max-w-[var(--frame-w)] min-[1024px]:[&:has(>_.page\_\_rail)]:[margin-inline:auto]">
-      <div class="page__rail page__rail--b min-[1024px]:sticky min-[1024px]:top-0 min-[1024px]:h-dvh min-[1024px]:[overflow:hidden_auto] min-[1024px]:border-r min-[1024px]:border-r-rule max-[1023.98px]:sticky max-[1023.98px]:top-0 max-[1023.98px]:z-30 max-[1023.98px]:bg-surface">
-        <RailB stars={stars != null ? formatStars(stars) : null} current={current} />
-      </div>
-      <div class="page__body min-[1024px]:[.page:has(>_.page\_\_rail)_&]:min-w-0 min-[1024px]:[.page:has(>_.page\_\_rail)_&]:[padding-inline:clamp(32px,_4vw,_64px)]">
-        <slot />
-
-        <footer class="border-t border-rule py-10">
-          <div class="max-w-[1200px] mx-auto px-6 sm:px-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 min-[1024px]:[.page:has(>_.page\_\_rail)_.page\_\_body_[class*='max-w-']&]:ml-0 min-[1024px]:[.page:has(>_.page\_\_rail)_.page\_\_body_.hero-inner_&]:ml-0 min-[1024px]:[.page:has(>_.page\_\_rail)_.page\_\_body_.text-center_&]:ml-0">
-            <div class="flex items-center gap-2.5">
-              <img src="/favicon-192.png" alt="" class="w-4 h-4 opacity-80" />
-              <span class="text-[13px] font-medium text-ink-2">executor</span>
-              <span class="text-[12px] text-ink-3 ml-2">© {new Date().getFullYear()}</span>
-            </div>
-            <div class="flex items-center gap-6 text-[13px] text-ink-2">
-              <a href="https://executor.sh/docs" class="hover:text-ink transition-colors">Docs</a>
-              <a href="/blog" class="hover:text-ink transition-colors">Blog</a>
-              <a href={GH} class="hover:text-ink transition-colors">GitHub</a>
-              <a href="/privacy" class="hover:text-ink transition-colors">Privacy</a>
-              <a href="/terms" class="hover:text-ink transition-colors">Terms</a>
-            </div>
-          </div>
-        </footer>
-      </div>
-    </div>
-  </main>
+  <RailFrame current={current}>
+    <slot name="sidebar" slot="sidebar" />
+    <slot />
+  </RailFrame>
 </Layout>
