@@ -118,10 +118,9 @@ function Dashboard() {
       brand={
         <Link
           to="/apps"
-          className="wordmark flex items-center gap-2 h-12 py-0 px-[8px] font-mono text-[15px] font-medium [&_img]:w-5.25 [&_img]:h-5.25 max-[740px]:p-0 max-[740px]:w-11 max-[740px]:h-11 max-[740px]:justify-center max-[740px]:shrink-0 max-[740px]:[&_>_span]:hidden"
+          className="wordmark flex items-center gap-2 h-12 min-w-0 font-mono text-[15px] font-medium max-[740px]:h-11 max-[740px]:shrink-0"
           aria-label="Executor home"
         >
-          <img src="/favicon.png" alt="" />
           <span>executor</span>
         </Link>
       }

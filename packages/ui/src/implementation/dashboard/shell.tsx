@@ -32,7 +32,7 @@ const navigationClass =
  * collapsed with a zero font size rather than removed; icons keep their own size.
  */
 const collapsedClass =
-  "[&_.wordmark]:justify-center [&_.wordmark]:px-0 [&_.wordmark_>_span]:hidden [&_nav_a]:justify-center [&_nav_a]:gap-0! [&_nav_a]:px-0! [&_nav_a]:h-9 [&_nav_a]:text-[0px]! [&_nav_a_>_span]:hidden [&_.sidebar-resource-links]:items-center [&_.sidebar-resource-links]:px-0 [&_.sidebar-resource-links_a]:w-full [&_.sidebar-resource-links_a]:justify-center [&_.sidebar-resource-links_a]:min-h-8 [&_.sidebar-resource-links_a_>_span]:hidden [&_.hosted-identity]:px-0 [&_.organization-trigger]:justify-center [&_.organization-trigger]:px-0 [&_.organization-name]:hidden [&_.organization-chevron]:hidden [&_.session-menu]:justify-center [&_.session-menu]:px-0 [&_.session-name]:hidden [&_.sidebar-version]:hidden";
+  "[&_.sidebar-header]:justify-center [&_.wordmark]:hidden [&_nav_a]:justify-center [&_nav_a]:gap-0! [&_nav_a]:px-0! [&_nav_a]:h-9 [&_nav_a]:text-[0px]! [&_nav_a_>_span]:hidden [&_.sidebar-resource-links]:items-center [&_.sidebar-resource-links]:px-0 [&_.sidebar-resource-links_a]:w-full [&_.sidebar-resource-links_a]:justify-center [&_.sidebar-resource-links_a]:min-h-8 [&_.sidebar-resource-links_a_>_span]:hidden [&_.hosted-identity]:px-0 [&_.organization-trigger]:justify-center [&_.organization-trigger]:px-0 [&_.organization-name]:hidden [&_.organization-chevron]:hidden [&_.session-menu]:justify-center [&_.session-menu]:px-0 [&_.session-name]:hidden [&_.sidebar-version]:hidden";
 
 function ResourceLinks() {
   return (
@@ -89,12 +89,10 @@ export function DashboardShell({
       <aside
         className={`sidebar flex flex-col border-r border-r-border py-0 px-[8px] min-h-0 overflow-y-auto overflow-x-hidden max-[740px]:hidden ${navigationClass} ${collapsed ? collapsedClass : ""}`}
       >
-        {brand}
-        <nav aria-label="Main navigation">{navigation}</nav>
-        <div className="sidebar-utilities mt-auto [padding:12px_0_16px] border-t border-t-border text-muted-foreground [&_a:hover]:text-foreground">
+        <div className="sidebar-header flex items-center gap-1 min-h-12 shrink-0">
           <button
             type="button"
-            className={`sidebar-collapse-toggle flex items-center gap-2 h-8 rounded-[6px] text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground ${collapsed ? "w-full justify-center px-0" : "w-full py-0 px-[10px]"}`}
+            className="sidebar-collapse-toggle flex items-center justify-center shrink-0 w-8.5 h-8.5 rounded-[6px] text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-expanded={!collapsed}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -103,12 +101,15 @@ export function DashboardShell({
             <HugeiconsIcon
               icon={SidebarLeft01Icon}
               strokeWidth={2}
-              size={14}
+              size={17}
               aria-hidden
               className={collapsed ? "rotate-180" : undefined}
             />
-            {!collapsed && <span>Collapse</span>}
           </button>
+          {brand}
+        </div>
+        <nav aria-label="Main navigation">{navigation}</nav>
+        <div className="sidebar-utilities mt-auto [padding:12px_0_16px] border-t border-t-border text-muted-foreground [&_a:hover]:text-foreground">
           <ResourceLinks />
           {footer}
         </div>
