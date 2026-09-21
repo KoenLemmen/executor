@@ -2,12 +2,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, FileSystem, Path, Redacted, Schema } from "effect";
+import { Effect, FileSystem, Option, Path, Redacted, Schema } from "effect";
 import { HostToolNotFound, HostOperationNotFound } from "apps/contracts";
 import { SourceFiles } from "../src/contracts/deployment.ts";
 import { nodeRuntime } from "@executor-js/sdk/node";
-import { toEffectRuntime } from "@executor-js/sdk/core";
+import { toEffectRuntime, RuntimeBuildFailed } from "@executor-js/sdk/core";
 import { memoryBlobStore } from "@executor-js/sdk/blobs";
+import * as Tar from "tar";
 
 const appSource = (
   imports: string,
@@ -27,6 +28,253 @@ const files = (content: string, dependencies?: Readonly<Record<string, string>>)
       ? []
       : [{ path: "package.json", content: JSON.stringify({ dependencies }) }]),
   ]);
+
+test("a retained Node app discovers and calls a real stdio MCP process", { timeout: 30_000 }, () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fs.makeTempDirectoryScoped();
+        const server = path.join(directory, "mcp-server.mjs");
+        yield* fs.writeFileString(
+          server,
+          `
+import { Server } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/index.js"))};
+import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};
+import { ListToolsRequestSchema, CallToolRequestSchema } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/types.js"))};
+const server = new Server({ name: "node-runtime-fixture", version: "1" }, { capabilities: { tools: {} } });
+server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{
+  name: "echo", description: "Return synthetic input", annotations: { readOnlyHint: true },
+  inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+}] }));
+server.setRequestHandler(CallToolRequestSchema, ({ params }) => ({
+  content: [{ type: "text", text: JSON.stringify(params.arguments) }],
+}));
+await server.connect(new StdioServerTransport());
+`,
+        );
+        const work = path.join(directory, "work");
+        const blobs = memoryBlobStore();
+        const runtime = toEffectRuntime(nodeRuntime({ workDirectory: work }), blobs);
+        const built = yield* runtime.build({
+          files: files(
+            `
+import { defineApp } from "apps";
+import { stdioOperations } from "apps/mcp/stdio";
+export default defineApp({ accounts: {} }, async () => ({
+  name: "Stdio fixture",
+  ...await stdioOperations({ command: ${JSON.stringify(process.execPath)}, args: [${JSON.stringify(server)}], env: {}, timeoutMs: 5000 }),
+}));
+`,
+            { "@modelcontextprotocol/sdk": "1.30.0" },
+          ),
+        });
+        assert.equal(yield* fs.exists(path.join(work, built.build, "bun.lock")), true);
+        assert.equal(
+          yield* fs.exists(path.join(work, built.build, "node_modules/.bun-cache")),
+          false,
+        );
+        yield* fs.remove(work, { recursive: true });
+        const restored = toEffectRuntime(
+          nodeRuntime({ workDirectory: path.join(directory, "restored") }),
+          blobs,
+        );
+        const context = { app: "stdio-fixture", build: built.build, accounts: Redacted.make({}) };
+        assert.deepEqual(
+          (yield* restored.inspect(context)).map((tool) => tool.name),
+          ["queries.echo"],
+        );
+        const result = yield* restored.call({
+          ...context,
+          tool: "queries.echo",
+          input: { text: "node adapter" },
+        });
+        const parsed = Schema.decodeUnknownSync(
+          Schema.Struct({ content: Schema.Array(Schema.Struct({ text: Schema.String })) }),
+        )(result);
+        assert.equal(parsed.content[0]?.text, JSON.stringify({ text: "node adapter" }));
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  ),
+);
+
+test(
+  "dependency scripts stay disabled and package data survives restoration",
+  { timeout: 30_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const directory = yield* fs.makeTempDirectoryScoped();
+          const fixture = path.join(directory, "package");
+          yield* fs.makeDirectory(fixture);
+          yield* fs.writeFileString(
+            path.join(fixture, "package.json"),
+            JSON.stringify({
+              name: "retained-data-fixture",
+              version: "1.0.0",
+              type: "module",
+              main: "index.js",
+              scripts: {
+                postinstall: "node -e \"require('node:fs').writeFileSync('script-ran', 'yes')\"",
+              },
+            }),
+          );
+          yield* fs.writeFileString(
+            path.join(fixture, "index.js"),
+            `import { existsSync, readFileSync } from "node:fs";
+export const result = {
+  data: readFileSync(new URL("./payload.d.ts", import.meta.url), "utf8"),
+  wasm: new WebAssembly.Module(readFileSync(new URL("./empty.wasm", import.meta.url))) instanceof WebAssembly.Module,
+  scriptRan: existsSync(new URL("./script-ran", import.meta.url)),
+};`,
+          );
+          yield* fs.writeFileString(path.join(fixture, "payload.d.ts"), "runtime data");
+          yield* fs.writeFile(
+            path.join(fixture, "empty.wasm"),
+            new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]),
+          );
+          const archive = path.join(directory, "fixture.tgz");
+          yield* Effect.tryPromise(() =>
+            Tar.create({ cwd: directory, file: archive, gzip: true }, ["package"]),
+          );
+          const work = path.join(directory, "work");
+          const blobs = memoryBlobStore();
+          const runtime = toEffectRuntime(nodeRuntime({ workDirectory: work }), blobs);
+          const built = yield* runtime.build({
+            files: files(
+              appSource(
+                'import { result } from "retained-data-fixture"',
+                '"Package data"',
+                "result",
+              ),
+              { "retained-data-fixture": `file:${archive}` },
+            ),
+          });
+          yield* fs.remove(work, { recursive: true });
+          const restored = toEffectRuntime(
+            nodeRuntime({ workDirectory: path.join(directory, "restored") }),
+            blobs,
+          );
+          assert.deepEqual(
+            yield* restored.call({
+              app: "data-fixture",
+              build: built.build,
+              accounts: Redacted.make({}),
+              tool: "mutations.info",
+              input: {},
+            }),
+            {
+              data: "runtime data",
+              wasm: true,
+              scriptRan: false,
+            },
+          );
+        }),
+      ).pipe(Effect.provide(NodeServices.layer)),
+    ),
+);
+
+test(
+  "Node builds honor locks, reject stale locks and keep dependency files independent",
+  { timeout: 30_000 },
+  () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const directory = yield* fs.makeTempDirectoryScoped();
+          const blobs = memoryBlobStore();
+          const runtime = toEffectRuntime(nodeRuntime({ workDirectory: directory }), blobs);
+          const content = appSource(
+            'import { version } from "graphql"',
+            '"Pinned version"',
+            "version",
+          );
+          const declared = files(content, { graphql: "^16.10.0" });
+          const npmLock = {
+            path: "package-lock.json",
+            content: JSON.stringify({
+              lockfileVersion: 3,
+              packages: {
+                "": { dependencies: { graphql: "^16.10.0" } },
+                "node_modules/graphql": {
+                  version: "16.10.0",
+                  resolved: "https://registry.npmjs.org/graphql/-/graphql-16.10.0.tgz",
+                  integrity:
+                    "sha512-AjqGKbDGUFRKIRCP9tCKiIGHyriz2oHEbPIbEtcSLSs4YjReZOIPQQWek4+6hjw62H9QShXHyaGivGiYVLeYFQ==",
+                },
+              },
+            }),
+          };
+          const first = yield* runtime.build({
+            files: Schema.decodeUnknownSync(SourceFiles)([...declared, npmLock]),
+          });
+          const bunLock = {
+            path: "bun.lock",
+            content: yield* fs.readFileString(path.join(directory, first.build, "bun.lock")),
+          };
+          const second = yield* runtime.build({
+            files: Schema.decodeUnknownSync(SourceFiles)([...declared, bunLock]),
+          });
+          for (const built of [first, second]) {
+            const stats = yield* fs.stat(
+              path.join(directory, built.build, "node_modules/graphql/version.js"),
+            );
+            assert.equal(
+              Option.getOrThrow(stats.nlink),
+              1,
+              "app files must not share writable cache inodes",
+            );
+            yield* fs.remove(path.join(directory, built.build), { recursive: true });
+            const restored = toEffectRuntime(
+              nodeRuntime({ workDirectory: path.join(directory, "restored") }),
+              blobs,
+            );
+            assert.equal(
+              yield* restored.call({
+                app: "lock-fixture",
+                build: built.build,
+                accounts: Redacted.make({}),
+                tool: "mutations.info",
+                input: {},
+              }),
+              "16.10.0",
+            );
+          }
+          for (const lock of [npmLock, bunLock]) {
+            for (const dependencies of [{ graphql: "15.8.0" }, {}]) {
+              const rejected = yield* runtime
+                .build({
+                  files: Schema.decodeUnknownSync(SourceFiles)([
+                    ...files(content, dependencies),
+                    lock,
+                  ]),
+                })
+                .pipe(Effect.flip);
+              assert.ok(Schema.is(RuntimeBuildFailed)(rejected));
+              assert.equal(rejected.stage, "dependencies");
+            }
+          }
+          const aliased = yield* runtime
+            .build({
+              files: files(appSource("", '"Fixture"'), { "framework-copy": "npm:effect@3.0.0" }),
+            })
+            .pipe(Effect.flip);
+          assert.ok(Schema.is(RuntimeBuildFailed)(aliased));
+          assert.equal(aliased.stage, "dependencies");
+          assert.deepEqual((yield* fs.readDirectory(directory)).sort(), [
+            ".dependencies",
+            "restored",
+          ]);
+        }),
+      ).pipe(Effect.provide(NodeServices.layer)),
+    ),
+);
 
 for (const fixture of [
   { name: "root", imports: "", description: '"Root"', dependencies: {} },
@@ -61,6 +309,11 @@ for (const fixture of [
               files: files(appSource(fixture.imports, fixture.description), fixture.dependencies),
             });
             const code = yield* fs.readFileString(path.join(directory, built.build, "app.mjs"));
+            assert.equal(
+              yield* fs.exists(path.join(directory, built.build, "node_modules/.bun-cache")),
+              false,
+              "package caches must not be retained inside each app",
+            );
             assert.doesNotMatch(code, /graphql/);
             if (fixture.name !== "stdio MCP")
               assert.doesNotMatch(code, /StdioClientTransport|client\/stdio/);

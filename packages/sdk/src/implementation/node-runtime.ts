@@ -2,7 +2,7 @@
 import { build as compile } from "esbuild";
 import { captureTelemetry, traceHeaders } from "@executor-js/telemetry";
 import { Crypto, Effect, FileSystem, Path, Redacted, Schema } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import type { ChildProcessSpawner } from "effect/unstable/process";
 import {
   HostRequirementsError,
   HostInspectError,
@@ -25,6 +25,7 @@ import { BuildId, Json } from "../contracts/shared.ts";
 import { buildUi } from "./node-ui.ts";
 import { BlobStore } from "../contracts/blobs.ts";
 import { materializeNodeBuild, nodeBuildAsset, retainNodeBuild } from "./node-builds.ts";
+import { hostPackages, installNodeDependencies } from "./node-dependencies.ts";
 import type { NodeRuntimeOptions } from "../node.ts";
 
 type Handler = (request: Request, context: HostContext) => Promise<Response>;
@@ -42,9 +43,6 @@ const HostedModule = Schema.Struct({
 const Package = Schema.Struct({
   dependencies: Schema.optional(Schema.Record(Schema.NonEmptyString, Schema.NonEmptyString)),
 });
-const PackageLock = Schema.Struct({
-  packages: Schema.Record(Schema.String, Schema.Struct({ name: Schema.optional(Schema.String) })),
-});
 const FrameworkPackage = Schema.Struct({
   peerDependencies: Schema.Record(Schema.String, Schema.String),
   peerDependenciesMeta: Schema.Record(
@@ -57,7 +55,6 @@ const packageName = (specifier: string) =>
     .split("/")
     .slice(0, specifier.startsWith("@") ? 2 : 1)
     .join("/");
-const hostPackages = ["apps", "effect", "@effect/platform-node", "@executor-js/sdk"];
 
 function attempt<A, E>(work: (signal: AbortSignal) => Promise<A>, error: E) {
   return Effect.tryPromise({ try: work, catch: () => error });
@@ -102,30 +99,6 @@ function dispatch<A, E>(
     return yield* Schema.decodeUnknownEffect(value)(envelope.value).pipe(
       Effect.mapError(() => new RuntimeProtocolFailed()),
     );
-  });
-}
-
-function install(directory: string) {
-  return Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    // exitCode owns the process scope, including termination on interruption.
-    const code = yield* spawner
-      .exitCode(
-        ChildProcess.make(
-          "npm",
-          [
-            "install",
-            "--ignore-scripts",
-            "--omit=dev",
-            "--no-audit",
-            "--no-fund",
-            "--package-lock=true",
-          ],
-          { cwd: directory, stdin: "ignore", stdout: "ignore", stderr: "ignore" },
-        ),
-      )
-      .pipe(Effect.mapError(() => new RuntimeBuildFailed({ stage: "dependencies" })));
-    if (code !== 0) return yield* Effect.fail(new RuntimeBuildFailed({ stage: "dependencies" }));
   });
 }
 
@@ -200,25 +173,15 @@ export const nodeRuntime = (options: NodeRuntimeOptions): Runtime<NodeRuntimeSer
               JSON.stringify({ private: true, type: "module", dependencies }),
             )
             .pipe(Effect.mapError(() => new RuntimeBuildFailed({ stage: "dependencies" })));
-          if (Object.keys(dependencies).length > 0) {
-            yield* install(staging).pipe(Effect.withSpan("runtime.node.dependencies"));
-            const lock = yield* fs.readFileString(path.join(staging, "package-lock.json")).pipe(
-              Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(PackageLock))),
-              Effect.mapError(() => new RuntimeBuildFailed({ stage: "dependencies" })),
-            );
-            // External packages execute through the native loader. Reject a second
-            // framework/Effect tree rather than allow incompatible runtime instances.
-            if (
-              Object.entries(lock.packages).some(([location, entry]) =>
-                hostPackages.some(
-                  (name) =>
-                    location === `node_modules/${name}` ||
-                    location.endsWith(`/node_modules/${name}`) ||
-                    entry.name === name,
-                ),
-              )
-            )
-              return yield* Effect.fail(new RuntimeBuildFailed({ stage: "dependencies" }));
+          if (
+            Object.keys(dependencies).length > 0 ||
+            source.some((file) => file.path === "bun.lock" || file.path === "package-lock.json")
+          ) {
+            yield* installNodeDependencies(
+              staging,
+              path.join(directory, ".dependencies"),
+              source,
+            ).pipe(Effect.withSpan("runtime.node.dependencies"));
           }
           yield* fs
             .writeFileString(

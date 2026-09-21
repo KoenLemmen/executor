@@ -1,6 +1,9 @@
 /** Retention is host-owned blob storage; Node directories are disposable materializations. */
 import * as Tar from "tar";
-import { Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Effect, FileSystem, Option, Path, Schema, Stream } from "effect";
+import * as NodeStream from "@effect/platform-node/NodeStream";
+import { createGzip } from "node:zlib";
+import { Readable } from "node:stream";
 import { BlobKey, BlobStore } from "../contracts/blobs.ts";
 import { BuiltApp, RuntimeBuildFailed, RuntimeBuildUnavailable } from "../contracts/runtime.ts";
 import { BuildId } from "../contracts/shared.ts";
@@ -37,10 +40,26 @@ export const retainNodeBuild = (directory: string, manifest: BuiltApp) =>
       const names = (yield* fs.readDirectory(directory)).filter(
         (name) => name !== "server.tgz" && name !== ".executor-ready" && !name.startsWith(".blob-"),
       );
-      // tar's file API has no abort signal. Finish its local I/O before scoped cleanup.
-      yield* Effect.tryPromise(() =>
-        Tar.create({ cwd: directory, file, gzip: true, portable: true, strict: true }, names),
-      ).pipe(Effect.withSpan("runtime.node.archive"), Effect.uninterruptible);
+      // tar's built-in gzip runs synchronously on the server thread. Node's gzip
+      // stream uses the worker pool; level 1 favors request latency over archive size.
+      yield* NodeStream.fromReadable({
+        evaluate: () =>
+          Readable.from(Tar.create({ cwd: directory, portable: true, strict: true }, names), {
+            objectMode: false,
+            highWaterMark: 64 * 1024,
+          }),
+        // Batch small tar headers/files before crossing into the asynchronous codec.
+        chunkSize: 64 * 1024,
+        onError: () => new RuntimeBuildFailed({ stage: "retain" }),
+      }).pipe(
+        NodeStream.pipeThroughDuplex({
+          evaluate: () => createGzip({ level: 1 }),
+          onError: () => new RuntimeBuildFailed({ stage: "retain" }),
+        }),
+        Stream.run(fs.sink(file)),
+        Effect.withSpan("runtime.node.archive"),
+        Effect.uninterruptible,
+      );
       yield* blobs.put(yield* key(manifest.build, "server.tgz"), yield* fs.readFile(file));
       yield* Effect.forEach(
         manifest.ui ?? [],
