@@ -10,7 +10,7 @@ import { retain } from "alchemy/RemovalPolicy";
 import { Config, Effect, FileSystem, Option, Path, Redacted, Schema } from "effect";
 import { developmentDatabase } from "./development.ts";
 import { LogicalDatabase } from "./logical-database.ts";
-import { testStage } from "./stage.ts";
+import { cloudOrigin, testStage } from "./stage.ts";
 import { testStageConnectionLimit } from "../contracts/test-stage-capacity.ts";
 
 /**
@@ -162,9 +162,21 @@ export const DatabaseConnection = Effect.gen(function* () {
         database,
         inheritedRoles: ["pg_read_all_data", "pg_write_all_data"],
       });
+      // Production schema migrations remain an explicit admin operation. This job
+      // only inserts missing auth configuration using the runtime role's DML rights.
+      const resources = yield* Command.Exec("AuthResources", {
+        command: "node src/provision-auth.ts",
+        env: {
+          DATABASE_URL: role.origin.pipe(Output.map((origin) => roleUrl(origin, origin.database))),
+          BETTER_AUTH_URL: yield* cloudOrigin,
+          BETTER_AUTH_SECRET: yield* Config.Redacted("BETTER_AUTH_SECRET"),
+        },
+        memo: false,
+        timeout: "2 minutes",
+      });
       const authority = yield* certificateAuthority;
       return {
-        origin: role.origin,
+        origin: Output.all(role.origin, resources.hash).pipe(Output.map(([origin]) => origin)),
         ...pooling,
         caching: { disabled: true },
         mtls: { sslmode: "verify-full" as const, caCertificateId: authority.mtlsCertificateId },

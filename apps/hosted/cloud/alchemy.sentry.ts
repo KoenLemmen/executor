@@ -1,11 +1,10 @@
 /** Persistent error-monitoring projects. The app consumes public DSNs from this stack. */
 import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { Random, RandomProvider } from "alchemy/Random";
 import * as Output from "alchemy/Output";
 import { retain } from "alchemy/RemovalPolicy";
 import { Stage } from "alchemy/Stage";
-import { Config, Effect, Layer, Option, Redacted } from "effect";
+import { Config, Effect, Layer, Redacted } from "effect";
 import {
   SentryProject,
   SentryClientKey,
@@ -15,7 +14,6 @@ import {
 } from "./src/infrastructure/sentry-provider.ts";
 import { SentryErrorAlert, sentryErrorAlertProvider } from "./src/infrastructure/sentry-alert.ts";
 import { stackState } from "./src/infrastructure/state.ts";
-import { testStage } from "./src/infrastructure/stage.ts";
 
 export default Alchemy.Stack(
   "executor-next-sentry",

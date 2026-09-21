@@ -26,6 +26,11 @@ const cloudOnboarding = {
 
 /** Scenario names and applicability used by both test declarations and test selection. */
 export const scenarios = {
+  oauthProvisioning: {
+    file: "oauth-provisioning.spec.ts",
+    title: "OAuth resources are provisioned before client registration",
+    targets: { local: scheduled, "self-host": scheduled, cloud: scheduled },
+  },
   lastOrganization: {
     file: "last-organization.spec.ts",
     title: "Last active organization survives entry and rename while stale destinations recover",

@@ -6,6 +6,7 @@ import { HostedAppSessions, hostedAppSessions } from "@executor-js/hosted-server
 import {
   McpAuthentication,
   mcpAuthenticationError,
+  provisionHostedOAuthResources,
   ApiAuthentication,
   apiAuthenticationError,
   Authentication,
@@ -37,6 +38,9 @@ export const selfHostAuth = Effect.gen(function* () {
     try: () => auth.$context,
     catch: () => new AuthenticationUnavailable(),
   });
+  yield* provisionHostedOAuthResources(settings.url, context).pipe(
+    Effect.mapError(() => new AuthenticationUnavailable()),
+  );
   const identity = Layer.succeed(Authentication, {
     origin: settings.url,
     apiKey: (headers) => {

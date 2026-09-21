@@ -42,7 +42,11 @@ export type { HostedAccountConnection } from "./contracts/accounts.ts";
 export { hostedMcpBackend } from "./implementation/mcp.ts";
 
 export * from "./contracts/mcp.ts";
-export { mcpAuthenticationError, apiAuthenticationError } from "./implementation/mcp-oauth.ts";
+export {
+  mcpAuthenticationError,
+  apiAuthenticationError,
+  provisionHostedOAuthResources,
+} from "./implementation/mcp-oauth.ts";
 export {
   makeHostedMcp,
   mcpSessionKey,

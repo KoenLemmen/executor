@@ -6,7 +6,7 @@ import * as Axiom from "alchemy/Axiom";
 import * as Planetscale from "alchemy/Planetscale";
 import * as Docker from "alchemy/Docker";
 import { AlchemyContext } from "alchemy/AlchemyContext";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer } from "effect";
 import AppPages from "./src/app-ui.ts";
 import { cloudAppUiBase } from "./src/contracts/app-ui.ts";
 import ApiLive, { Api } from "./src/main.ts";
@@ -17,7 +17,6 @@ import { developmentWeb } from "./src/infrastructure/development.ts";
 import { authEmailInfrastructure } from "./src/infrastructure/email.ts";
 import { uploadCloudSourceMaps } from "./src/infrastructure/sentry.ts";
 import { stackState } from "./src/infrastructure/state.ts";
-import { testStage } from "./src/infrastructure/stage.ts";
 
 export default Alchemy.Stack(
   "executor-next-hosted",

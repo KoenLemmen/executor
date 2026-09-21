@@ -1,11 +1,9 @@
 /** Persistent V2 billing catalog. Autumn creates and owns the matching Stripe prices. */
 import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { stackState } from "./src/infrastructure/state.ts";
-import { testStage } from "./src/infrastructure/stage.ts";
 import { retain } from "alchemy/RemovalPolicy";
 import { Stage } from "alchemy/Stage";
-import { Config, Effect, Layer, Option } from "effect";
+import { Config, Effect } from "effect";
 import {
   AutumnFeature,
   AutumnPlan,

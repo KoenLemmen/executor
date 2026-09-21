@@ -1,0 +1,24 @@
+diff --git a/src/PgConnection.ts b/src/PgConnection.ts
+--- a/src/PgConnection.ts
++++ b/src/PgConnection.ts
+@@ -269,7 +269,7 @@
+     Effect.acquireRelease(
+       Effect.gen(function*() {
+         const password = yield* PasswordInternal.resolve(config.password)
+-        const session = yield* connect(config, password)
++        const session = yield* connect(config, password).pipe(Effect.withSpan("sql.connect", { kind: "client" }))
+         return new PgConnectionImpl(options, config, session, options.types)
+       }),
+       (connection) => Effect.sync(() => connection.closeUnsafe()),
+diff --git a/dist/PgConnection.js b/dist/PgConnection.js
+--- a/dist/PgConnection.js
++++ b/dist/PgConnection.js
+@@ -63,7 +63,7 @@
+  */
+ export const make = options => Effect.flatMap(resolveConfig(options), config => Effect.acquireRelease(Effect.gen(function* () {
+   const password = yield* PasswordInternal.resolve(config.password);
+-  const session = yield* connect(config, password);
++  const session = yield* connect(config, password).pipe(Effect.withSpan("sql.connect", { kind: "client" }));
+   return new PgConnectionImpl(options, config, session, options.types);
+ }), connection => Effect.sync(() => connection.closeUnsafe()), {
+   interruptible: true

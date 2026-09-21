@@ -1,11 +1,10 @@
 /** Persistent analytics resources. Deploy before the hosted application in the same stage. */
 import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { Random, RandomProvider } from "alchemy/Random";
 import * as Output from "alchemy/Output";
 import { retain } from "alchemy/RemovalPolicy";
 import { Stage } from "alchemy/Stage";
-import { Config, Effect, Layer, Option, Redacted } from "effect";
+import { Config, Effect, Layer, Redacted } from "effect";
 import {
   PostHogProject,
   postHogProjectProvider,
@@ -17,7 +16,7 @@ import {
   postHogReportProviders,
 } from "./src/infrastructure/posthog-reports.ts";
 import { stackState } from "./src/infrastructure/state.ts";
-import { cloudOrigin, testStage } from "./src/infrastructure/stage.ts";
+import { cloudOrigin } from "./src/infrastructure/stage.ts";
 
 export default Alchemy.Stack(
   "executor-next-posthog",

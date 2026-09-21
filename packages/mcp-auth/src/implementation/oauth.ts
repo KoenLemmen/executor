@@ -3,8 +3,10 @@ import type { BetterAuthPlugin, GenericEndpointContext } from "@better-auth/core
 import { defineRequestState } from "@better-auth/core/context";
 import {
   oauthProvider,
+  seedOAuthResources,
   getOAuthProviderApi,
   type OAuthOptions,
+  type OAuthResourceSeedContext,
   type Scope,
 } from "@better-auth/oauth-provider";
 import {
@@ -22,7 +24,10 @@ import {
   GrantTarget,
   grantTarget,
   mcpResource,
+  OAuthResourceProvisioningFailed,
 } from "../contracts/grant.ts";
+
+export type { OAuthResourceSeedContext } from "@better-auth/oauth-provider";
 
 const Record = Schema.Struct({
   id: GrantId,
@@ -103,6 +108,7 @@ export const grantOAuthPlugins = (settings: GrantOAuthOptions) => {
   const options = {
     scopes: settings.scopes,
     resources: settings.resources,
+    resourceSeedMode: "manual",
     clientRegistrationDefaultResources: settings.resources.map((resource) =>
       typeof resource === "string" ? resource : resource.identifier,
     ),
@@ -503,6 +509,12 @@ export const grantOAuthPlugins = (settings: GrantOAuthOptions) => {
   } satisfies BetterAuthPlugin;
   return {
     plugins: [oauthProvider(options), plugin] as const,
+    /** Insert missing resources once during host setup; never overwrite persisted policy. */
+    provisionResources: (context: OAuthResourceSeedContext) =>
+      Effect.tryPromise({
+        try: () => seedOAuthResources(context, options),
+        catch: () => new OAuthResourceProvisioningFailed(),
+      }),
     authenticate: access,
     lookupBrowser,
   };

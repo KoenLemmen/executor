@@ -38,7 +38,8 @@ const program = Effect.gen(function* () {
     );
 
   const fqns = yield* local.list(target);
-  if (fqns.length === 0) return yield* Effect.fail(new Error(`${stack}/${stage} has no local state`));
+  if (fqns.length === 0)
+    return yield* Effect.fail(new Error(`${stack}/${stage} has no local state`));
 
   for (const fqn of fqns) {
     const value = yield* local.get({ ...target, fqn });

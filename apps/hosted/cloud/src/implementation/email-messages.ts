@@ -11,18 +11,15 @@ const purposes = {
   },
   "email-verification": {
     heading: "Verify your email address",
-    instruction:
-      "Copy and paste this code into Executor to verify your email address.",
+    instruction: "Copy and paste this code into Executor to verify your email address.",
   },
   "forget-password": {
     heading: "Your password reset code",
-    instruction:
-      "Copy and paste this code into Executor to reset your password.",
+    instruction: "Copy and paste this code into Executor to reset your password.",
   },
   "change-email": {
     heading: "Confirm your new email address",
-    instruction:
-      "Copy and paste this code into Executor to confirm your new email address.",
+    instruction: "Copy and paste this code into Executor to confirm your new email address.",
   },
 };
 
@@ -49,8 +46,7 @@ export const welcomeEmailMessage = (
   origin: string,
 ): AuthEmail => {
   const firstName = name.trim().split(/\s+/)[0];
-  const greeting =
-    firstName && !firstName.includes("@") ? `hey ${firstName},` : "hey there,";
+  const greeting = firstName && !firstName.includes("@") ? `hey ${firstName},` : "hey there,";
   const starterPrompt = `add the executor mcp server at ${origin}/mcp, then read the executor docs at ${docsUrl} and work out how you can best use executor to help me.`;
   const paragraphs = [
     greeting,
@@ -60,8 +56,7 @@ export const welcomeEmailMessage = (
     `"${starterPrompt}"`,
     "if you get stuck or have questions, just reply. this was an automated email but replies go straight to me, and i'd love to hear what you're using executor for.",
   ];
-  const unsubscribeLead =
-    "and if you'd rather not get these at all, the unsubscribe link is";
+  const unsubscribeLead = "and if you'd rather not get these at all, the unsubscribe link is";
   const unsubscribeUrl = Redacted.value(links.browser);
   return {
     to: email,
@@ -91,14 +86,10 @@ export const emailCodeMessage = ({
 }): AuthEmail => {
   const { heading, instruction } = purposes[type];
   const expiry = `This code expires in ${emailCodeExpiresIn / 60} minutes. Never share this code with anyone.`;
-  const unsolicited =
-    "If you didn't request this, you can safely ignore this email.";
+  const unsolicited = "If you didn't request this, you can safely ignore this email.";
   return {
     to: email,
-    subject:
-      type === "sign-in"
-        ? "Your Executor sign-in code"
-        : `Executor: ${heading}`,
+    subject: type === "sign-in" ? "Your Executor sign-in code" : `Executor: ${heading}`,
     text: Redacted.make(
       `Executor\n\n${heading}\n\n${instruction}\n\n${otp}\n\n${expiry}\n\n${unsolicited}`,
     ),

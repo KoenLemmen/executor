@@ -10,6 +10,7 @@ import {
   authCall,
   runAuth,
   type GrantAccess,
+  type OAuthResourceSeedContext,
 } from "@executor-js/mcp-auth/oauth";
 import { AuthenticationUnavailable, Unauthorized } from "../contracts/auth.ts";
 import { McpAccess, McpForbidden, McpUnauthorized } from "../contracts/mcp.ts";
@@ -57,9 +58,8 @@ const membership = (
     ),
   );
 
-/** A consent binds a new grant to the selected organization; refresh retains its identity. */
-export const mcpOAuthPlugins = (origin: string) => {
-  const oauth = grantOAuthPlugins({
+const hostedGrantOAuth = (origin: string) =>
+  grantOAuthPlugins({
     origin,
     scopes: ["mcp", "executor", "offline_access"],
     resources: [
@@ -81,6 +81,14 @@ export const mcpOAuthPlugins = (origin: string) => {
         Effect.asVoid,
       ),
   });
+
+/** Provision the host's fixed resources before serving OAuth requests. */
+export const provisionHostedOAuthResources = (origin: string, context: OAuthResourceSeedContext) =>
+  hostedGrantOAuth(origin).provisionResources(context);
+
+/** A consent binds a new grant to the selected organization; refresh retains its identity. */
+export const mcpOAuthPlugins = (origin: string) => {
+  const oauth = hostedGrantOAuth(origin);
   const projectAccess = (ctx: GenericEndpointContext, grant: GrantAccess) =>
     Effect.gen(function* () {
       const organization = yield* Schema.decodeUnknownEffect(OrganizationId)(grant.resource).pipe(

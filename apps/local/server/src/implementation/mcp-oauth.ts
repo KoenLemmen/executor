@@ -98,6 +98,9 @@ export const makeLocalMcpOAuth = (config: ServerConfig, pairing: LocalAuth, cryp
       try: () => auth.$context,
       catch: () => new LocalMcpAuthUnavailable(),
     });
+    yield* oauth
+      .provisionResources(context)
+      .pipe(Effect.mapError(() => new LocalMcpAuthUnavailable()));
     const user = yield* Effect.tryPromise({
       try: async () => {
         const found = await context.internalAdapter.findUserByEmail("operator@executor.local");

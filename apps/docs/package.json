@@ -16,6 +16,9 @@
     "blume": "1.7.3",
     "cookie": "^2.0.1"
   },
+  "devDependencies": {
+    "astro": "7.3.3"
+  },
   "engines": {
     "node": ">=22.12.0"
   }

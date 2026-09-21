@@ -37,6 +37,12 @@ export type Grant = typeof Grant.Type;
 /** A current grant does not authorize this operation. No private resource details are exposed. */
 export class GrantForbidden extends Schema.TaggedError<GrantForbidden>()("GrantForbidden", {}) {}
 
+/** OAuth resources must be provisioned before this host accepts requests. */
+export class OAuthResourceProvisioningFailed extends Schema.TaggedError<OAuthResourceProvisioningFailed>()(
+  "OAuthResourceProvisioningFailed",
+  {},
+) {}
+
 /** App visibility follows the grant; application identity never implies extra privileges. */
 export const permitsApp = (policy: GrantPolicy, app: AppId) =>
   Match.value(policy).pipe(

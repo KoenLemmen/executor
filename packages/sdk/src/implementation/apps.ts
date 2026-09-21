@@ -86,6 +86,7 @@ export const storedDeployment = (
   });
 
 const StoredDeploymentRequirements = Schema.Struct({ requirements: AppRequirements });
+const AppProjection = Schema.Struct({ app: StoredApp, deployment: StoredDeploymentRequirements });
 const DeploymentMetadata = Schema.Struct({
   id: DeploymentId,
   code: AppCodeId,
@@ -308,6 +309,9 @@ export const makeApps = (db: Query, runtime: Runtime, crypto: Crypto.Crypto) => 
       Effect.gen(function* () {
         const rows = yield* query(() =>
           tx.findMany("apps", {
+            // The existing composite relation checks both deployment ID and code
+            // lineage in one read, without loading retained source files.
+            join: (b) => b.deployment({ select: ["requirements"] }),
             where: (b) =>
               b.and(
                 input.owner === undefined ? true : b("owner", "=", input.owner),
@@ -319,10 +323,13 @@ export const makeApps = (db: Query, runtime: Runtime, crypto: Crypto.Crypto) => 
             orderBy: ["id", "asc"],
           }),
         );
-        const stored = yield* Schema.decodeUnknownEffect(Schema.Array(StoredApp))(rows).pipe(
-          Effect.mapError(() => new StorageError()),
-        );
-        return yield* Effect.forEach(stored, (app) => project(tx, app));
+        const stored = yield* Schema.decodeUnknownEffect(Schema.Array(AppProjection))(
+          rows.map(({ deployment, ...app }) => ({ app, deployment })),
+        ).pipe(Effect.mapError(() => new StorageError()));
+        return stored.map(({ app, deployment }): App => ({
+          ...app,
+          requirements: deployment.requirements,
+        }));
       }),
     ).pipe(Effect.withSpan("sdk.apps.list")),
   rename: (input: Parameters<Executor["apps"]["rename"]>[0]) =>

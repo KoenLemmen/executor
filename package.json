@@ -114,6 +114,7 @@
   "patchedDependencies": {
     "@cfworker/json-schema@4.1.1": "patches/@cfworker%2Fjson-schema@4.1.1.patch",
     "@better-auth/oauth-provider@1.7.5": "patches/@better-auth%2Foauth-provider@1.7.5.patch",
-    "alchemy@2.0.0-beta.79": "patches/alchemy@2.0.0-beta.79.patch"
+    "alchemy@2.0.0-beta.79": "patches/alchemy@2.0.0-beta.79.patch",
+    "@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@c7d1ffff31a3e2ae0b0b0796b742bddeb797269d": "patches/@effect%2Fsql-pg@c7d1ffff.patch"
   }
 }

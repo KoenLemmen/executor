@@ -1,15 +1,12 @@
-import { cloudAuthOptions, cloudAuthSettings } from "./auth-options.ts";
 /** The same explicit Postgres migration operation is used locally and in deployment jobs. */
 import { PgClient } from "@effect/sql-pg";
-import { Pool } from "pg";
-import { databaseUrl } from "@executor-js/hosted-server/database";
 import {
   HostedMigrationFailed,
   migrateHostedDatabase,
 } from "@executor-js/hosted-server/migrations";
-import { Config, Effect, Redacted } from "effect";
+import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { unavailableAuthEmail } from "../contracts/email.ts";
+import { cloudAuthSetup } from "./auth-provisioning.ts";
 
 /** Additive cloud tables; existing organizations and memberships are never changed. */
 export const migrateOnboarding = Effect.gen(function* () {
@@ -93,25 +90,13 @@ export const migrateWelcomeEmails = Effect.gen(function* () {
 /** Apply Better Auth and product migrations, then close both database pools. */
 export const migrateCloudDatabase = Effect.scoped(
   Effect.gen(function* () {
-    const url = yield* databaseUrl;
-    const settings = yield* cloudAuthSettings;
-    const secret = yield* Config.Redacted("BETTER_AUTH_SECRET");
-    const database = yield* Effect.acquireRelease(
-      Effect.try({
-        try: () => new Pool({ connectionString: Redacted.value(url), max: 2 }),
-        catch: () => new HostedMigrationFailed({ stage: "auth" }),
-      }),
-      (pool) => Effect.promise(() => pool.end()),
-    );
-    yield* migrateHostedDatabase({
-      ...cloudAuthOptions(settings, [], unavailableAuthEmail),
-      database,
-      secret: Redacted.value(secret),
-    }).pipe(
+    const setup = yield* cloudAuthSetup;
+    yield* migrateHostedDatabase(setup.options).pipe(
       Effect.andThen(migrateOnboarding),
       Effect.andThen(migrateWelcomeEmails),
-      Effect.provide(PgClient.layer({ url, maxConnections: 1 })),
+      Effect.provide(PgClient.layer({ url: setup.url, maxConnections: 1 })),
     );
+    yield* setup.provision;
     yield* Effect.log("Hosted Postgres schemas are current");
   }),
 );
