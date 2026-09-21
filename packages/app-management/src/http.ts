@@ -120,7 +120,16 @@ export const appManagementHandlers = <I extends HttpApiMiddleware.AnyId, S, Id e
             namespace: identity.namespace,
             gitPath: `/git/${encodeURIComponent(identity.scope)}/${app.slug}.git`,
             canEdit,
-            canPublish: canEdit && host.publisher !== undefined && identity.namespace !== null,
+            publication:
+              canEdit && host.publisher !== undefined && identity.namespace !== null
+                ? yield* host.publisher.preview({
+                    owner: identity.owner,
+                    namespace: identity.namespace,
+                    app: app.id,
+                    name: app.name,
+                    files: source.files,
+                  })
+                : null,
           };
         }),
       )

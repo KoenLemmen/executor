@@ -1,5 +1,9 @@
 /** App use cases and routes. Hosts supply an SDK; they do not enumerate these operations. */
-import { generateCustomApp, type RemoteCustomAppInput } from "@executor-js/catalog";
+import {
+  CatalogImportFailed,
+  generateCustomApp,
+  type RemoteCustomAppInput,
+} from "@executor-js/catalog";
 import {
   type AppId,
   type DeploymentId,
@@ -7,6 +11,8 @@ import {
   type SelectedAccounts,
 } from "@executor-js/sdk/core";
 import { Effect } from "effect";
+import { scopeGeneratedPackage } from "@executor-js/app-registry";
+import { CurrentOrganizationNamespace } from "../contracts/organization.ts";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HostedApi } from "../contracts/api.ts";
 import type { DeployApp, InstallApp } from "../contracts/apps.ts";
@@ -19,14 +25,32 @@ export const installApp = (owner: OwnerId, input: typeof InstallApp.Type) =>
   Effect.gen(function* () {
     const executor = yield* Effect.flatten(HostedExecutor);
     const catalog = yield* HostedCatalog;
-    const { files } = yield* catalog.prepare(input);
+    const generated = yield* catalog.prepare(input);
+    const namespace = yield* Effect.flatten(CurrentOrganizationNamespace);
+    const files = yield* scopeGeneratedPackage(generated.files, namespace, input.name).pipe(
+      Effect.mapError(
+        () =>
+          new CatalogImportFailed({
+            reason: "The app package could not be named for this organization.",
+          }),
+      ),
+    );
     return (yield* executor.apps.deploy({ owner, name: input.name, files })).app;
   });
 /** Generate remote protocol source and create an organization app without replacing a name. */
 export const importCustomApp = (owner: OwnerId, input: RemoteCustomAppInput) =>
   Effect.gen(function* () {
     const executor = yield* Effect.flatten(HostedExecutor);
-    const { files } = yield* generateCustomApp(input);
+    const generated = yield* generateCustomApp(input);
+    const namespace = yield* Effect.flatten(CurrentOrganizationNamespace);
+    const files = yield* scopeGeneratedPackage(generated.files, namespace, input.name).pipe(
+      Effect.mapError(
+        () =>
+          new CatalogImportFailed({
+            reason: "The app package could not be named for this organization.",
+          }),
+      ),
+    );
     return (yield* executor.apps.deploy({ owner, name: input.name, files })).app;
   });
 /** Direct source deployment uses the same create-only operation as a catalog install. */

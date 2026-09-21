@@ -26,6 +26,17 @@ const cloudOnboarding = {
 
 /** Scenario names and applicability used by both test declarations and test selection. */
 export const scenarios = {
+  publishingDialog: {
+    file: "publishing-dialog.spec.ts",
+    title: "Publishing dialog explains readiness and keeps copied listings separate",
+    targets: {
+      "self-host": scheduled,
+      cloud: na(
+        "The shared dialog is checked with response fixtures on self-host; registry authorization has separate integration coverage.",
+      ),
+      local: na("Local does not publish apps."),
+    },
+  },
   appPackageMetadata: {
     file: "app-package-metadata.spec.ts",
     title: "App templates retain package names independently of installed labels",

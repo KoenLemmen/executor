@@ -61,19 +61,19 @@ layer(HostedLive, { excludeTestServices: true })("App package metadata", (it) =>
           {
             kind: "mcp",
             name: `MCP Notes ${suffix}`,
-            package: `mcp-notes-${suffix}`,
+            package: `@${actors.organization.slug}/mcp-notes-${suffix}`,
             dependencies: { "@modelcontextprotocol/sdk": "1.30.0" },
           },
           {
             kind: "graphql",
             name: `@fixture/graphql-${suffix}`,
-            package: `@fixture/graphql-${suffix}`,
+            package: `@${actors.organization.slug}/graphql-${suffix}`,
             dependencies: { graphql: "16.11.0" },
           },
           {
             kind: "openapi",
             name: `OpenAPI Calendar ${suffix}`,
-            package: `openapi-calendar-${suffix}`,
+            package: `@${actors.organization.slug}/openapi-calendar-${suffix}`,
             dependencies: {},
           },
         ] as const) {

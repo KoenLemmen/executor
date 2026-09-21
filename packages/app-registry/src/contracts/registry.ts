@@ -1,6 +1,6 @@
 /** Public app listings identify a chosen Git revision, without package versions or dependency resolution. */
 import { Schema, type Effect } from "effect";
-import { SourceCommit, SourceFiles } from "@executor-js/sdk/core";
+import { appSlug, SourceCommit, SourceFiles } from "@executor-js/sdk/core";
 
 /** Public name inside a publishing owner's namespace. */
 export const PackageName = Schema.String.check(
@@ -16,6 +16,40 @@ export const PackageManifest = Schema.Struct({
     }),
   ),
 });
+/** Derive a public name from an authenticated publishing namespace and an app label. */
+export const publicPackageName = (namespace: string, name: string) => {
+  const label = Schema.is(PackageName)(name) ? name.slice(name.indexOf("/") + 1) : name;
+  return Schema.decodeUnknownOption(PackageName)(`@${namespace}/${appSlug(label)}`);
+};
+
+/** A source or ownership issue that the author can repair before publishing. */
+export class PublicationIssue extends Schema.TaggedError<PublicationIssue>()("PublicationIssue", {
+  reason: Schema.Literals([
+    "missing-manifest",
+    "invalid-json",
+    "missing-name",
+    "unscoped-name",
+    "invalid-name",
+    "invalid-metadata",
+    "unsupported-dependencies",
+    "invalid-source",
+    "limit",
+    "forbidden-scope",
+    "name-taken",
+  ]),
+  name: Schema.NullOr(Schema.String),
+}) {}
+
+/** Read-only publication checks for this app and owner; publishing rechecks the same rules. */
+export const PublicationReadiness = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("ready"), manifest: PackageManifest }),
+  Schema.Struct({
+    status: Schema.Literal("blocked"),
+    issue: PublicationIssue,
+    suggestedName: Schema.NullOr(PackageName),
+  }),
+]);
+
 /** One current public listing. The commit is the author's selected Git revision. */
 export const Publication = Schema.Struct({
   name: PackageName,

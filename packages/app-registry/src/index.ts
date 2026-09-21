@@ -1,5 +1,5 @@
 /** Publish a chosen Git snapshot; installation creates an ordinary, independently owned app. */
-import { Clock, Effect, Schema } from "effect";
+import { Clock, Effect, Option, Result, Schema } from "effect";
 import {
   SourceFiles,
   type AppCopySnapshot,
@@ -9,7 +9,9 @@ import {
   type Executor,
 } from "@executor-js/sdk/core";
 import {
-  PackageManifest,
+  PublicationIssue,
+  PublicationReadiness,
+  publicPackageName,
   Publication,
   PublicationSnapshot,
   RegistryError,
@@ -20,35 +22,9 @@ import type { RegistryStorage } from "./implementation/storage.ts";
 export * from "./contracts/registry.ts";
 export { makeRegistryStorage } from "./implementation/storage.ts";
 
-/** Public snapshots must be self-contained app source; normal npm dependencies stay untouched. */
-const publicationSource = (files: SourceFiles) =>
-  Effect.gen(function* () {
-    if (
-      files.length > 512 ||
-      files.reduce((size, file) => size + new TextEncoder().encode(file.content).length, 0) >
-        4 * 1024 * 1024
-    )
-      return yield* new RegistryError({ reason: "limit" });
-    if (
-      files.some(
-        (file) =>
-          /(^|\/)(?:\.git|node_modules|\.env(?:\..*)?|\.npmrc|\.executor)(?:\/|$)/.test(
-            file.path,
-          ) ||
-          file.path === "executor.lock.json" ||
-          file.path.startsWith("__executor_deps/"),
-      )
-    )
-      return yield* new RegistryError({ reason: "invalid-source" });
-    const manifest = files.find((file) => file.path === "package.json");
-    if (manifest === undefined) return yield* new RegistryError({ reason: "invalid-manifest" });
-    const parsed = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(PackageManifest))(
-      manifest.content,
-    ).pipe(Effect.mapError(() => new RegistryError({ reason: "invalid-manifest" })));
-    if (Object.keys(parsed.executor?.dependencies ?? {}).length > 0)
-      return yield* new RegistryError({ reason: "unsupported-dependencies" });
-    return parsed;
-  });
+import { publicationSource, publicationFailure } from "./implementation/manifest.ts";
+export { scopeGeneratedPackage } from "./implementation/manifest.ts";
+
 /** A catalog entry reads its pinned Git snapshot, independent of the editable default branch. */
 export const storedRegistry = (
   storage: RegistryStorage,
@@ -74,7 +50,55 @@ export const createAppRegistry = (options: {
   readonly sources: AppSourceStorage;
 }) => {
   const { storage, executor, sources } = options;
+  const validate = (input: {
+    readonly owner: OwnerId;
+    readonly namespace: string;
+    readonly app: AppId;
+    readonly files: SourceFiles;
+  }) =>
+    Effect.gen(function* () {
+      const manifest = yield* publicationSource(input.files);
+      const scope = manifest.name.slice(1, manifest.name.indexOf("/"));
+      const owner = yield* storage.scopeOwner(scope);
+      if (owner === null ? scope !== input.namespace : owner !== input.owner)
+        return yield* new PublicationIssue({ reason: "forbidden-scope", name: manifest.name });
+      const existing = yield* storage.get(manifest.name).pipe(
+        Effect.map(Option.some),
+        Effect.catchTag("RegistryError", (error) =>
+          error.reason === "not-found" ? Effect.succeed(Option.none()) : Effect.fail(error),
+        ),
+      );
+      if (Option.isSome(existing) && existing.value.app !== input.app)
+        return yield* new PublicationIssue({ reason: "name-taken", name: manifest.name });
+      return manifest;
+    });
   return {
+    preview: (input: {
+      readonly owner: OwnerId;
+      readonly namespace: string;
+      readonly app: AppId;
+      readonly name: string;
+      readonly files: SourceFiles;
+    }) =>
+      Effect.gen(function* () {
+        const checked = yield* validate(input).pipe(Effect.result);
+        if (Result.isSuccess(checked))
+          return PublicationReadiness.make({ status: "ready", manifest: checked.success });
+        if (!Schema.is(PublicationIssue)(checked.failure))
+          return yield* Effect.fail(checked.failure);
+        const initial = publicPackageName(input.namespace, input.name);
+        const suggested =
+          checked.failure.reason === "name-taken" &&
+          Option.isSome(initial) &&
+          initial.value === checked.failure.name
+            ? publicPackageName(input.namespace, `${input.name} copy`)
+            : initial;
+        return PublicationReadiness.make({
+          status: "blocked",
+          issue: checked.failure,
+          suggestedName: Option.getOrNull(suggested),
+        });
+      }),
     owned: storage.owned,
     unpublish: storage.unpublish,
     publish: (input: {
@@ -90,11 +114,9 @@ export const createAppRegistry = (options: {
         const files = yield* sources
           .read({ code: app.code, commit: input.commit })
           .pipe(Effect.mapError(() => new RegistryError({ reason: "invalid-source" })));
-        const manifest = yield* publicationSource(files);
-        const scope = manifest.name.slice(1, manifest.name.indexOf("/"));
-        const owner = yield* storage.scopeOwner(scope);
-        if (owner === null ? scope !== input.namespace : owner !== input.owner)
-          return yield* new RegistryError({ reason: "forbidden" });
+        const manifest = yield* validate({ ...input, files }).pipe(
+          Effect.catchTag("PublicationIssue", (issue) => Effect.fail(publicationFailure(issue))),
+        );
         const source = yield* sources
           .retain(app.code, files)
           .pipe(Effect.mapError(() => new RegistryError({ reason: "storage" })));
@@ -122,7 +144,9 @@ export const resolvePublication = (
     const snapshot = yield* registry.snapshot(input.package, input.commit);
     if (snapshot.publication.name !== input.package || snapshot.publication.commit !== input.commit)
       return yield* new RegistryError({ reason: "changed" });
-    const manifest = yield* publicationSource(snapshot.files);
+    const manifest = yield* publicationSource(snapshot.files).pipe(
+      Effect.mapError(publicationFailure),
+    );
     if (manifest.name !== input.package)
       return yield* new RegistryError({ reason: "invalid-source" });
     return {

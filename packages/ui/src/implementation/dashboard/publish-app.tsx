@@ -1,10 +1,14 @@
 import { useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { Exit, Option, Schema } from "effect";
+import { Exit } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import type { App } from "@executor-js/sdk";
 import type { AppSourceView } from "@executor-js/app-management/contracts";
-import { PackageManifest, registryPublicationPath } from "@executor-js/app-registry/contracts";
+import {
+  type PublicationReadiness,
+  type PublicationIssue,
+  registryPublicationPath,
+} from "@executor-js/app-registry/contracts";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Globe02Icon, LockKeyIcon, Tick02Icon, Upload04Icon } from "@hugeicons/core-free-icons";
 import type { AppManagementProps } from "../../contracts/app-management.ts";
@@ -14,13 +18,108 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../compon
 import { ProviderIcon } from "./common.tsx";
 import { QueryView } from "./context.tsx";
 
-function readManifest(source: typeof AppSourceView.Type) {
-  const file = source.files.find((file) => file.path === "package.json");
-  return file === undefined
-    ? undefined
-    : Option.getOrUndefined(
-        Schema.decodeUnknownOption(Schema.fromJsonString(PackageManifest))(file.content),
-      );
+type PublishableSource = Omit<typeof AppSourceView.Type, "publication"> & {
+  readonly publication: typeof PublicationReadiness.Type;
+};
+
+function publicationRepair(issue: PublicationIssue) {
+  switch (issue.reason) {
+    case "missing-manifest":
+      return {
+        title: "Add a package name",
+        detail: "This app has no package.json file.",
+        rename: true,
+      };
+    case "missing-name":
+      return {
+        title: "Add a package name",
+        detail: "package.json does not contain a name.",
+        rename: true,
+      };
+    case "unscoped-name":
+      return {
+        title: "Add your publishing handle",
+        detail: "This package has a name, but public names also need your organization’s handle.",
+        rename: true,
+      };
+    case "invalid-name":
+      return {
+        title: "Use a valid public name",
+        detail: "Public names use @handle/app-name with lowercase letters, numbers, and hyphens.",
+        rename: true,
+      };
+    case "forbidden-scope":
+      return {
+        title: "Use your own publishing handle",
+        detail: "This organization cannot publish under the handle in this name.",
+        rename: true,
+      };
+    case "name-taken":
+      return {
+        title: "Choose a different public name",
+        detail: "Another app already uses this public name. This copy needs its own name.",
+        rename: true,
+      };
+    case "invalid-json":
+      return {
+        title: "Fix package.json",
+        detail:
+          "The file must contain a valid JSON object. Ask your agent to repair it before publishing.",
+        rename: false,
+      };
+    case "invalid-metadata":
+      return {
+        title: "Check the package details",
+        detail:
+          "The name is valid, but other package details are not. Ask your agent to check the description and Executor settings.",
+        rename: false,
+      };
+    case "unsupported-dependencies":
+      return {
+        title: "Include the required app code",
+        detail:
+          "App-to-app package dependencies are not supported. Ask your agent to make this package self-contained.",
+        rename: false,
+      };
+    case "invalid-source":
+      return {
+        title: "Review the files to publish",
+        detail:
+          "The source includes files that cannot be published, such as .env, .npmrc, or node_modules. Ask your agent to remove them from the saved app source.",
+        rename: false,
+      };
+    case "limit":
+      return {
+        title: "Reduce the package size",
+        detail:
+          "Public apps can contain up to 512 files and 4 MB of source. Ask your agent to remove files the app does not need.",
+        rename: false,
+      };
+  }
+}
+
+function PublicationProblem({
+  issue,
+  suggestedName,
+}: Extract<typeof PublicationReadiness.Type, { status: "blocked" }>) {
+  const repair = publicationRepair(issue);
+  return (
+    <div className="rounded-lg border p-5" role="alert">
+      <p className="text-sm font-medium">{repair.title}</p>
+      {issue.name !== null && (
+        <p className="mt-2 break-words text-sm">
+          Current name: <code>{issue.name}</code>
+        </p>
+      )}
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{repair.detail}</p>
+      {repair.rename && suggestedName !== null && (
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Ask your agent to set <code>name</code> in <code>package.json</code> to{" "}
+          <code className="break-all">{suggestedName}</code>.
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** Make publishing available from every app tab; the host still owns permission. */
@@ -38,8 +137,13 @@ export function PublishApp<E>({
       }
     >
       {(source) =>
-        source.canPublish && (
-          <PublishAction app={app} source={source} atoms={atoms} Failure={Failure} />
+        source.publication !== null && (
+          <PublishAction
+            app={app}
+            source={{ ...source, publication: source.publication }}
+            atoms={atoms}
+            Failure={Failure}
+          />
         )
       }
     </QueryView>
@@ -54,11 +158,11 @@ function PublishAction<E>({
   Failure,
 }: AppManagementProps<E> & {
   readonly app: App;
-  readonly source: typeof AppSourceView.Type;
+  readonly source: PublishableSource;
 }) {
-  const [selected, setSelected] = useState<typeof AppSourceView.Type | null>(null);
+  const [selected, setSelected] = useState<PublishableSource | null>(null);
   const publishing = useAtomValue(atoms.publish(app.id));
-  const manifest = readManifest(source);
+  const manifest = source.publication.status === "ready" ? source.publication.manifest : undefined;
   return (
     <>
       <QueryView
@@ -106,10 +210,10 @@ function PublishDialog<E>({
   onClose,
 }: AppManagementProps<E> & {
   readonly app: App;
-  readonly source: typeof AppSourceView.Type;
+  readonly source: PublishableSource;
   readonly onClose: () => void;
 }) {
-  const manifest = readManifest(source);
+  const manifest = source.publication.status === "ready" ? source.publication.manifest : undefined;
   return (
     <DialogContent className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-xl">
       <div className="px-7 pb-6 pt-7 max-[740px]:px-5">
@@ -121,26 +225,20 @@ function PublishDialog<E>({
         </DialogDescription>
       </div>
       <div className="px-7 pb-6 max-[740px]:px-5">
-        {manifest === undefined ? (
-          <div className="rounded-lg border p-5">
-            <p className="text-sm font-medium">This app isn’t ready to publish yet</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Ask your agent to give it a public package name. Then you can preview its listing
-              here.
-            </p>
-          </div>
+        {source.publication.status === "blocked" ? (
+          <PublicationProblem {...source.publication} />
         ) : (
           <>
             <p className="mb-3 text-xs font-medium text-muted-foreground">Your app’s listing</p>
             <div className="flex items-start gap-4 rounded-xl border bg-muted/15 p-5">
-              <ProviderIcon name={manifest.name} large />
+              <ProviderIcon name={source.publication.manifest.name} large />
               <div className="min-w-0 py-0.5">
                 <p className="break-words text-base font-semibold tracking-tight">
-                  {manifest.name}
+                  {source.publication.manifest.name}
                 </p>
-                {manifest.description && (
+                {source.publication.manifest.description && (
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {manifest.description}
+                    {source.publication.manifest.description}
                   </p>
                 )}
               </div>
@@ -214,7 +312,7 @@ function PublicationActions<E>({
   onClose,
 }: AppManagementProps<E> & {
   readonly app: App;
-  readonly source: typeof AppSourceView.Type;
+  readonly source: PublishableSource;
   readonly name: string;
   readonly publishedCommit: string | undefined;
   readonly onClose: () => void;

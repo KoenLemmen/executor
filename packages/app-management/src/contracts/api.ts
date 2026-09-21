@@ -15,7 +15,7 @@ import {
   SourceSnapshot,
   StorageError,
 } from "@executor-js/sdk/core";
-import { RegistryError } from "@executor-js/app-registry/contracts";
+import { PublicationReadiness, RegistryError } from "@executor-js/app-registry/contracts";
 
 /** Authentication failures never expose whether another owner's app exists. */
 export class AppAccessDenied extends Schema.TaggedError<AppAccessDenied>()(
@@ -48,7 +48,7 @@ export const AppSourceView = Schema.Struct({
   namespace: Schema.NullOr(Schema.String),
   gitPath: Schema.String,
   canEdit: Schema.Boolean,
-  canPublish: Schema.Boolean,
+  publication: Schema.NullOr(PublicationReadiness),
 });
 
 import {

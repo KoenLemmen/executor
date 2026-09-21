@@ -74,10 +74,16 @@ export class OrganizationForbidden extends Schema.TaggedError<OrganizationForbid
 export class CurrentOrganization extends Context.Service<CurrentOrganization, OrganizationAccess>()(
   "hosted/CurrentOrganization",
 ) {}
+/** Lazy, authenticated publishing handle; routes that do not need it make no slug lookup. */
+export class CurrentOrganizationNamespace extends Context.Service<
+  CurrentOrganizationNamespace,
+  Effect.Effect<string, AuthenticationUnavailable | OrganizationForbidden>
+>()("hosted/CurrentOrganizationNamespace") {}
+
 /** Checks login and current membership for the :organization route parameter. */
 export class RequireOrganization extends HttpApiMiddleware.Service<
   RequireOrganization,
-  { provides: CurrentOrganization }
+  { provides: CurrentOrganization | CurrentOrganizationNamespace }
 >()("hosted/RequireOrganization", {
   error: [Unauthorized, Forbidden, AuthenticationUnavailable, OrganizationForbidden],
 }) {}

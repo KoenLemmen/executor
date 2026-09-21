@@ -326,7 +326,7 @@ test(
             const sourcePath = `/api/organizations/${a.id}/apps/${app.app.id}/workspace`;
             const sourceView = yield* json(yield* request(sourcePath), AppSourceView);
             assert.equal(sourceView.files[0]?.content, "synthetic");
-            assert.equal(sourceView.canPublish, false);
+            assert.equal(sourceView.publication, null);
             assert.equal(
               (yield* request(`/api/organizations/${b.id}/apps/${app.app.id}/workspace`)).status,
               404,

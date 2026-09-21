@@ -16,7 +16,9 @@ and OpenAPI's `operations.json` remain editable.
 Every template includes `package.json` with an npm-safe name derived from the
 import name. An explicit scoped name is preserved. `defineApp` declares behavior
 without a name; renaming an installed app does not edit its package metadata.
-Public listings still require an owned `@scope/name`.
+Hosted import flows add the authenticated organization’s handle before saving
+these generated files: `@organization/app-name`. Local generation has no publishing
+handle. Public listings still require an owned `@scope/name`.
 
 MCP and GraphQL templates include only their required optional peer in the
 manifest: `@modelcontextprotocol/sdk` or `graphql`. OpenAPI needs no extra

@@ -164,6 +164,7 @@ test(
           const view = yield* json(`/api/apps/${app.id}/workspace`).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(AppSourceView)),
           );
+          assert.equal(view.publication?.status, "ready");
           assert.equal(view.gitPath, "/git/fixture/example.git");
           assert.deepEqual(yield* json(`/api/apps/${app.id}/git`), { path: view.gitPath });
           yield* executor.apps.create({

@@ -67,6 +67,49 @@ test(
           const source = files("original");
           const app = yield* executor.apps.create({ owner, name: "Example", files: source });
           const first = yield* executor.apps.workspace({ owner, app: app.id });
+          const preview = (
+            candidate: SourceFiles,
+            namespace = "fixture",
+            identity = owner,
+            appId = app.id,
+          ) =>
+            publisher.preview({
+              owner: identity,
+              namespace,
+              app: appId,
+              name: "Example",
+              files: candidate,
+            });
+          assert.equal((yield* preview(source)).status, "ready");
+          for (const [content, reason] of [
+            [null, "missing-manifest"],
+            ["{", "invalid-json"],
+            ["{}", "missing-name"],
+            ['{"name":"axiom"}', "unscoped-name"],
+            ['{"name":"@fixture/Bad Name"}', "invalid-name"],
+            ['{"name":"@someone/example"}', "forbidden-scope"],
+            [
+              JSON.stringify({ name: "@fixture/example", description: "x".repeat(2001) }),
+              "invalid-metadata",
+            ],
+            [
+              JSON.stringify({
+                name: "@fixture/example",
+                executor: { dependencies: { "@someone/app": "*" } },
+              }),
+              "unsupported-dependencies",
+            ],
+          ] as const) {
+            const candidate = SourceFiles.make([
+              source[0],
+              ...(content === null ? [] : [{ path: "package.json", content }]),
+            ]);
+            const readiness = yield* preview(candidate);
+            assert.equal(readiness.status, "blocked");
+            if (readiness.status !== "blocked") throw new Error("Invalid source must be blocked");
+            assert.equal(readiness.issue.reason, reason);
+            assert.equal(readiness.suggestedName, "@fixture/example");
+          }
           const publication = yield* publisher.publish({
             owner,
             namespace: "fixture",
@@ -85,6 +128,32 @@ test(
             }),
             publication,
           );
+          // A reserved handle still belongs to this owner after the organization is renamed.
+          assert.equal((yield* preview(source, "renamed-fixture")).status, "ready");
+          const ownCopy = yield* executor.apps.create({
+            owner,
+            name: "Example copy",
+            files: source,
+          });
+          const conflict = yield* preview(source, "fixture", owner, ownCopy.id);
+          assert.equal(conflict.status, "blocked");
+          if (conflict.status !== "blocked")
+            throw new Error("A second app cannot manage the first listing");
+          assert.equal(conflict.issue.reason, "name-taken");
+          assert.equal(conflict.suggestedName, "@fixture/example-copy");
+          const ownCopySource = yield* executor.apps.workspace({ app: ownCopy.id });
+          assert.equal(
+            (yield* publisher
+              .publish({
+                owner,
+                namespace: "fixture",
+                app: ownCopy.id,
+                commit: ownCopySource.revision.commit,
+              })
+              .pipe(Effect.flip)).reason,
+            "conflict",
+          );
+          assert.deepEqual(yield* registry.list(), [publication]);
           const next = yield* executor.apps.commit({
             owner,
             app: app.id,
@@ -113,6 +182,22 @@ test(
           assert.equal(installed.copiedFrom?.commit, publication.commit);
           assert.ok(installed.copiedFrom?.reference.startsWith("https://registry.example/"));
           assert.equal((yield* executor.apps.list({ owner: recipient })).length, 1);
+          const wrongOwner = yield* preview(source, "recipient", recipient, installed.id);
+          assert.equal(wrongOwner.status, "blocked");
+          if (wrongOwner.status !== "blocked")
+            throw new Error("A copied package cannot keep its publisher's handle");
+          assert.equal(wrongOwner.issue.reason, "forbidden-scope");
+          assert.equal(
+            (yield* publisher
+              .publish({
+                owner: recipient,
+                namespace: "recipient",
+                app: installed.id,
+                commit: (yield* executor.apps.workspace({ app: installed.id })).revision.commit,
+              })
+              .pipe(Effect.flip)).reason,
+            "forbidden",
+          );
           const updated = yield* publisher.publish({
             owner,
             namespace: "fixture",

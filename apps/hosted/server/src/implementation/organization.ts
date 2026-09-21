@@ -28,6 +28,7 @@ import {
 } from "../contracts/auth.ts";
 import {
   CurrentOrganization,
+  CurrentOrganizationNamespace,
   OrganizationIcons,
   OrganizationForbidden,
   OrganizationReference,
@@ -104,6 +105,7 @@ export const withOrganizationRequest = <E, R>(
       return (yield* response(Effect.succeed(grant.organizationSlug)).pipe(
         Effect.provideService(CurrentAuthorization, grant.policy),
         Effect.provideService(CurrentOrganization, grant.access),
+        Effect.provideService(CurrentOrganizationNamespace, Effect.succeed(grant.organizationSlug)),
         Effect.provideService(CurrentUserId, grant.userId),
       )).pipe(HttpServerResponse.setHeader("cache-control", "no-store"));
     }
@@ -124,6 +126,10 @@ export const withOrganizationRequest = <E, R>(
     };
     return (yield* response(auth.organizationSlug(headers, organization)).pipe(
       Effect.provideService(CurrentOrganization, access),
+      Effect.provideService(
+        CurrentOrganizationNamespace,
+        auth.organizationSlug(headers, organization),
+      ),
       Effect.provideService(CurrentUserId, principal.userId),
       Effect.provideService(CurrentPrincipal, principal),
       Effect.provideService(CurrentAuthorization, fullAuthority),
