@@ -1924,6 +1924,11 @@ describe("MCP host server — skills tool", () => {
     await withClient(makeStubEngine({}), NO_CAPS, async (client) => {
       const { tools } = await client.listTools();
       const description = tools.find((t) => t.name === "skills")?.description ?? "";
+      // Progressive-disclosure clients may keep only the first sentence, capped
+      // at 60 characters, when they defer an MCP tool's full schema.
+      const firstSentence = description.slice(0, description.indexOf(".") + 1);
+      expect(firstSentence).toBe("Search managed Agent Skills for task-specific instructions.");
+      expect(firstSentence.length).toBeLessThanOrEqual(60);
       expect(description).toContain("built-in");
       expect(description).toContain("managed Agent Skills");
     });
