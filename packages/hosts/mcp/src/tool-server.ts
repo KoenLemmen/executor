@@ -1422,6 +1422,38 @@ const skillsResult = (
   });
 };
 
+const managedSkillActivationResult = (
+  ref: string,
+  skills: McpSkillsPort,
+): Effect.Effect<McpToolResult> =>
+  Effect.gen(function* () {
+    const current = (yield* skills.list()).find((skill) => String(skill.id) === ref);
+    if (current?.delivery.kind !== "enabled" || current.delivery.invocation !== "model") {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text" as const,
+            text: "This managed skill no longer allows model invocation.",
+          },
+        ],
+      };
+    }
+    return yield* managedSkillsResult({ ref }, skills);
+  }).pipe(
+    Effect.catch(() =>
+      Effect.succeed({
+        isError: true,
+        content: [
+          {
+            type: "text" as const,
+            text: "Executor could not read the managed skills catalog.",
+          },
+        ],
+      }),
+    ),
+  );
+
 class McpSkillResourceError extends Data.TaggedError("McpSkillResourceError")<{
   readonly reason: string;
 }> {}
@@ -1464,6 +1496,18 @@ const modelSkillResources = (
   });
 
 const MANAGED_SKILL_DESCRIPTION_LIMIT = 40;
+const MANAGED_SKILL_ACTIVATION_LIMIT = 50;
+const MANAGED_SKILL_ACTIVATION_DESCRIPTION_LIMIT = 140;
+
+const managedSkillActivationToolName = (name: string): string =>
+  `skill_${name.replaceAll("-", "_")}`;
+
+const managedSkillActivationDescription = (description: string | null): string => {
+  const normalized = description?.replaceAll(/\s+/g, " ").trim() ?? "";
+  return normalized.length > 0
+    ? normalized.slice(0, MANAGED_SKILL_ACTIVATION_DESCRIPTION_LIMIT)
+    : "Load this Executor-managed skill.";
+};
 
 const managedSkillCatalogDescription = (
   skills: readonly ManagedSkillSummary[],
@@ -2864,7 +2908,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           description: [
             // Deferred-tool clients may retain only this sentence, capped at
             // 60 characters. Keep managed-skill discovery visible there.
-            "Search managed Agent Skills for task-specific instructions.",
+            "Load named skills; search model-enabled skills for tasks.",
             `Read Executor's built-in ${passthrough ? "search and artifact" : "execute and artifact"} guides by name.`,
             "Search Executor-managed Agent Skills or read one managed package file on demand.",
             "Managed search returns only skills that allow model invocation. An exact ref or name can also read an enabled manual skill named by the user.",
@@ -2894,6 +2938,55 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         attributes: { "mcp.tool.name": "skills" },
       }),
     );
+
+    if (config.skills !== undefined) {
+      const managedSkills = config.skills;
+      const selectedByName = new Map<string, (typeof managedSkillsAtBuild)[number]>();
+      const eligible = managedSkillsAtBuild
+        .filter(
+          (skill) =>
+            skill.delivery.kind === "enabled" &&
+            skill.delivery.invocation === "model" &&
+            skill.name !== null,
+        )
+        .sort((left, right) => {
+          const byName = (left.name ?? "").localeCompare(right.name ?? "");
+          if (byName !== 0) return byName;
+          if (left.owner !== right.owner) return left.owner === "user" ? -1 : 1;
+          return String(left.id).localeCompare(String(right.id));
+        });
+      for (const skill of eligible) {
+        if (skill.name !== null && !selectedByName.has(skill.name)) {
+          selectedByName.set(skill.name, skill);
+        }
+      }
+      const activationSkills = [...selectedByName.values()].slice(
+        0,
+        MANAGED_SKILL_ACTIVATION_LIMIT,
+      );
+      yield* Effect.sync(() => {
+        for (const skill of activationSkills) {
+          if (skill.name === null) continue;
+          const toolName = managedSkillActivationToolName(skill.name);
+          server.registerTool(
+            toolName,
+            {
+              description: managedSkillActivationDescription(skill.description),
+              inputSchema: {},
+            },
+            (_input, extra) =>
+              runToolEffect(managedSkillActivationResult(String(skill.id), managedSkills), extra),
+          );
+        }
+      }).pipe(
+        Effect.withSpan("mcp.host.register_tool", {
+          attributes: {
+            "mcp.tool.name": "skill_<name>",
+            "mcp.skill_activation.count": activationSkills.length,
+          },
+        }),
+      );
+    }
 
     if (!passthrough)
       yield* Effect.sync(() => {

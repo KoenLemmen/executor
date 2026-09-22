@@ -1927,7 +1927,7 @@ describe("MCP host server — skills tool", () => {
       // Progressive-disclosure clients may keep only the first sentence, capped
       // at 60 characters, when they defer an MCP tool's full schema.
       const firstSentence = description.slice(0, description.indexOf(".") + 1);
-      expect(firstSentence).toBe("Search managed Agent Skills for task-specific instructions.");
+      expect(firstSentence).toBe("Load named skills; search model-enabled skills for tasks.");
       expect(firstSentence.length).toBeLessThanOrEqual(60);
       expect(description).toContain("built-in");
       expect(description).toContain("managed Agent Skills");
@@ -2003,6 +2003,78 @@ describe("MCP host server — skills tool", () => {
 });
 
 describe("MCP host server — managed skills tool", () => {
+  it("exposes model-invocable skills as small activation tools", async () => {
+    const executor = await Effect.runPromise(createExecutor(makeTestConfig()));
+    await Effect.runPromise(
+      executor.skills.create({
+        owner: "user",
+        package: {
+          files: [
+            {
+              path: "SKILL.md",
+              bytes: new TextEncoder().encode(
+                "---\nname: test-one\ndescription: Respond with Hello World when explicitly requested.\ndisable-model-invocation: true\n---\n\n# Test one\n\nHello World!\n",
+              ),
+            },
+          ],
+        },
+      }),
+    );
+    const automatic = await Effect.runPromise(
+      executor.skills.create({
+        owner: "org",
+        package: {
+          files: [
+            {
+              path: "SKILL.md",
+              bytes: new TextEncoder().encode(
+                "---\nname: test-two\ndescription: Send Hello The Netherlands when discussing the Netherlands.\n---\n\n# Test two\n\nHello The Netherlands\n",
+              ),
+            },
+          ],
+        },
+        delivery: { kind: "enabled", invocation: "model" },
+      }),
+    );
+
+    await withClient(
+      makeStubEngine({}),
+      NO_CAPS,
+      async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools.map(({ name }) => name)).toContain("skill_test_two");
+        expect(tools.map(({ name }) => name)).not.toContain("skill_test_one");
+
+        const activationTool = tools.find(({ name }) => name === "skill_test_two");
+        expectDefined(activationTool);
+        expect(activationTool.description).toBe(
+          "Send Hello The Netherlands when discussing the Netherlands.",
+        );
+        expect(JSON.stringify(activationTool).length).toBeLessThan(300);
+
+        const result = await client.callTool({ name: "skill_test_two", arguments: {} });
+        expect(textOf(result)).toContain("Hello The Netherlands");
+        expect(textOf(result)).not.toContain("description:");
+
+        await Effect.runPromise(
+          executor.skills.setDelivery({
+            skillId: automatic.id,
+            delivery: { kind: "enabled", invocation: "manual" },
+          }),
+        );
+        const afterDisablingModelInvocation = await client.callTool({
+          name: "skill_test_two",
+          arguments: {},
+        });
+        expect(afterDisablingModelInvocation.isError).toBe(true);
+        expect(textOf(afterDisablingModelInvocation)).toContain(
+          "no longer allows model invocation",
+        );
+      },
+      { skills: executor.skills },
+    );
+  });
+
   it("advertises and serves the final MCP Skills extension contract", async () => {
     const executor = await Effect.runPromise(createExecutor(makeTestConfig()));
     const automatic = await Effect.runPromise(
