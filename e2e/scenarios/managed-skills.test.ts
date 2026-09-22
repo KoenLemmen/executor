@@ -45,6 +45,12 @@ scenario(
 
     yield* Effect.ensuring(
       Effect.gen(function* () {
+        const manualSession = mcp.session(identity);
+        const manualTools = yield* manualSession.listTools();
+        expect(manualTools, "a manual skill has no model-visible activation tool").not.toContain(
+          "skill_release_notes",
+        );
+
         yield* browser.session(identity, async ({ page, step }) => {
           await step("Open the managed skill", async () => {
             await visit(page, `/skills/${created.id}`);
@@ -86,6 +92,17 @@ scenario(
         expect(tools.find(({ name }) => name === "skills")?.description).toContain(
           "`release-notes`",
         );
+        const activation = tools.find(({ name }) => name === "skill_release_notes");
+        expect(activation?.description).toBe("Draft release notes from merged changes.");
+        expect(
+          JSON.stringify(activation).length,
+          "the activation tool stays below the per-tool context budget",
+        ).toBeLessThan(300);
+
+        const activated = yield* session.call("skill_release_notes", {});
+        expect(activated.ok).toBe(true);
+        expect(activated.text).toContain("# Release notes");
+        expect(activated.text).not.toContain("disable-model-invocation");
 
         const index = yield* session.call("skills", {});
         expect(index.text).toContain("release-notes");
