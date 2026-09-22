@@ -20,7 +20,7 @@ scenario(
     const executor = yield* client(api, identity);
     const created = yield* executor.skills.create({
       payload: {
-        owner: "org",
+        owner: "user",
         package: {
           files: [
             {
@@ -84,6 +84,24 @@ scenario(
             ]);
             await visit(page, page.url());
             await expect.poll(() => page.getByRole("switch").nth(1).isChecked()).toBe(true);
+          });
+
+          await step("Move the skill to the workspace", async () => {
+            await page.getByRole("link", { name: "Edit", exact: true }).click();
+            await page.getByRole("heading", { name: "Edit skill", exact: true }).waitFor();
+            await page.getByRole("combobox").click();
+            await page.getByRole("option", { name: "Workspace", exact: true }).click();
+            await Promise.all([
+              page.waitForResponse(
+                (response) =>
+                  response.url().endsWith(`/api/skills/${created.id}/package`) &&
+                  response.request().method() === "PUT" &&
+                  response.status() === 200,
+              ),
+              page.getByRole("button", { name: "Save skill", exact: true }).click(),
+            ]);
+            await page.getByRole("heading", { name: "release-notes", exact: true }).waitFor();
+            await page.getByText("Workspace", { exact: true }).waitFor();
           });
         });
 

@@ -14,6 +14,7 @@ import {
   SkillCandidateMismatchError,
   SkillDiagnostic,
   SkillInvalidTransitionError,
+  SkillNameConflictError,
   SkillPackageDigest,
   SkillPackageManifestFile,
   SkillPackageRejectedError,
@@ -139,6 +140,7 @@ const SkillMutationErrors = [
   InternalError,
   ManagedSkillNotFoundError,
   SkillPackageRejectedError,
+  SkillNameConflictError,
   SkillRevisionConflictError,
   OrgWriteDeniedError,
 ];
@@ -219,6 +221,7 @@ export const SkillsApi = HttpApiGroup.make("skills")
     HttpApiEndpoint.put("edit", "/skills/:skillId/package", {
       params: SkillParams,
       payload: Schema.Struct({
+        owner: Schema.optional(Owner),
         expectedActiveRevisionId: SkillRevisionId,
         package: SkillPackagePayload,
       }),

@@ -175,6 +175,7 @@ export const SkillsHandlers = HttpApiBuilder.group(ExecutorApi, "skills", (handl
           return skillToResponse(
             yield* executor.skills.edit({
               skillId: params.skillId,
+              ...(payload.owner === undefined ? {} : { owner: payload.owner }),
               expectedActiveRevisionId: payload.expectedActiveRevisionId,
               package: { files },
             }),

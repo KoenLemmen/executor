@@ -222,6 +222,7 @@ export interface ApplySkillCandidateInput {
 
 export interface EditManagedSkillInput {
   readonly skillId: ManagedSkillId;
+  readonly owner?: Owner;
   readonly expectedActiveRevisionId: SkillRevisionId;
   readonly package: { readonly files: readonly SkillPackageFileInput[] };
 }

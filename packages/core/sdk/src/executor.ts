@@ -146,6 +146,7 @@ import {
   PluginNotLoadedError,
   PortableSkillExportRejectedError,
   SkillInvalidTransitionError,
+  SkillNameConflictError,
   SkillCandidateExpiredError,
   SkillCandidateNotFoundError,
   SkillCandidateMismatchError,
@@ -632,6 +633,7 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
       ManagedSkill,
       | ManagedSkillNotFoundError
       | SkillPackageRejectedError
+      | SkillNameConflictError
       | SkillRevisionConflictError
       | OrgWriteDeniedError
       | StorageFailure
@@ -7296,6 +7298,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       ManagedSkill,
       | ManagedSkillNotFoundError
       | SkillPackageRejectedError
+      | SkillNameConflictError
       | SkillRevisionConflictError
       | OrgWriteDeniedError
       | StorageFailure
@@ -7303,13 +7306,41 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       Effect.gen(function* () {
         const existing = yield* skillRow(input.skillId);
         const existingSummary = yield* decodeSkillSummary(existing);
+        const targetOwner = input.owner ?? existingSummary.owner;
         yield* guardOrgWrite(existingSummary.owner);
+        yield* guardOrgWrite(targetOwner);
+        yield* requireUserSubject(targetOwner);
         yield* assertActiveRevision(existing, input.expectedActiveRevisionId);
         const prepared = yield* prepareManagedSkillPackage(input.package.files);
-        const partition = yield* skillOwnerPartition(existingSummary.owner);
-        yield* skillPackages.put(partition, prepared);
+        if (prepared.name !== null) {
+          const conflicting = yield* core.findFirst("skill", {
+            where: (b: AnyCb) =>
+              b.and(
+                byOwner(targetOwner)(b),
+                b("name", "=", String(prepared.name)),
+                b("id", "!=", String(input.skillId)),
+              ),
+          });
+          if (conflicting !== null) {
+            return yield* new SkillNameConflictError({
+              owner: targetOwner,
+              name: String(prepared.name),
+            });
+          }
+        }
+        const sourcePartition = yield* skillOwnerPartition(existingSummary.owner);
+        const targetPartition = yield* skillOwnerPartition(targetOwner);
+        if (targetOwner !== existingSummary.owner) {
+          const existingSkill = yield* skillsGet({ skillId: input.skillId });
+          yield* skillPackages.copy(
+            sourcePartition,
+            targetPartition,
+            existingSkill.revisions.flatMap((revision) => revision.files),
+          );
+        }
+        yield* skillPackages.put(targetPartition, prepared);
         const keys = yield* Effect.try({
-          try: () => ownedKeys(existingSummary.owner),
+          try: () => ownedKeys(targetOwner),
           catch: (cause) => storageFailureFromUnknown("invalid skill owner", cause),
         });
         const newRevisionId = revisionId();
@@ -7329,9 +7360,22 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                 createdAt: now,
               }),
             );
+            if (targetOwner !== existingSummary.owner) {
+              yield* core.updateMany("skill_revision", {
+                where: (b: AnyCb) => b("skill_id", "=", String(input.skillId)),
+                set: {
+                  tenant: keys.tenant,
+                  owner: keys.owner,
+                  subject: keys.subject,
+                },
+              });
+            }
             yield* core.updateMany("skill", {
               where: skillById(input.skillId),
               set: {
+                ...(targetOwner === existingSummary.owner
+                  ? {}
+                  : { tenant: keys.tenant, owner: keys.owner, subject: keys.subject }),
                 name: prepared.name === null ? null : String(prepared.name),
                 description: prepared.description,
                 active_revision_id: String(newRevisionId),

@@ -9,6 +9,8 @@ import type {
 } from "@executor-js/sdk/shared";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 
 import {
   createSkill,
@@ -374,6 +376,7 @@ function SkillEditorForm(props: {
         : await edit({
             params: { skillId: props.skillId },
             payload: {
+              owner: activeOwner,
               expectedActiveRevisionId: props.expectedActiveRevisionId,
               package: packagePayload,
             },
@@ -381,10 +384,16 @@ function SkillEditorForm(props: {
           });
     setSaving(false);
     if (Exit.isFailure(exit)) {
+      const nameConflict = Option.match(Exit.findErrorOption(exit), {
+        onNone: () => false,
+        onSome: Predicate.isTagged("SkillNameConflictError"),
+      });
       setError(
-        editing
-          ? "The package could not be saved. It may have changed in another session."
-          : "The package could not be created. Check its paths and size limits.",
+        nameConflict
+          ? `A ${activeOwner === "org" ? "workspace" : "personal"} skill with this name already exists.`
+          : editing
+            ? "The package could not be saved. It may have changed in another session."
+            : "The package could not be created. Check its paths and size limits.",
       );
       return;
     }
@@ -416,16 +425,20 @@ function SkillEditorForm(props: {
       />
       <div className="space-y-8">
         {error ? <FormErrorAlert message={error} /> : null}
+        <ConnectionOwnerDropdown
+          value={activeOwner}
+          options={ownerOptions}
+          onChange={setOwner}
+          label="Owned by"
+          help={
+            editing
+              ? "Changing the owner moves this skill and keeps its revision history."
+              : "Personal skills are available to you. Workspace skills are shared."
+          }
+          className="max-w-xs space-y-1.5"
+        />
         {!editing ? (
           <>
-            <ConnectionOwnerDropdown
-              value={activeOwner}
-              options={ownerOptions}
-              onChange={setOwner}
-              label="Owned by"
-              help="Personal skills are available to you. Workspace skills are shared."
-              className="max-w-xs space-y-1.5"
-            />
             <section className="space-y-3 rounded-lg border border-border bg-card p-4">
               <div>
                 <FieldLabel>Import from GitHub</FieldLabel>

@@ -25,6 +25,11 @@ export interface SkillPackageRepository {
     ownerPartition: string,
     file: SkillPackageManifestFile,
   ) => Effect.Effect<Uint8Array, StorageError>;
+  readonly copy: (
+    sourcePartition: string,
+    destinationPartition: string,
+    files: readonly SkillPackageManifestFile[],
+  ) => Effect.Effect<void, StorageError>;
 }
 
 export const makeSkillPackageRepository = (store: BlobStore): SkillPackageRepository => ({
@@ -65,4 +70,20 @@ export const makeSkillPackageRepository = (store: BlobStore): SkillPackageReposi
       }
       return decoded.success;
     }),
+  copy: (sourcePartition, destinationPartition, files) =>
+    Effect.forEach(
+      files,
+      (file) =>
+        Effect.gen(function* () {
+          const bytes = yield* store.get(namespaceFor(sourcePartition), file.digest);
+          if (bytes === null) {
+            return yield* new StorageError({
+              message: `Managed skill blob is missing for ${file.path}.`,
+              cause: undefined,
+            });
+          }
+          yield* store.put(namespaceFor(destinationPartition), file.digest, bytes);
+        }),
+      { concurrency: 8, discard: true },
+    ),
 });

@@ -176,6 +176,65 @@ describe("executor.skills", () => {
     }),
   );
 
+  it.effect("moves a skill to another owner while preserving its identity and history", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeTestExecutor();
+      const created = yield* executor.skills.create({
+        owner: "user",
+        package: { files: packageFiles() },
+      });
+      const editInput = {
+        skillId: created.id,
+        owner: "org" as const,
+        expectedActiveRevisionId: created.activeRevisionId,
+        package: { files: packageFiles("Extract tables from PDFs.") },
+      };
+
+      const moved = yield* executor.skills.edit(editInput);
+
+      expect(moved.id).toBe(created.id);
+      expect(moved.owner).toBe("org");
+      expect(moved.revisions).toHaveLength(2);
+      const originalAsset = yield* executor.skills.readFile({
+        skillId: moved.id,
+        revisionId: created.activeRevisionId,
+        path: "assets/icon.bin",
+      });
+      expect(originalAsset.bytes).toEqual(Uint8Array.from([0, 255, 4, 8]));
+    }),
+  );
+
+  it.effect("refuses to move a skill onto an existing name in the target owner", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeTestExecutor();
+      const personal = yield* executor.skills.create({
+        owner: "user",
+        package: { files: packageFiles() },
+      });
+      const workspace = yield* executor.skills.create({
+        owner: "org",
+        package: { files: packageFiles("Workspace copy.") },
+      });
+
+      const result = yield* executor.skills
+        .edit({
+          skillId: personal.id,
+          owner: "org",
+          expectedActiveRevisionId: personal.activeRevisionId,
+          package: { files: packageFiles("Move this copy.") },
+        })
+        .pipe(Effect.result);
+
+      expect(
+        Result.isFailure(result) && Predicate.isTagged("SkillNameConflictError")(result.failure),
+      ).toBe(true);
+      expect((yield* executor.skills.get({ skillId: personal.id })).owner).toBe("user");
+      expect((yield* executor.skills.get({ skillId: workspace.id })).description).toBe(
+        "Workspace copy.",
+      );
+    }),
+  );
+
   it.effect("reviews source updates against the baseline and requires conflict choices", () =>
     Effect.gen(function* () {
       const executor = yield* makeTestExecutor();
