@@ -2862,6 +2862,9 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         {
           annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
           description: [
+            // Deferred-tool clients may retain only this sentence, capped at
+            // 60 characters. Keep managed-skill discovery visible there.
+            "Search managed Agent Skills for task-specific instructions.",
             `Read Executor's built-in ${passthrough ? "search and artifact" : "execute and artifact"} guides by name.`,
             "Search Executor-managed Agent Skills or read one managed package file on demand.",
             "Managed search returns only skills that allow model invocation. An exact ref or name can also read an enabled manual skill named by the user.",
