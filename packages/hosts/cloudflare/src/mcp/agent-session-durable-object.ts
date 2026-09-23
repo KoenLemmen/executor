@@ -18,6 +18,7 @@ import {
   type BrowserApprovalDecision,
   type PausedExecutionHooks,
   type ResumeFallbackOutcome,
+  type ManagedSkillActivation,
 } from "@executor-js/host-mcp/tool-server";
 import { defaultMcpResource, mcpResourceKey, type McpResource } from "@executor-js/host-mcp";
 import { decodeResumeResponse, type McpToolMode } from "@executor-js/host-mcp/browser-approval";
@@ -157,6 +158,8 @@ interface SessionMetaBase {
    *  codemode. A cold restore MUST rebuild the same surface the client first
    *  saw, or its cached tool names stop resolving mid-conversation. */
   readonly toolMode?: McpToolMode;
+  /** Stable activation tool names across cold restores of this MCP session. */
+  readonly managedSkillActivationSnapshot?: readonly ManagedSkillActivation[];
   /** The MCP resource the session serves (carried from {@link McpSessionInit});
    *  `buildMcpServer` scopes the tool catalog to it. */
   readonly resource: McpResource;
@@ -698,6 +701,19 @@ export abstract class McpAgentSessionDOBase<
     );
   }
 
+  protected persistManagedSkillActivationSnapshot(
+    snapshot: readonly ManagedSkillActivation[],
+  ): Effect.Effect<void> {
+    const self = this;
+    return Effect.gen(function* () {
+      const stored = yield* self.loadSessionMeta();
+      if (!stored || stored.managedSkillActivationSnapshot !== undefined) return;
+      yield* Effect.promise(() =>
+        self.saveSessionMeta({ ...stored, managedSkillActivationSnapshot: snapshot }),
+      );
+    });
+  }
+
   private async markActivity(now = Date.now()): Promise<void> {
     this.lastActivityMs = now;
     // Keeps the isolate-wide eviction registry's LRU order current. A no-op
@@ -1103,6 +1119,9 @@ export abstract class McpAgentSessionDOBase<
         ...resolved,
         ...(token.webOrigin ? { webOrigin: token.webOrigin } : {}),
         ...(stored?.appsEnabled === undefined ? {} : { appsEnabled: stored.appsEnabled }),
+        ...(stored?.managedSkillActivationSnapshot === undefined
+          ? {}
+          : { managedSkillActivationSnapshot: stored.managedSkillActivationSnapshot }),
       };
       yield* Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
         Effect.withSpan("mcp.session.save_meta"),

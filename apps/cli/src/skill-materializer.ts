@@ -118,6 +118,7 @@ const readMarker = async (directory: string): Promise<SkillMarker | null> => {
 };
 
 const currentDigest = async (path: string): Promise<string | null> => {
+  await assertNoSymlinkComponents(dirname(path));
   const info = await lstatOrNull(path);
   if (info === null) return null;
   if (!info.isFile() || info.isSymbolicLink())
@@ -255,18 +256,59 @@ const removeStaleSkill = async (input: {
   readonly origin: string;
 }): Promise<boolean> => {
   if (input.marker.origin !== input.origin) return false;
+  // Validate the entire tree before removing anything. A symlinked parent of a
+  // generated file must never turn stale cleanup into an out-of-tree deletion.
+  await walkRegularFiles(input.directory);
   for (const [path, expected] of Object.entries(input.marker.files)) {
     const target = join(input.directory, path);
     assertInside(input.directory, target);
-    if ((await currentDigest(target)) === expected) await unlink(target);
+    if ((await currentDigest(target)) === expected) {
+      await assertNoSymlinkComponents(dirname(target));
+      await unlink(target);
+    }
   }
-  await unlink(join(input.directory, SKILL_MARKER_FILENAME));
-  const directories = (await walkRegularFiles(input.directory)).map(dirname);
-  for (const directory of [...new Set(directories)].sort((a, b) => b.length - a.length)) {
-    await rmdir(directory).catch(() => undefined);
-  }
-  await rmdir(input.directory).catch(() => undefined);
+  // Keep ownership metadata while local edits or unknown files remain. If the
+  // skill returns, --force can still reclaim this directory; an unmarked
+  // directory would be (correctly) treated as an independent installation.
+  const remaining = await walkRegularFiles(input.directory);
+  if (remaining.some((path) => path !== join(input.directory, SKILL_MARKER_FILENAME))) return false;
+  await removeRegularTree(input.directory);
   return true;
+};
+
+const recoverInterruptedBackups = async (
+  root: string,
+  origin: string,
+): Promise<readonly string[]> => {
+  const backups = new Map<string, string[]>();
+  const skipped: string[] = [];
+  for (const entry of await readdir(root)) {
+    const temporary = /^\.(.+)\.executor-[0-9a-f-]{36}\.tmp$/.exec(entry);
+    if (temporary) {
+      skipped.push(`${temporary[1]} has an interrupted temporary update that needs manual review`);
+      continue;
+    }
+    const match = /^\.(.+)\.executor-[0-9a-f-]{36}\.bak$/.exec(entry);
+    if (!match) continue;
+    const name = match[1]!;
+    const backup = join(root, entry);
+    const info = await lstat(backup);
+    if (!info.isDirectory() || info.isSymbolicLink()) continue;
+    const marker = await readMarker(backup);
+    if (marker?.origin !== origin || marker.name !== name) continue;
+    await walkRegularFiles(backup);
+    backups.set(name, [...(backups.get(name) ?? []), backup]);
+  }
+  for (const [name, candidates] of backups) {
+    const destination = join(root, name);
+    assertInside(root, destination);
+    if (candidates.length !== 1 || (await lstatOrNull(destination)) !== null) {
+      skipped.push(`${name} has an interrupted backup that needs manual review`);
+      continue;
+    }
+    await rename(candidates[0]!, destination);
+  }
+  return skipped;
 };
 
 export const materializeSkills = async (input: {
@@ -277,6 +319,7 @@ export const materializeSkills = async (input: {
 }): Promise<MaterializeResult> => {
   const root = resolve(input.root);
   await ensureDirectory(root);
+  const skipped = [...(await recoverInterruptedBackups(root, input.origin))];
   const effective = new Map<string, MaterializedSkill>();
   for (const skill of input.skills) {
     const current = effective.get(skill.name);
@@ -287,7 +330,6 @@ export const materializeSkills = async (input: {
   let updated = 0;
   let unchanged = 0;
   let removed = 0;
-  const skipped: string[] = [];
   for (const skill of effective.values()) {
     const result = await materializeOne({ ...input, root, skill });
     if (result === "added") added += 1;
@@ -301,11 +343,12 @@ export const materializeSkills = async (input: {
     const info = await lstat(directory);
     if (!info.isDirectory() || info.isSymbolicLink()) continue;
     const marker = await readMarker(directory);
-    if (
-      marker !== null &&
-      (await removeStaleSkill({ root, directory, marker, origin: input.origin }))
-    ) {
-      removed += 1;
+    if (marker !== null && marker.origin === input.origin) {
+      if (await removeStaleSkill({ root, directory, marker, origin: input.origin })) {
+        removed += 1;
+      } else {
+        skipped.push(`${name} retains local files; managed marker kept`);
+      }
     }
   }
   return { added, updated, unchanged, removed, skipped };

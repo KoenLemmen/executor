@@ -573,9 +573,22 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
 
   readonly skills: {
     readonly list: () => Effect.Effect<readonly ManagedSkillSummary[], StorageFailure>;
+    /** Discovery tolerates corrupt skill rows while preserving storage failures. */
+    readonly listWithDiagnostics: () => Effect.Effect<
+      {
+        readonly skills: readonly ManagedSkillSummary[];
+        readonly diagnostics: readonly string[];
+      },
+      StorageFailure
+    >;
     readonly get: (input: {
       readonly skillId: ManagedSkillId;
     }) => Effect.Effect<ManagedSkill, ManagedSkillNotFoundError | StorageFailure>;
+    /** Read only the active manifest for discovery; corrupt history cannot hide other skills. */
+    readonly getActiveRevision: (input: {
+      readonly skillId: ManagedSkillId;
+      readonly revisionId: SkillRevisionId;
+    }) => Effect.Effect<SkillRevision | null, StorageFailure>;
     readonly readFile: (
       input: ReadManagedSkillFileInput,
     ) => Effect.Effect<
@@ -6551,19 +6564,34 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         onSome: Effect.succeed,
       });
 
+    const skillSummaryRows = () =>
+      core.findMany("skill", {
+        orderBy: [
+          ["updated_at", "desc"],
+          ["id", "desc"],
+        ],
+        select: SKILL_SUMMARY_COLUMNS,
+      });
+
     const skillsListUnfiltered = (): Effect.Effect<
       readonly ManagedSkillSummary[],
       StorageFailure
+    > => Effect.flatMap(skillSummaryRows(), (rows) => Effect.forEach(rows, decodeSkillSummary));
+
+    const skillsListUnfilteredWithDiagnostics = (): Effect.Effect<
+      { readonly skills: readonly ManagedSkillSummary[]; readonly diagnostics: readonly string[] },
+      StorageFailure
     > =>
       Effect.gen(function* () {
-        const rows = yield* core.findMany("skill", {
-          orderBy: [
-            ["updated_at", "desc"],
-            ["id", "desc"],
-          ],
-          select: SKILL_SUMMARY_COLUMNS,
-        });
-        return yield* Effect.forEach(rows, decodeSkillSummary);
+        const rows = yield* skillSummaryRows();
+        const skills: ManagedSkillSummary[] = [];
+        const diagnostics: string[] = [];
+        for (const row of rows) {
+          const summary = managedSkillSummaryFromRow(row);
+          if (Option.isSome(summary)) skills.push(summary.value);
+          else diagnostics.push(`Managed skill ${row.id} has invalid metadata and was omitted.`);
+        }
+        return { skills, diagnostics };
       });
 
     const resolveSkillRequirements = (
@@ -6675,6 +6703,18 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         return skills.filter((skill) => allowed.has(skill.id));
       });
 
+    const skillsListWithDiagnostics = (): Effect.Effect<
+      { readonly skills: readonly ManagedSkillSummary[]; readonly diagnostics: readonly string[] },
+      StorageFailure
+    > =>
+      Effect.gen(function* () {
+        const catalog = yield* skillsListUnfilteredWithDiagnostics();
+        const skills = yield* resolveSkillRequirements(catalog.skills);
+        if (activeSkillCatalogProvider === null) return { ...catalog, skills };
+        const allowed = yield* activeSkillCatalogProvider.listAllowedSkillIds();
+        return { ...catalog, skills: skills.filter((skill) => allowed.has(skill.id)) };
+      });
+
     const skillRow = (
       skillId: ManagedSkillId,
     ): Effect.Effect<CoreRow<"skill">, ManagedSkillNotFoundError | StorageFailure> =>
@@ -6704,6 +6744,21 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         });
         const revisions = yield* Effect.forEach(revisionRows, decodeSkillRevision);
         return { ...summary, revisions };
+      });
+
+    const skillsGetActiveRevision = (input: {
+      readonly skillId: ManagedSkillId;
+      readonly revisionId: SkillRevisionId;
+    }): Effect.Effect<SkillRevision | null, StorageFailure> =>
+      Effect.gen(function* () {
+        const row = yield* core.findFirst("skill_revision", {
+          where: (b: AnyCb) =>
+            b.and(
+              b("id", "=", String(input.revisionId)),
+              b("skill_id", "=", String(input.skillId)),
+            ),
+        });
+        return row === null ? null : Option.getOrNull(skillRevisionFromRow(row));
       });
 
     const manifestFor = (revision: PreparedSkillRevision) =>
@@ -8634,7 +8689,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       },
       skills: {
         list: skillsList,
+        listWithDiagnostics: skillsListWithDiagnostics,
         get: skillsGet,
+        getActiveRevision: skillsGetActiveRevision,
         readFile: skillsReadFile,
         create: skillsCreate,
         stageCandidate: skillsStageCandidate,

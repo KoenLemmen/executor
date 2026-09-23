@@ -1,7 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Predicate, Result } from "effect";
 
-import { makeTestExecutor } from "./testing";
+import { createExecutor } from "./executor";
+import { makeTestConfig, makeTestExecutor } from "./testing";
 
 const encoder = new TextEncoder();
 
@@ -16,6 +17,64 @@ const packageFiles = (description = "Extract text from PDFs.") => [
 ];
 
 describe("executor.skills", () => {
+  it.effect("reports corrupt catalog metadata without hiding healthy skills", () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig();
+      const executor = yield* createExecutor(config);
+      const broken = yield* executor.skills.create({
+        owner: "user",
+        package: { files: packageFiles() },
+      });
+      const healthy = yield* executor.skills.create({
+        owner: "org",
+        package: { files: packageFiles("Workspace copy.") },
+      });
+      yield* Effect.promise(() =>
+        config.db.updateMany("skill", {
+          where: (b) => b("id", "=", String(broken.id)),
+          set: { delivery: "invalid delivery" },
+        }),
+      );
+
+      const catalog = yield* executor.skills.listWithDiagnostics();
+      expect(catalog.skills.map((skill) => skill.id)).toEqual([healthy.id]);
+      expect(catalog.diagnostics).toEqual([
+        `Managed skill ${broken.id} has invalid metadata and was omitted.`,
+      ]);
+      expect(Result.isFailure(yield* executor.skills.list().pipe(Effect.result))).toBe(true);
+    }),
+  );
+
+  it.effect("reads the active manifest without decoding corrupt history", () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig();
+      const executor = yield* createExecutor(config);
+      const created = yield* executor.skills.create({
+        owner: "user",
+        package: { files: packageFiles() },
+      });
+      const edited = yield* executor.skills.edit({
+        skillId: created.id,
+        expectedActiveRevisionId: created.activeRevisionId,
+        package: { files: packageFiles("Updated description.") },
+      });
+      yield* Effect.promise(() =>
+        config.db.updateMany("skill_revision", {
+          where: (b) => b("id", "=", String(created.activeRevisionId)),
+          set: { files: "invalid files" },
+        }),
+      );
+      const active = yield* executor.skills.getActiveRevision({
+        skillId: edited.id,
+        revisionId: edited.activeRevisionId,
+      });
+      expect(active?.description).toBe("Updated description.");
+      expect(
+        Result.isFailure(yield* executor.skills.get({ skillId: edited.id }).pipe(Effect.result)),
+      ).toBe(true);
+    }),
+  );
+
   it.effect("uses frontmatter as the initial invocation preference", () =>
     Effect.gen(function* () {
       const executor = yield* makeTestExecutor();

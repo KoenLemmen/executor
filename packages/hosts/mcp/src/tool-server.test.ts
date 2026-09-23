@@ -24,6 +24,7 @@ import {
   createExecutorMcpServer,
   formatMcpExecutionOutcome,
   type ExecutorMcpServerConfig,
+  type ManagedSkillActivation,
 } from "./tool-server";
 
 // ---------------------------------------------------------------------------
@@ -72,6 +73,8 @@ type TestServerConfig<E extends Cause.YieldableError> = Pick<
   | "pausedExecutionLeaseMs"
   | "resumeFallback"
   | "skills"
+  | "managedSkillActivationSnapshot"
+  | "onManagedSkillActivationSnapshot"
 >;
 
 /** Connect a real MCP Client to our executor MCP server over in-memory transports. */
@@ -2003,6 +2006,62 @@ describe("MCP host server — skills tool", () => {
 });
 
 describe("MCP host server — managed skills tool", () => {
+  it("keeps healthy skills discoverable when another skill has no active revision", async () => {
+    const executor = await Effect.runPromise(createExecutor(makeTestConfig()));
+    const createSkill = (name: string) =>
+      Effect.runPromise(
+        executor.skills.create({
+          owner: "user",
+          package: {
+            files: [
+              {
+                path: "SKILL.md",
+                bytes: new TextEncoder().encode(
+                  `---\nname: ${name}\ndescription: Test skill.\n---\n\n# ${name}\n`,
+                ),
+              },
+            ],
+          },
+        }),
+      );
+    const healthy = await createSkill("healthy-skill");
+    const invalid = await createSkill("invalid-skill");
+    const skills = {
+      ...executor.skills,
+      getActiveRevision: (input: Parameters<typeof executor.skills.getActiveRevision>[0]) =>
+        input.skillId === invalid.id
+          ? Effect.succeed(null)
+          : executor.skills.getActiveRevision(input),
+    };
+
+    await withClient(
+      makeStubEngine({}),
+      NO_CAPS,
+      async (client) => {
+        const found = await client.callTool({ name: "skills", arguments: { query: "skill" } });
+        expect(textOf(found)).toContain("healthy-skill");
+        expect(textOf(found)).not.toContain("invalid-skill");
+        expect(found.structuredContent).toMatchObject({
+          items: [{ ref: String(healthy.id) }],
+          diagnostics: [expect.stringContaining(String(invalid.id))],
+        });
+        const resources = await client.listResources();
+        expect(resources.resources.map((resource) => resource.name)).toContain("healthy-skill");
+        expect(resources.resources.map((resource) => resource.name)).not.toContain("invalid-skill");
+        const extension = await client.request(
+          { method: "skills/list", params: {} },
+          z
+            .object({ _meta: z.object({ "executor/skillDiagnostics": z.array(z.string()) }) })
+            .loose(),
+        );
+        expect(extension._meta["executor/skillDiagnostics"]).toEqual([
+          expect.stringContaining(String(invalid.id)),
+        ]);
+      },
+      { skills },
+    );
+  });
+
   it("exposes model-invocable skills as small activation tools", async () => {
     const executor = await Effect.runPromise(createExecutor(makeTestConfig()));
     await Effect.runPromise(
@@ -2069,6 +2128,82 @@ describe("MCP host server — managed skills tool", () => {
         expect(afterDisablingModelInvocation.isError).toBe(true);
         expect(textOf(afterDisablingModelInvocation)).toContain(
           "no longer allows model invocation",
+        );
+      },
+      { skills: executor.skills },
+    );
+  });
+
+  it("keeps activation names stable until reconnect while search stays live", async () => {
+    const executor = await Effect.runPromise(createExecutor(makeTestConfig()));
+    const first = await Effect.runPromise(
+      executor.skills.create({
+        owner: "user",
+        package: {
+          files: [
+            {
+              path: "SKILL.md",
+              bytes: new TextEncoder().encode(
+                "---\nname: first-skill\ndescription: First skill.\n---\n\n# First\n",
+              ),
+            },
+          ],
+        },
+      }),
+    );
+    const snapshot = [{ id: String(first.id), name: "first-skill", description: "First skill." }];
+    const recorded: Array<readonly ManagedSkillActivation[]> = [];
+    await withClient(
+      makeStubEngine({}),
+      NO_CAPS,
+      async (client) => {
+        await Effect.runPromise(
+          executor.skills.create({
+            owner: "user",
+            package: {
+              files: [
+                {
+                  path: "SKILL.md",
+                  bytes: new TextEncoder().encode(
+                    "---\nname: second-skill\ndescription: Second skill.\n---\n\n# Second\n",
+                  ),
+                },
+              ],
+            },
+          }),
+        );
+        expect((await client.listTools()).tools.map((tool) => tool.name)).not.toContain(
+          "skill_second_skill",
+        );
+        expect(
+          textOf(await client.callTool({ name: "skills", arguments: { query: "second" } })),
+        ).toContain("second-skill");
+      },
+      {
+        skills: executor.skills,
+        onManagedSkillActivationSnapshot: (value) =>
+          Effect.sync(() => {
+            recorded.push([...value]);
+          }),
+      },
+    );
+    expect(recorded).toEqual([snapshot]);
+    await withClient(
+      makeStubEngine({}),
+      NO_CAPS,
+      async (client) => {
+        const names = (await client.listTools()).tools.map((tool) => tool.name);
+        expect(names).toContain("skill_first_skill");
+        expect(names).not.toContain("skill_second_skill");
+      },
+      { skills: executor.skills, managedSkillActivationSnapshot: recorded[0] },
+    );
+    await withClient(
+      makeStubEngine({}),
+      NO_CAPS,
+      async (client) => {
+        expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(
+          "skill_second_skill",
         );
       },
       { skills: executor.skills },

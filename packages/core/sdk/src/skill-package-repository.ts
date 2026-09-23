@@ -32,14 +32,8 @@ export interface SkillPackageRepository {
   ) => Effect.Effect<void, StorageError>;
 }
 
-export const makeSkillPackageRepository = (store: BlobStore): SkillPackageRepository => ({
-  put: (ownerPartition, revision) =>
-    Effect.forEach(
-      revision.files,
-      (file) => store.put(namespaceFor(ownerPartition), file.digest, file.encodedBytes),
-      { concurrency: 8, discard: true },
-    ),
-  read: (ownerPartition, file) =>
+export const makeSkillPackageRepository = (store: BlobStore): SkillPackageRepository => {
+  const read: SkillPackageRepository["read"] = (ownerPartition, file) =>
     Effect.gen(function* () {
       const encoded = yield* store.get(namespaceFor(ownerPartition), file.digest);
       if (encoded === null) {
@@ -69,21 +63,28 @@ export const makeSkillPackageRepository = (store: BlobStore): SkillPackageReposi
         });
       }
       return decoded.success;
-    }),
-  copy: (sourcePartition, destinationPartition, files) =>
-    Effect.forEach(
-      files,
-      (file) =>
-        Effect.gen(function* () {
-          const bytes = yield* store.get(namespaceFor(sourcePartition), file.digest);
-          if (bytes === null) {
-            return yield* new StorageError({
-              message: `Managed skill blob is missing for ${file.path}.`,
-              cause: undefined,
-            });
-          }
-          yield* store.put(namespaceFor(destinationPartition), file.digest, bytes);
-        }),
-      { concurrency: 8, discard: true },
-    ),
-});
+    });
+  return {
+    put: (ownerPartition, revision) =>
+      Effect.forEach(
+        revision.files,
+        (file) => store.put(namespaceFor(ownerPartition), file.digest, file.encodedBytes),
+        { concurrency: 8, discard: true },
+      ),
+    read,
+    copy: (sourcePartition, destinationPartition, files) =>
+      Effect.forEach(
+        files,
+        (file) =>
+          Effect.gen(function* () {
+            const bytes = yield* read(sourcePartition, file);
+            yield* store.put(
+              namespaceFor(destinationPartition),
+              file.digest,
+              Encoding.encodeBase64(bytes),
+            );
+          }),
+        { concurrency: 8, discard: true },
+      ),
+  };
+};

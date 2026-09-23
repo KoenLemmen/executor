@@ -384,6 +384,13 @@ it("keeps the chosen approval lifetime when reading a stored decision", async ()
 describe("McpAgentSessionDOBase apps capability persistence", () => {
   type CapabilitySession = HarnessSession & {
     persistAppsEnabled: (appsEnabled: boolean) => Effect.Effect<void>;
+    persistManagedSkillActivationSnapshot: (
+      snapshot: readonly {
+        readonly id: string;
+        readonly name: string;
+        readonly description: string | null;
+      }[],
+    ) => Effect.Effect<void>;
     loadSessionMeta: () => Effect.Effect<SessionMeta | null>;
     resolveSessionMeta: (token: unknown) => Effect.Effect<SessionMeta>;
     resolveAndStoreSessionMeta: (token: unknown) => Effect.Effect<SessionMeta>;
@@ -461,6 +468,26 @@ describe("McpAgentSessionDOBase apps capability persistence", () => {
 
     expect(resolved.appsEnabled).toBe(true);
     expect(await storage.get<SessionMeta>("session-meta")).toMatchObject({ appsEnabled: true });
+  });
+
+  it("keeps skill activation names fixed across a cold restore", async () => {
+    const { session, storage } = await makeCapabilitySession();
+    const initial = [{ id: "skl_one", name: "first-skill", description: "First skill." }];
+    await Effect.runPromise(session.persistManagedSkillActivationSnapshot(initial));
+    await Effect.runPromise(
+      session.persistManagedSkillActivationSnapshot([
+        { id: "skl_two", name: "second-skill", description: "Second skill." },
+      ]),
+    );
+    session.resolveSessionMeta = () => Effect.succeed(baseMeta);
+
+    const restored = await Effect.runPromise(
+      session.resolveAndStoreSessionMeta({ organizationId: "org-1", userId: "user-1" }),
+    );
+    expect(restored.managedSkillActivationSnapshot).toEqual(initial);
+    expect(
+      (await storage.get<SessionMeta>("session-meta"))?.managedSkillActivationSnapshot,
+    ).toEqual(initial);
   });
 
   it("leaves a session with no negotiated capability untouched", async () => {
